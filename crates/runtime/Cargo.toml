@@ -1,0 +1,30 @@
+[package]
+name = "cryptofeed-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = ["ticker", "trade", "orderbook"]
+ticker = ["dep:cryptofeed-ticker"]
+trade = ["dep:cryptofeed-trade"]
+orderbook = ["dep:cryptofeed-orderbook"]
+
+[dependencies]
+cryptofeed-core = { path = "../core" }
+cryptofeed-ticker = { path = "../ticker", optional = true }
+cryptofeed-trade = { path = "../trade", optional = true }
+cryptofeed-orderbook = { path = "../orderbook", optional = true }
+async-trait.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-tungstenite.workspace = true
+tracing.workspace = true
+url.workspace = true
