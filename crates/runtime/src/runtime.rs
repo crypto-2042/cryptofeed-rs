@@ -53,6 +53,12 @@ async fn consume_binance_feed(feed: &ExchangeFeed) -> Result<()> {
 #[cfg_attr(not(test), allow(dead_code))]
 async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
     match event {
+        #[cfg(feature = "orderbook")]
+        BinanceEvent::L2Book(book) => {
+            if let Some(handler) = &feed.orderbook_handler {
+                handler.on_l2_book(book).await;
+            }
+        }
         #[cfg(feature = "ticker")]
         BinanceEvent::Ticker(ticker) => {
             if let Some(handler) = &feed.ticker_handler {
@@ -102,6 +108,8 @@ mod tests {
     use async_trait::async_trait;
     #[cfg(feature = "ticker")]
     use cryptofeed_ticker::{Ticker, TickerHandler};
+    #[cfg(feature = "orderbook")]
+    use cryptofeed_orderbook::{L2Book, OrderBookHandler};
     #[cfg(feature = "trade")]
     use cryptofeed_trade::{Trade, TradeHandler};
 
@@ -141,6 +149,19 @@ mod tests {
     #[async_trait]
     impl TradeHandler for TestTradeHandler {
         async fn on_trade(&self, _trade: Trade) {
+            *self.seen.lock().expect("lock") += 1;
+        }
+    }
+
+    #[cfg(feature = "orderbook")]
+    struct TestOrderBookHandler {
+        seen: Arc<Mutex<usize>>,
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[async_trait]
+    impl OrderBookHandler for TestOrderBookHandler {
+        async fn on_l2_book(&self, _book: L2Book) {
             *self.seen.lock().expect("lock") += 1;
         }
     }
@@ -224,5 +245,30 @@ mod tests {
             .expect("process message");
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn dispatches_binance_l2_book_events() {
+        let seen = Arc::new(Mutex::new(0));
+        let feed = Binance::new()
+            .l2_book()
+            .orderbook_handler(Arc::new(TestOrderBookHandler { seen: seen.clone() }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "e": "depthUpdate",
+            "s": "BTCUSDT",
+            "E": 1710000000456u64,
+            "b": [["64999.10", "1.25"]],
+            "a": [["65000.20", "0.75"]]
+        });
+
+        let event = BinanceAdapter::parse_message(&message, 1710000001.5).expect("book event");
+        assert!(matches!(event, BinanceEvent::L2Book(_)));
+
+        super::dispatch_binance_event(&feed, event).await;
+        assert_eq!(*seen.lock().expect("lock"), 1);
     }
 }

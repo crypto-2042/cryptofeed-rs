@@ -1,3 +1,5 @@
+#[cfg(feature = "orderbook")]
+use cryptofeed_orderbook::{L2Book, L2BookDelta, PriceLevel};
 #[cfg(feature = "ticker")]
 use cryptofeed_ticker::Ticker;
 #[cfg(feature = "trade")]
@@ -43,6 +45,21 @@ pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
     })
 }
 
+#[cfg(feature = "orderbook")]
+pub fn parse_l2_book(message: &Value, received_ts: f64) -> Option<L2Book> {
+    Some(L2Book::Delta(L2BookDelta {
+        exchange: ExchangeId::Binance,
+        symbol: parse_symbol(message.get("s")?.as_str()?),
+        bids: parse_levels(message.get("b")?)?,
+        asks: parse_levels(message.get("a")?)?,
+        exchange_ts: message
+            .get("E")
+            .and_then(parse_millis)
+            .unwrap_or(received_ts),
+        received_ts,
+    }))
+}
+
 fn parse_symbol(raw: &str) -> Symbol {
     let normalized = parse_trade_symbol(raw);
     let parts: Vec<_> = normalized.split('-').collect();
@@ -51,6 +68,21 @@ fn parse_symbol(raw: &str) -> Symbol {
 
 fn parse_decimal(value: &Value) -> Option<Decimal> {
     Decimal::from_str_exact(value.as_str()?).ok()
+}
+
+#[cfg(feature = "orderbook")]
+fn parse_levels(value: &Value) -> Option<Vec<PriceLevel>> {
+    let levels = value.as_array()?;
+    levels
+        .iter()
+        .map(|level| {
+            let pair = level.as_array()?;
+            Some(PriceLevel {
+                price: parse_decimal(pair.first()?)?,
+                amount: parse_decimal(pair.get(1)?)?,
+            })
+        })
+        .collect()
 }
 
 fn parse_millis(value: &Value) -> Option<f64> {
@@ -64,6 +96,8 @@ mod tests {
     use super::parse_ticker;
     #[cfg(feature = "trade")]
     use super::parse_trade;
+    #[cfg(feature = "orderbook")]
+    use super::parse_l2_book;
     use rust_decimal::Decimal;
     use serde_json::json;
 
@@ -106,5 +140,30 @@ mod tests {
         assert_eq!(ticker.symbol.as_str(), "BTC-USDT");
         assert_eq!(ticker.bid, Decimal::from_str_exact("64999.10").unwrap());
         assert_eq!(ticker.ask, Decimal::from_str_exact("65000.20").unwrap());
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn parses_binance_l2_book_message() {
+        let message = json!({
+            "e": "depthUpdate",
+            "E": 1710000000456u64,
+            "s": "BTCUSDT",
+            "b": [["64999.10", "1.25"]],
+            "a": [["65000.20", "0.75"]]
+        });
+
+        let book = parse_l2_book(&message, 1710000001.5).expect("book");
+
+        match book {
+            cryptofeed_orderbook::L2Book::Delta(delta) => {
+                assert_eq!(delta.symbol.as_str(), "BTC-USDT");
+                assert_eq!(delta.bids.len(), 1);
+                assert_eq!(delta.asks.len(), 1);
+                assert_eq!(delta.bids[0].price, Decimal::from_str_exact("64999.10").unwrap());
+                assert_eq!(delta.asks[0].amount, Decimal::from_str_exact("0.75").unwrap());
+            }
+            cryptofeed_orderbook::L2Book::Snapshot(_) => panic!("expected delta"),
+        }
     }
 }

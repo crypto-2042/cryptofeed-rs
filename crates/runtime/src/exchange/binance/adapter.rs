@@ -3,6 +3,8 @@ use super::parser;
 use cryptofeed_core::exchange::Channel;
 use serde_json::Value;
 
+#[cfg(feature = "orderbook")]
+use cryptofeed_orderbook::L2Book;
 #[cfg(feature = "ticker")]
 use cryptofeed_ticker::Ticker;
 #[cfg(feature = "trade")]
@@ -11,6 +13,8 @@ use cryptofeed_trade::Trade;
 pub struct BinanceAdapter;
 
 pub enum BinanceEvent {
+    #[cfg(feature = "orderbook")]
+    L2Book(L2Book),
     #[cfg(feature = "ticker")]
     Ticker(Ticker),
     #[cfg(feature = "trade")]
@@ -54,6 +58,8 @@ impl BinanceAdapter {
         let event = payload.get("e")?.as_str()?;
 
         match event {
+            #[cfg(feature = "orderbook")]
+            "depthUpdate" => parser::parse_l2_book(payload, received_ts).map(BinanceEvent::L2Book),
             #[cfg(feature = "trade")]
             "aggTrade" => parser::parse_trade(payload, received_ts).map(BinanceEvent::Trade),
             #[cfg(feature = "ticker")]
@@ -142,5 +148,20 @@ mod tests {
 
         let event = BinanceAdapter::parse_message(&message, 1710000001.5);
         assert!(matches!(event, Some(BinanceEvent::Trade(_))));
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn parses_l2_book_event_message() {
+        let message = serde_json::json!({
+            "e": "depthUpdate",
+            "s": "BTCUSDT",
+            "E": 1710000000456u64,
+            "b": [["64999.10", "1.25"]],
+            "a": [["65000.20", "0.75"]]
+        });
+
+        let event = BinanceAdapter::parse_message(&message, 1710000001.5);
+        assert!(matches!(event, Some(BinanceEvent::L2Book(_))));
     }
 }
