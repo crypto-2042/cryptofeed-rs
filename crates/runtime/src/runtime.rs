@@ -60,6 +60,14 @@ where
 }
 
 async fn consume_binance_feed(feed: ExchangeFeed) -> Result<()> {
+    supervisor::retry_with_backoff(3, supervisor::Backoff::new(1, 8), move || {
+        let feed = feed.clone();
+        async move { consume_binance_session(feed).await }
+    })
+    .await
+}
+
+async fn consume_binance_session(feed: ExchangeFeed) -> Result<()> {
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url);
     let mut stream = connection.connect().await?;

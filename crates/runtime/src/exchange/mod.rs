@@ -15,6 +15,7 @@ use cryptofeed_ticker::TickerHandler;
 #[cfg(feature = "trade")]
 use cryptofeed_trade::TradeHandler;
 
+#[derive(Clone)]
 pub struct ExchangeFeed {
     pub exchange: ExchangeId,
     pub channels: Vec<Channel>,
