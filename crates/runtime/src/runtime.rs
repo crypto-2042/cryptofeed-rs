@@ -8,13 +8,21 @@ use crate::exchange::{
 };
 use crate::feed::FeedHandler;
 use cryptofeed_core::{
-    error::Result,
+    error::{Error, Result},
     exchange::ExchangeId,
 };
+use serde_json::Value;
+use url::Url;
 
 pub async fn run(handler: FeedHandler) -> Result<()> {
     let _planned = planned_connection_urls(&handler);
     let _router = router::Router::default();
+    for feed in handler.feeds() {
+        match feed.exchange {
+            ExchangeId::Binance => consume_binance_feed(feed).await?,
+            ExchangeId::Coinbase | ExchangeId::Kraken => {}
+        }
+    }
     Ok(())
 }
 
@@ -28,6 +36,18 @@ fn planned_url(feed: &ExchangeFeed) -> String {
         ExchangeId::Coinbase => String::new(),
         ExchangeId::Kraken => String::new(),
     }
+}
+
+async fn consume_binance_feed(feed: &ExchangeFeed) -> Result<()> {
+    let url = Url::parse(&planned_url(feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url);
+    let mut stream = connection.connect().await?;
+
+    while let Some(text) = connection::next_text_message(&mut stream).await? {
+        process_binance_text_message(feed, &text, current_timestamp()).await?;
+    }
+
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -48,11 +68,30 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+async fn process_binance_text_message(feed: &ExchangeFeed, text: &str, received_ts: f64) -> Result<()> {
+    let message: Value =
+        serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(event) = BinanceAdapter::parse_message(&message, received_ts) {
+        dispatch_binance_event(feed, event).await;
+    }
+    Ok(())
+}
+
+fn current_timestamp() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::planned_connection_urls;
+    use super::{planned_connection_urls, process_binance_text_message};
     use crate::{
         exchange::binance::{
             adapter::{BinanceAdapter, BinanceEvent},
@@ -153,5 +192,37 @@ mod tests {
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
         assert_eq!(*ticker_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade"))]
+    #[tokio::test]
+    async fn processes_combined_binance_trade_message() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let feed = Binance::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "stream": "btcusdt@aggTrade",
+            "data": {
+                "e": "aggTrade",
+                "s": "BTCUSDT",
+                "a": 12345,
+                "p": "65000.50",
+                "q": "0.01000000",
+                "T": 1710000000123u64,
+                "m": false
+            }
+        });
+
+        process_binance_text_message(&feed, &message.to_string(), 1710000001.5)
+            .await
+            .expect("process message");
+
+        assert_eq!(*trade_seen.lock().expect("lock"), 1);
     }
 }

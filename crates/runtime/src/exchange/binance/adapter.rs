@@ -45,14 +45,19 @@ impl BinanceAdapter {
         format!("{}{}", Self::websocket_url(), Self::streams(feed).join("/"))
     }
 
+    pub fn unwrap_combined_message(message: &Value) -> Option<&Value> {
+        message.get("data").or(Some(message))
+    }
+
     pub fn parse_message(message: &Value, received_ts: f64) -> Option<BinanceEvent> {
-        let event = message.get("e")?.as_str()?;
+        let payload = Self::unwrap_combined_message(message)?;
+        let event = payload.get("e")?.as_str()?;
 
         match event {
             #[cfg(feature = "trade")]
-            "aggTrade" => parser::parse_trade(message, received_ts).map(BinanceEvent::Trade),
+            "aggTrade" => parser::parse_trade(payload, received_ts).map(BinanceEvent::Trade),
             #[cfg(feature = "ticker")]
-            "bookTicker" => parser::parse_ticker(message, received_ts).map(BinanceEvent::Ticker),
+            "bookTicker" => parser::parse_ticker(payload, received_ts).map(BinanceEvent::Ticker),
             _ => None,
         }
     }
@@ -117,5 +122,25 @@ mod tests {
 
         let event = BinanceAdapter::parse_message(&message, 1710000001.5);
         assert!(matches!(event, Some(BinanceEvent::Ticker(_))));
+    }
+
+    #[cfg(feature = "trade")]
+    #[test]
+    fn parses_trade_event_from_combined_stream_wrapper() {
+        let message = serde_json::json!({
+            "stream": "btcusdt@aggTrade",
+            "data": {
+                "e": "aggTrade",
+                "s": "BTCUSDT",
+                "a": 12345,
+                "p": "65000.50",
+                "q": "0.01000000",
+                "T": 1710000000123u64,
+                "m": false
+            }
+        });
+
+        let event = BinanceAdapter::parse_message(&message, 1710000001.5);
+        assert!(matches!(event, Some(BinanceEvent::Trade(_))));
     }
 }
