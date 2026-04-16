@@ -12,17 +12,20 @@ use cryptofeed_core::{
     exchange::ExchangeId,
 };
 use serde_json::Value;
+use std::future::Future;
+use tokio::task::JoinSet;
 use url::Url;
 
 pub async fn run(handler: FeedHandler) -> Result<()> {
     let _planned = planned_connection_urls(&handler);
     let _router = router::Router::default();
-    for feed in handler.feeds() {
+    run_feeds_concurrently(handler.into_feeds(), |feed| async move {
         match feed.exchange {
-            ExchangeId::Binance => consume_binance_feed(feed).await?,
-            ExchangeId::Coinbase | ExchangeId::Kraken => {}
+            ExchangeId::Binance => consume_binance_feed(feed).await,
+            ExchangeId::Coinbase | ExchangeId::Kraken => Ok(()),
         }
-    }
+    })
+    .await?;
     Ok(())
 }
 
@@ -38,13 +41,31 @@ fn planned_url(feed: &ExchangeFeed) -> String {
     }
 }
 
-async fn consume_binance_feed(feed: &ExchangeFeed) -> Result<()> {
-    let url = Url::parse(&planned_url(feed)).map_err(|e| Error::Transport(e.to_string()))?;
+async fn run_feeds_concurrently<F, Fut>(feeds: Vec<ExchangeFeed>, consume: F) -> Result<()>
+where
+    F: Fn(ExchangeFeed) -> Fut + Copy + Send + 'static,
+    Fut: Future<Output = Result<()>> + Send + 'static,
+{
+    let mut tasks = JoinSet::new();
+
+    for feed in feeds {
+        tasks.spawn(consume(feed));
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        result.map_err(|e| Error::Transport(e.to_string()))??;
+    }
+
+    Ok(())
+}
+
+async fn consume_binance_feed(feed: ExchangeFeed) -> Result<()> {
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url);
     let mut stream = connection.connect().await?;
 
     while let Some(text) = connection::next_text_message(&mut stream).await? {
-        process_binance_text_message(feed, &text, current_timestamp()).await?;
+        process_binance_text_message(&feed, &text, current_timestamp()).await?;
     }
 
     Ok(())
@@ -96,6 +117,7 @@ fn current_timestamp() -> f64 {
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use super::{planned_connection_urls, process_binance_text_message};
     use crate::{
@@ -112,6 +134,7 @@ mod tests {
     use cryptofeed_orderbook::{L2Book, OrderBookHandler};
     #[cfg(feature = "trade")]
     use cryptofeed_trade::{Trade, TradeHandler};
+    use tokio::time::Instant;
 
     #[test]
     fn plans_binance_connection_urls() {
@@ -270,5 +293,23 @@ mod tests {
 
         super::dispatch_binance_event(&feed, event).await;
         assert_eq!(*seen.lock().expect("lock"), 1);
+    }
+
+    #[tokio::test]
+    async fn runs_multiple_feeds_concurrently() {
+        let feeds = vec![
+            Binance::new().ticker().symbol("BTC-USDT").build(),
+            Binance::new().trade().symbol("ETH-USDT").build(),
+        ];
+
+        let started = Instant::now();
+        super::run_feeds_concurrently(feeds, |_| async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(())
+        })
+        .await
+        .expect("concurrent run");
+
+        assert!(started.elapsed() < Duration::from_millis(90));
     }
 }

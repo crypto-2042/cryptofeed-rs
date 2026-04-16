@@ -27,6 +27,10 @@ impl FeedHandler {
         &self.feeds
     }
 
+    pub(crate) fn into_feeds(self) -> Vec<ExchangeFeed> {
+        self.feeds
+    }
+
     pub async fn run(self) -> cryptofeed_core::error::Result<()> {
         crate::runtime::run(self).await
     }
