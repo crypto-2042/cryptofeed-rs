@@ -23,6 +23,10 @@ impl FeedHandler {
         self.feeds.len()
     }
 
+    pub(crate) fn feeds(&self) -> &[ExchangeFeed] {
+        &self.feeds
+    }
+
     pub async fn run(self) -> cryptofeed_core::error::Result<()> {
         crate::runtime::run(self).await
     }
