@@ -7,6 +7,7 @@ use super::ExchangeFeedBuilder;
 
 pub struct Kraken;
 
+#[allow(clippy::new_ret_no_self)]
 impl Kraken {
     pub fn new() -> ExchangeFeedBuilder {
         ExchangeFeedBuilder::new(ExchangeId::Kraken)

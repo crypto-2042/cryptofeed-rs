@@ -14,7 +14,11 @@ pub struct Symbol {
 impl Symbol {
     pub fn spot(base: &str, quote: &str) -> Self {
         Self {
-            value: format!("{}-{}", base.to_ascii_uppercase(), quote.to_ascii_uppercase()),
+            value: format!(
+                "{}-{}",
+                base.to_ascii_uppercase(),
+                quote.to_ascii_uppercase()
+            ),
             kind: InstrumentKind::Spot,
         }
     }

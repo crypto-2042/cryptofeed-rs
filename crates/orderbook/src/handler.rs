@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::model::L2Book;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait OrderBookHandler: Send + Sync {

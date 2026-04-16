@@ -4,6 +4,12 @@ pub struct FeedHandler {
     feeds: Vec<ExchangeFeed>,
 }
 
+impl Default for FeedHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeedHandler {
     pub fn new() -> Self {
         Self { feeds: Vec::new() }

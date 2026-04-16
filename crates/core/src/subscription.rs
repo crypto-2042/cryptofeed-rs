@@ -10,6 +10,10 @@ pub struct Subscription {
 
 impl Subscription {
     pub fn new(exchange: ExchangeId, channel: Channel, symbol: Symbol) -> Self {
-        Self { exchange, channel, symbol }
+        Self {
+            exchange,
+            channel,
+            symbol,
+        }
     }
 }

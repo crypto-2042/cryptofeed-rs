@@ -16,7 +16,10 @@ pub struct ExchangeFeedBuilder {
 
 impl ExchangeFeedBuilder {
     pub fn new(exchange: ExchangeId) -> Self {
-        Self { exchange, symbols: Vec::new() }
+        Self {
+            exchange,
+            symbols: Vec::new(),
+        }
     }
 
     pub fn symbol(mut self, symbol: &str) -> Self {

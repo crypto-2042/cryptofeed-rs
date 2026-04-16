@@ -5,7 +5,10 @@ pub struct Backoff {
 
 impl Backoff {
     pub fn new(initial: u64, max: u64) -> Self {
-        Self { current: initial, max }
+        Self {
+            current: initial,
+            max,
+        }
     }
 
     pub fn next_delay_secs(&mut self) -> u64 {

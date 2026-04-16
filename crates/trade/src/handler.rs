@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::model::Trade;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait TradeHandler: Send + Sync {
