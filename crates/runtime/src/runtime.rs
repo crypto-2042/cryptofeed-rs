@@ -4,6 +4,7 @@ pub mod supervisor;
 
 use crate::exchange::{
     binance::adapter::{BinanceAdapter, BinanceEvent},
+    bitget::adapter::{BitgetAdapter, BitgetEvent},
     ExchangeFeed,
 };
 use crate::feed::FeedHandler;
@@ -22,6 +23,7 @@ pub async fn run(handler: FeedHandler) -> Result<()> {
     run_feeds_concurrently(handler.into_feeds(), |feed| async move {
         match feed.exchange {
             ExchangeId::Binance => consume_binance_feed(feed).await,
+            ExchangeId::Bitget => consume_bitget_feed(feed).await,
             ExchangeId::Coinbase | ExchangeId::Kraken => Ok(()),
         }
     })
@@ -36,6 +38,7 @@ fn planned_connection_urls(handler: &FeedHandler) -> Vec<String> {
 fn planned_url(feed: &ExchangeFeed) -> String {
     match feed.exchange {
         ExchangeId::Binance => BinanceAdapter::subscription_url(feed),
+        ExchangeId::Bitget => BitgetAdapter::subscription_url(feed),
         ExchangeId::Coinbase => String::new(),
         ExchangeId::Kraken => String::new(),
     }
@@ -67,6 +70,14 @@ async fn consume_binance_feed(feed: ExchangeFeed) -> Result<()> {
     .await
 }
 
+async fn consume_bitget_feed(feed: ExchangeFeed) -> Result<()> {
+    supervisor::retry_with_backoff(3, supervisor::Backoff::new(1, 8), move || {
+        let feed = feed.clone();
+        async move { consume_bitget_session(feed).await }
+    })
+    .await
+}
+
 async fn consume_binance_session(feed: ExchangeFeed) -> Result<()> {
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url);
@@ -74,6 +85,18 @@ async fn consume_binance_session(feed: ExchangeFeed) -> Result<()> {
 
     while let Some(text) = connection::next_text_message(&mut stream).await? {
         process_binance_text_message(&feed, &text, current_timestamp()).await?;
+    }
+
+    Ok(())
+}
+
+async fn consume_bitget_session(feed: ExchangeFeed) -> Result<()> {
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url);
+    let mut stream = connection.connect().await?;
+
+    while let Some(text) = connection::next_text_message(&mut stream).await? {
+        process_bitget_text_message(&feed, &text, current_timestamp()).await?;
     }
 
     Ok(())
@@ -104,11 +127,45 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
+    match event {
+        #[cfg(feature = "orderbook")]
+        BitgetEvent::L2Book(book) => {
+            if let Some(handler) = &feed.orderbook_handler {
+                handler.on_l2_book(book).await;
+            }
+        }
+        #[cfg(feature = "ticker")]
+        BitgetEvent::Ticker(ticker) => {
+            if let Some(handler) = &feed.ticker_handler {
+                handler.on_ticker(ticker).await;
+            }
+        }
+        #[cfg(feature = "trade")]
+        BitgetEvent::Trade(trade) => {
+            if let Some(handler) = &feed.trade_handler {
+                handler.on_trade(trade).await;
+            }
+        }
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 async fn process_binance_text_message(feed: &ExchangeFeed, text: &str, received_ts: f64) -> Result<()> {
     let message: Value =
         serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
     if let Some(event) = BinanceAdapter::parse_message(&message, received_ts) {
         dispatch_binance_event(feed, event).await;
+    }
+    Ok(())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn process_bitget_text_message(feed: &ExchangeFeed, text: &str, received_ts: f64) -> Result<()> {
+    let message: Value =
+        serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(event) = BitgetAdapter::parse_message(&message, received_ts) {
+        dispatch_bitget_event(feed, event).await;
     }
     Ok(())
 }
@@ -127,11 +184,15 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use super::{planned_connection_urls, process_binance_text_message};
+    use super::{planned_connection_urls, process_binance_text_message, process_bitget_text_message};
     use crate::{
         exchange::binance::{
             adapter::{BinanceAdapter, BinanceEvent},
             Binance,
+        },
+        exchange::bitget::{
+            adapter::{BitgetAdapter, BitgetEvent},
+            Bitget,
         },
         FeedHandler,
     };
@@ -319,5 +380,55 @@ mod tests {
         .expect("concurrent run");
 
         assert!(started.elapsed() < Duration::from_millis(90));
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn processes_bitget_trade_message() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let feed = Bitget::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "arg": {"channel": "trade", "instId": "BTCUSDT"},
+            "data": [[ "1710000000123", "65000.50", "0.0100", "buy" ]]
+        });
+
+        process_bitget_text_message(&feed, &message.to_string(), 1710000001.5)
+            .await
+            .expect("process bitget trade");
+
+        assert_eq!(*trade_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn dispatches_bitget_l2_book_events() {
+        let seen = Arc::new(Mutex::new(0));
+        let feed = Bitget::new()
+            .l2_book()
+            .orderbook_handler(Arc::new(TestOrderBookHandler { seen: seen.clone() }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "arg": {"channel": "books", "instId": "BTCUSDT"},
+            "data": [{
+                "bids": [["64999.10", "1.25"]],
+                "asks": [["65000.20", "0.75"]],
+                "ts": "1710000000456"
+            }]
+        });
+
+        let event = BitgetAdapter::parse_message(&message, 1710000001.5).expect("bitget book");
+        assert!(matches!(event, BitgetEvent::L2Book(_)));
+
+        super::dispatch_bitget_event(&feed, event).await;
+        assert_eq!(*seen.lock().expect("lock"), 1);
     }
 }
