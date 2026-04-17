@@ -14,6 +14,8 @@ use cryptofeed_core::{
 };
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::{L2BookState, OrderBookHandler};
+#[cfg(feature = "orderbook")]
+use crate::exchange::binance::book_sync::BinanceBookSync;
 #[cfg(feature = "ticker")]
 use cryptofeed_ticker::TickerHandler;
 #[cfg(feature = "trade")]
@@ -32,6 +34,8 @@ pub struct ExchangeFeed {
     pub orderbook_handler: Option<Arc<dyn OrderBookHandler>>,
     #[cfg(feature = "orderbook")]
     pub orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
+    #[cfg(feature = "orderbook")]
+    pub binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
 }
 
 pub struct ExchangeFeedBuilder {
@@ -46,6 +50,8 @@ pub struct ExchangeFeedBuilder {
     orderbook_handler: Option<Arc<dyn OrderBookHandler>>,
     #[cfg(feature = "orderbook")]
     orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
+    #[cfg(feature = "orderbook")]
+    binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
 }
 
 impl ExchangeFeedBuilder {
@@ -62,6 +68,8 @@ impl ExchangeFeedBuilder {
             orderbook_handler: None,
             #[cfg(feature = "orderbook")]
             orderbook_states: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            binance_book_syncs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -118,6 +126,8 @@ impl ExchangeFeedBuilder {
             orderbook_handler: self.orderbook_handler,
             #[cfg(feature = "orderbook")]
             orderbook_states: self.orderbook_states,
+            #[cfg(feature = "orderbook")]
+            binance_book_syncs: self.binance_book_syncs,
         }
     }
 }

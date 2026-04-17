@@ -3,7 +3,11 @@ pub mod router;
 pub mod supervisor;
 
 use crate::exchange::{
-    binance::adapter::{BinanceAdapter, BinanceEvent},
+    binance::{
+        adapter::{BinanceAdapter, BinanceEvent},
+        book_sync::{BinanceBookSync, BinanceDepthDelta},
+        parser,
+    },
     bitget::adapter::{BitgetAdapter, BitgetEvent},
     ExchangeFeed,
 };
@@ -12,6 +16,10 @@ use cryptofeed_core::{
     error::{Error, Result},
     exchange::ExchangeId,
 };
+#[cfg(feature = "orderbook")]
+use cryptofeed_orderbook::L2Book;
+#[cfg(feature = "orderbook")]
+use tokio::sync::oneshot;
 use serde_json::Value;
 use std::future::Future;
 use tokio::sync::watch;
@@ -118,9 +126,18 @@ async fn consume_binance_session(feed: ExchangeFeed, mut shutdown: watch::Receiv
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url);
     let mut stream = connection.connect().await?;
+    #[cfg(feature = "orderbook")]
+    let mut snapshot_receivers = spawn_binance_snapshot_fetches(&feed);
+    #[cfg(feature = "orderbook")]
+    let mut pending_deltas: std::collections::HashMap<String, Vec<BinanceDepthDelta>> =
+        std::collections::HashMap::new();
 
     while let Some(text) = connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await? {
-        process_binance_text_message(&feed, &text, current_timestamp()).await?;
+        #[cfg(feature = "orderbook")]
+        poll_binance_snapshot_bootstraps(&feed, &mut snapshot_receivers, &mut pending_deltas).await?;
+        if !process_binance_orderbook_message(&feed, &text, current_timestamp(), &mut pending_deltas).await? {
+            process_binance_text_message(&feed, &text, current_timestamp()).await?;
+        }
     }
 
     Ok(())
@@ -217,6 +234,158 @@ fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Boo
             L2Book::Delta(delta) => delta.symbol.clone(),
         }));
     state.apply(book.clone());
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_binance_l2_book(feed: &ExchangeFeed, book: L2Book) {
+    apply_orderbook_state(feed, &book);
+    if let Some(handler) = &feed.orderbook_handler {
+        handler.on_l2_book(book).await;
+    }
+}
+
+#[cfg(feature = "orderbook")]
+fn spawn_binance_snapshot_fetches(
+    feed: &ExchangeFeed,
+) -> std::collections::HashMap<
+    String,
+    oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+> {
+    let mut receivers = std::collections::HashMap::new();
+
+    for symbol in &feed.symbols {
+        let symbol_key = symbol.as_str().to_owned();
+        let symbol_clone = symbol.clone();
+        let (tx, rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let _ = tx.send(fetch_binance_l2_snapshot(symbol_clone).await);
+        });
+        receivers.insert(symbol_key, rx);
+    }
+
+    receivers
+}
+
+#[cfg(feature = "orderbook")]
+async fn fetch_binance_l2_snapshot(
+    symbol: cryptofeed_core::symbol::Symbol,
+) -> Result<(u64, cryptofeed_orderbook::L2BookSnapshot)> {
+    let exchange_symbol = symbol.as_str().replace('-', "");
+    let url = format!(
+        "https://api.binance.com/api/v3/depth?symbol={exchange_symbol}&limit=1000"
+    );
+    let response = reqwest::get(&url)
+        .await
+        .map_err(|e| Error::Transport(e.to_string()))?;
+    let payload: Value = response
+        .json()
+        .await
+        .map_err(|e| Error::Parse(e.to_string()))?;
+    parser::parse_l2_book_snapshot(&payload, &exchange_symbol, current_timestamp())
+        .ok_or_else(|| Error::Parse("failed to parse binance l2 snapshot".to_owned()))
+}
+
+#[cfg(feature = "orderbook")]
+async fn poll_binance_snapshot_bootstraps(
+    feed: &ExchangeFeed,
+    receivers: &mut std::collections::HashMap<
+        String,
+        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    >,
+    pending: &mut std::collections::HashMap<String, Vec<BinanceDepthDelta>>,
+) -> Result<()> {
+    use tokio::sync::oneshot::error::TryRecvError;
+
+    let keys: Vec<String> = receivers.keys().cloned().collect();
+    for key in keys {
+        let ready = if let Some(receiver) = receivers.get_mut(&key) {
+            match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Closed) => {
+                    return Err(Error::Transport(
+                        "binance snapshot bootstrap channel closed".to_owned(),
+                    ))
+                }
+            }
+        } else {
+            None
+        };
+
+        if let Some(result) = ready {
+            let (last_update_id, snapshot) = result?;
+            bootstrap_binance_book(feed, &key, last_update_id, snapshot, pending.remove(&key).unwrap_or_default())?;
+            receivers.remove(&key);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+fn bootstrap_binance_book(
+    feed: &ExchangeFeed,
+    symbol_key: &str,
+    last_update_id: u64,
+    snapshot: cryptofeed_orderbook::L2BookSnapshot,
+    buffered: Vec<BinanceDepthDelta>,
+) -> Result<()> {
+    let mut syncs = feed.binance_book_syncs.lock().expect("binance sync lock");
+    let sync = syncs
+        .entry(symbol_key.to_owned())
+        .or_insert_with(|| BinanceBookSync::new(snapshot.symbol.clone()));
+    sync.bootstrap(last_update_id, snapshot.clone(), buffered)?;
+
+    let mut states = feed.orderbook_states.lock().expect("orderbook state lock");
+    states.insert(
+        symbol_key.to_owned(),
+        sync.state().clone(),
+    );
+
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_binance_orderbook_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+    pending: &mut std::collections::HashMap<String, Vec<BinanceDepthDelta>>,
+) -> Result<bool> {
+    let message: Value =
+        serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    let payload = BinanceAdapter::unwrap_combined_message(&message).unwrap_or(&message);
+
+    if payload.get("e").and_then(|v| v.as_str()) != Some("depthUpdate") {
+        return Ok(false);
+    }
+
+    let update = parser::parse_l2_book_update(payload, received_ts)
+        .ok_or_else(|| Error::Parse("failed to parse binance depth update".to_owned()))?;
+    let symbol_key = update.book.symbol.as_str().to_owned();
+
+    if feed
+        .binance_book_syncs
+        .lock()
+        .expect("binance sync lock")
+        .contains_key(&symbol_key)
+    {
+        let maybe_book = {
+            let mut syncs = feed.binance_book_syncs.lock().expect("binance sync lock");
+            let sync = syncs
+                .get_mut(&symbol_key)
+                .expect("binance sync state");
+            sync.apply_next_delta(update)?
+        };
+
+        if let Some(book) = maybe_book {
+            dispatch_binance_l2_book(feed, book).await;
+        }
+    } else {
+        pending.entry(symbol_key).or_default().push(update);
+    }
+
+    Ok(true)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]

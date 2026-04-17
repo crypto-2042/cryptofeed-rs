@@ -98,6 +98,22 @@ impl L2BookState {
     pub fn symbol(&self) -> &Symbol {
         &self.symbol
     }
+
+    pub fn to_snapshot(
+        &self,
+        exchange: ExchangeId,
+        exchange_ts: f64,
+        received_ts: f64,
+    ) -> L2BookSnapshot {
+        L2BookSnapshot {
+            exchange,
+            symbol: self.symbol.clone(),
+            bids: self.bids(),
+            asks: self.asks(),
+            exchange_ts,
+            received_ts,
+        }
+    }
 }
 
 fn apply_levels(side: &mut BTreeMap<Decimal, Decimal>, levels: Vec<PriceLevel>) {
