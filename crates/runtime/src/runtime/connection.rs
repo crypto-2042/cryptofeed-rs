@@ -1,6 +1,7 @@
 use cryptofeed_core::error::{Error, Result};
 use futures::StreamExt;
 use tokio::net::TcpStream;
+use tokio::sync::watch;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::Message,
@@ -39,4 +40,30 @@ pub async fn next_text_message(
     }
 
     Ok(None)
+}
+
+pub async fn next_text_message_or_shutdown(
+    stream: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<Option<String>> {
+    loop {
+        tokio::select! {
+            changed = shutdown.changed() => {
+                match changed {
+                    Ok(()) if *shutdown.borrow() => return Ok(None),
+                    Ok(()) => continue,
+                    Err(_) => return Ok(None),
+                }
+            }
+            message = stream.next() => {
+                match message {
+                    Some(Ok(Message::Text(text))) => return Ok(Some(text.to_string())),
+                    Some(Ok(Message::Binary(_) | Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
+                    Some(Ok(Message::Close(_))) => return Ok(None),
+                    Some(Err(e)) => return Err(Error::Transport(e.to_string())),
+                    None => return Ok(None),
+                }
+            }
+        }
+    }
 }

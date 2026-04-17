@@ -14,16 +14,22 @@ use cryptofeed_core::{
 };
 use serde_json::Value;
 use std::future::Future;
+use tokio::sync::watch;
 use tokio::task::JoinSet;
 use url::Url;
 
 pub async fn run(handler: FeedHandler) -> Result<()> {
     let _planned = planned_connection_urls(&handler);
     let _router = router::Router::default();
-    run_feeds_concurrently(handler.into_feeds(), |feed| async move {
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        let _ = shutdown_tx.send(true);
+    });
+    run_feeds_until_shutdown(handler.into_feeds(), shutdown_rx, |feed, shutdown| async move {
         match feed.exchange {
-            ExchangeId::Binance => consume_binance_feed(feed).await,
-            ExchangeId::Bitget => consume_bitget_feed(feed).await,
+            ExchangeId::Binance => consume_binance_feed(feed, shutdown).await,
+            ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
             ExchangeId::Coinbase | ExchangeId::Kraken => Ok(()),
         }
     })
@@ -44,58 +50,88 @@ fn planned_url(feed: &ExchangeFeed) -> String {
     }
 }
 
-async fn run_feeds_concurrently<F, Fut>(feeds: Vec<ExchangeFeed>, consume: F) -> Result<()>
+async fn run_feeds_until_shutdown<F, Fut>(
+    feeds: Vec<ExchangeFeed>,
+    mut shutdown: watch::Receiver<bool>,
+    consume: F,
+) -> Result<()>
 where
-    F: Fn(ExchangeFeed) -> Fut + Copy + Send + 'static,
+    F: Fn(ExchangeFeed, watch::Receiver<bool>) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Result<()>> + Send + 'static,
 {
     let mut tasks = JoinSet::new();
 
     for feed in feeds {
-        tasks.spawn(consume(feed));
+        let consume = consume.clone();
+        tasks.spawn(consume(feed, shutdown.clone()));
     }
 
-    while let Some(result) = tasks.join_next().await {
-        result.map_err(|e| Error::Transport(e.to_string()))??;
+    while !tasks.is_empty() {
+        tokio::select! {
+            changed = shutdown.changed() => {
+                match changed {
+                    Ok(()) if *shutdown.borrow() => {
+                        while let Some(result) = tasks.join_next().await {
+                            result.map_err(|e| Error::Transport(e.to_string()))??;
+                        }
+                        return Ok(());
+                    }
+                    Ok(()) => {}
+                    Err(_) => {
+                        while let Some(result) = tasks.join_next().await {
+                            result.map_err(|e| Error::Transport(e.to_string()))??;
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+            result = tasks.join_next() => {
+                if let Some(result) = result {
+                    result.map_err(|e| Error::Transport(e.to_string()))??;
+                }
+            }
+        }
     }
 
     Ok(())
 }
 
-async fn consume_binance_feed(feed: ExchangeFeed) -> Result<()> {
+async fn consume_binance_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
     supervisor::retry_with_backoff(3, supervisor::Backoff::new(1, 8), move || {
         let feed = feed.clone();
-        async move { consume_binance_session(feed).await }
+        let shutdown = shutdown.clone();
+        async move { consume_binance_session(feed, shutdown).await }
     })
     .await
 }
 
-async fn consume_bitget_feed(feed: ExchangeFeed) -> Result<()> {
+async fn consume_bitget_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
     supervisor::retry_with_backoff(3, supervisor::Backoff::new(1, 8), move || {
         let feed = feed.clone();
-        async move { consume_bitget_session(feed).await }
+        let shutdown = shutdown.clone();
+        async move { consume_bitget_session(feed, shutdown).await }
     })
     .await
 }
 
-async fn consume_binance_session(feed: ExchangeFeed) -> Result<()> {
+async fn consume_binance_session(feed: ExchangeFeed, mut shutdown: watch::Receiver<bool>) -> Result<()> {
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url);
     let mut stream = connection.connect().await?;
 
-    while let Some(text) = connection::next_text_message(&mut stream).await? {
+    while let Some(text) = connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await? {
         process_binance_text_message(&feed, &text, current_timestamp()).await?;
     }
 
     Ok(())
 }
 
-async fn consume_bitget_session(feed: ExchangeFeed) -> Result<()> {
+async fn consume_bitget_session(feed: ExchangeFeed, mut shutdown: watch::Receiver<bool>) -> Result<()> {
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url);
     let mut stream = connection.connect().await?;
 
-    while let Some(text) = connection::next_text_message(&mut stream).await? {
+    while let Some(text) = connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await? {
         process_bitget_text_message(&feed, &text, current_timestamp()).await?;
     }
 
@@ -203,6 +239,7 @@ mod tests {
     use cryptofeed_orderbook::{L2Book, OrderBookHandler};
     #[cfg(feature = "trade")]
     use cryptofeed_trade::{Trade, TradeHandler};
+    use tokio::sync::watch;
     use tokio::time::Instant;
 
     #[test]
@@ -372,7 +409,8 @@ mod tests {
         ];
 
         let started = Instant::now();
-        super::run_feeds_concurrently(feeds, |_| async move {
+        let (_tx, rx) = watch::channel(false);
+        super::run_feeds_until_shutdown(feeds, rx, |_, _| async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
             Ok(())
         })
@@ -380,6 +418,46 @@ mod tests {
         .expect("concurrent run");
 
         assert!(started.elapsed() < Duration::from_millis(90));
+    }
+
+    #[tokio::test]
+    async fn stops_feeds_on_shutdown_signal() {
+        let feeds = vec![
+            Binance::new().ticker().symbol("BTC-USDT").build(),
+            Bitget::new().trade().symbol("BTC-USDT").build(),
+        ];
+        let (tx, rx) = watch::channel(false);
+        let started = Arc::new(Mutex::new(0usize));
+        let stopped = Arc::new(Mutex::new(0usize));
+
+        let started_clone = started.clone();
+        let stopped_clone = stopped.clone();
+        let run = tokio::spawn(async move {
+            super::run_feeds_until_shutdown(feeds, rx, move |_, mut shutdown| {
+                let started = started_clone.clone();
+                let stopped = stopped_clone.clone();
+                async move {
+                    *started.lock().expect("lock") += 1;
+                    loop {
+                        match shutdown.changed().await {
+                            Ok(()) if *shutdown.borrow() => break,
+                            Ok(()) => {}
+                            Err(_) => break,
+                        }
+                    }
+                    *stopped.lock().expect("lock") += 1;
+                    Ok(())
+                }
+            })
+            .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        tx.send(true).expect("shutdown signal");
+        run.await.expect("join").expect("shutdown run");
+
+        assert_eq!(*started.lock().expect("lock"), 2);
+        assert_eq!(*stopped.lock().expect("lock"), 2);
     }
 
     #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
