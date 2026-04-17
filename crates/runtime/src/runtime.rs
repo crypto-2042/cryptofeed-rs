@@ -135,7 +135,7 @@ async fn consume_binance_session(feed: ExchangeFeed, mut shutdown: watch::Receiv
     while let Some(text) = connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await? {
         #[cfg(feature = "orderbook")]
         poll_binance_snapshot_bootstraps(&feed, &mut snapshot_receivers, &mut pending_deltas).await?;
-        if !process_binance_orderbook_message(&feed, &text, current_timestamp(), &mut pending_deltas).await? {
+        if !process_binance_orderbook_message(&feed, &text, current_timestamp(), &mut snapshot_receivers, &mut pending_deltas).await? {
             process_binance_text_message(&feed, &text, current_timestamp()).await?;
         }
     }
@@ -255,15 +255,22 @@ fn spawn_binance_snapshot_fetches(
 
     for symbol in &feed.symbols {
         let symbol_key = symbol.as_str().to_owned();
-        let symbol_clone = symbol.clone();
-        let (tx, rx) = oneshot::channel();
-        tokio::spawn(async move {
-            let _ = tx.send(fetch_binance_l2_snapshot(symbol_clone).await);
-        });
+        let rx = spawn_binance_snapshot_fetch(symbol.clone());
         receivers.insert(symbol_key, rx);
     }
 
     receivers
+}
+
+#[cfg(feature = "orderbook")]
+fn spawn_binance_snapshot_fetch(
+    symbol: cryptofeed_core::symbol::Symbol,
+) -> oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>> {
+    let (tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let _ = tx.send(fetch_binance_l2_snapshot(symbol).await);
+    });
+    rx
 }
 
 #[cfg(feature = "orderbook")]
@@ -350,6 +357,10 @@ async fn process_binance_orderbook_message(
     feed: &ExchangeFeed,
     text: &str,
     received_ts: f64,
+    receivers: &mut std::collections::HashMap<
+        String,
+        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceDepthDelta>>,
 ) -> Result<bool> {
     let message: Value =
@@ -375,17 +386,59 @@ async fn process_binance_orderbook_message(
             let sync = syncs
                 .get_mut(&symbol_key)
                 .expect("binance sync state");
-            sync.apply_next_delta(update)?
+            sync.apply_next_delta(update.clone())
         };
 
-        if let Some(book) = maybe_book {
-            dispatch_binance_l2_book(feed, book).await;
+        match maybe_book {
+            Ok(Some(book)) => {
+                dispatch_binance_l2_book(feed, book).await;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                if matches!(err, Error::Parse(_)) {
+                    schedule_binance_resync(feed, &symbol_key, update, receivers, pending);
+                } else {
+                    return Err(err);
+                }
+            }
         }
     } else {
         pending.entry(symbol_key).or_default().push(update);
     }
 
     Ok(true)
+}
+
+#[cfg(feature = "orderbook")]
+fn reset_binance_sync_state(
+    feed: &ExchangeFeed,
+    symbol_key: &str,
+    update: BinanceDepthDelta,
+    pending: &mut std::collections::HashMap<String, Vec<BinanceDepthDelta>>,
+) {
+    feed.binance_book_syncs
+        .lock()
+        .expect("binance sync lock")
+        .remove(symbol_key);
+    pending.entry(symbol_key.to_owned()).or_default().push(update);
+}
+
+#[cfg(feature = "orderbook")]
+fn schedule_binance_resync(
+    feed: &ExchangeFeed,
+    symbol_key: &str,
+    update: BinanceDepthDelta,
+    receivers: &mut std::collections::HashMap<
+        String,
+        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    >,
+    pending: &mut std::collections::HashMap<String, Vec<BinanceDepthDelta>>,
+) {
+    let symbol = update.book.symbol.clone();
+    reset_binance_sync_state(feed, symbol_key, update, pending);
+    receivers
+        .entry(symbol_key.to_owned())
+        .or_insert_with(|| spawn_binance_snapshot_fetch(symbol));
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -606,6 +659,68 @@ mod tests {
         let state = states.get("BTC-USDT").expect("btc-usdt state");
         assert_eq!(state.bids().len(), 1);
         assert_eq!(state.asks().len(), 1);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn bootstrap_binance_book_initializes_sync_state() {
+        let feed = Binance::new().l2_book().symbol("BTC-USDT").build();
+        let snapshot = cryptofeed_orderbook::L2BookSnapshot {
+            exchange: cryptofeed_core::exchange::ExchangeId::Binance,
+            symbol: cryptofeed_core::symbol::Symbol::spot("btc", "usdt"),
+            bids: vec![cryptofeed_orderbook::PriceLevel {
+                price: rust_decimal::Decimal::from_str_exact("64999.10").unwrap(),
+                amount: rust_decimal::Decimal::from_str_exact("1.25").unwrap(),
+            }],
+            asks: vec![cryptofeed_orderbook::PriceLevel {
+                price: rust_decimal::Decimal::from_str_exact("65000.20").unwrap(),
+                amount: rust_decimal::Decimal::from_str_exact("0.75").unwrap(),
+            }],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        };
+
+        super::bootstrap_binance_book(&feed, "BTC-USDT", 100, snapshot, vec![])
+            .expect("bootstrap");
+
+        let syncs = feed.binance_book_syncs.lock().expect("syncs");
+        let sync = syncs.get("BTC-USDT").expect("book sync");
+        assert_eq!(sync.last_update_id(), Some(100));
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn reset_binance_sync_moves_delta_back_to_pending() {
+        let feed = Binance::new().l2_book().symbol("BTC-USDT").build();
+        let update = crate::exchange::binance::book_sync::BinanceDepthDelta {
+            first_update_id: 102,
+            last_update_id: 103,
+            book: cryptofeed_orderbook::L2BookDelta {
+                exchange: cryptofeed_core::exchange::ExchangeId::Binance,
+                symbol: cryptofeed_core::symbol::Symbol::spot("btc", "usdt"),
+                bids: vec![],
+                asks: vec![],
+                exchange_ts: 1.0,
+                received_ts: 2.0,
+            },
+        };
+        let mut pending = std::collections::HashMap::new();
+        {
+            let mut syncs = feed.binance_book_syncs.lock().expect("syncs");
+            syncs.insert(
+                "BTC-USDT".to_owned(),
+                crate::exchange::binance::book_sync::BinanceBookSync::new(
+                    cryptofeed_core::symbol::Symbol::spot("btc", "usdt"),
+                ),
+            );
+        }
+
+        super::reset_binance_sync_state(&feed, "BTC-USDT", update, &mut pending);
+
+        let syncs = feed.binance_book_syncs.lock().expect("syncs");
+        assert!(!syncs.contains_key("BTC-USDT"));
+        let queued = pending.get("BTC-USDT").expect("pending delta");
+        assert_eq!(queued.len(), 1);
     }
 
     #[tokio::test]
