@@ -6,9 +6,13 @@ use crate::exchange::{
     binance::{
         adapter::{BinanceAdapter, BinanceEvent},
         book_sync::{BinanceBookSync, BinanceDepthDelta},
-        parser,
+        parser as binance_parser,
     },
-    bitget::adapter::{BitgetAdapter, BitgetEvent},
+    bitget::{
+        adapter::{BitgetAdapter, BitgetEvent},
+        book_sync::{BitgetBookAction, BitgetBookSync, BitgetDepthUpdate},
+        parser as bitget_parser,
+    },
     ExchangeFeed,
 };
 use crate::feed::FeedHandler;
@@ -187,10 +191,7 @@ async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
     match event {
         #[cfg(feature = "orderbook")]
         BitgetEvent::L2Book(book) => {
-            apply_orderbook_state(feed, &book);
-            if let Some(handler) = &feed.orderbook_handler {
-                handler.on_l2_book(book).await;
-            }
+            dispatch_bitget_l2_book(feed, book).await;
         }
         #[cfg(feature = "ticker")]
         BitgetEvent::Ticker(ticker) => {
@@ -204,6 +205,14 @@ async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
                 handler.on_trade(trade).await;
             }
         }
+    }
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_bitget_l2_book(feed: &ExchangeFeed, book: L2Book) {
+    apply_orderbook_state(feed, &book);
+    if let Some(handler) = &feed.orderbook_handler {
+        handler.on_l2_book(book).await;
     }
 }
 
@@ -288,7 +297,7 @@ async fn fetch_binance_l2_snapshot(
         .json()
         .await
         .map_err(|e| Error::Parse(e.to_string()))?;
-    parser::parse_l2_book_snapshot(&payload, &exchange_symbol, current_timestamp())
+    binance_parser::parse_l2_book_snapshot(&payload, &exchange_symbol, current_timestamp())
         .ok_or_else(|| Error::Parse("failed to parse binance l2 snapshot".to_owned()))
 }
 
@@ -375,7 +384,7 @@ async fn process_binance_orderbook_message(
         return Ok(false);
     }
 
-    let update = parser::parse_l2_book_update(payload, received_ts)
+    let update = binance_parser::parse_l2_book_update(payload, received_ts)
         .ok_or_else(|| Error::Parse("failed to parse binance depth update".to_owned()))?;
     let symbol_key = update.book.symbol.as_str().to_owned();
 
@@ -449,10 +458,80 @@ fn schedule_binance_resync(
 async fn process_bitget_text_message(feed: &ExchangeFeed, text: &str, received_ts: f64) -> Result<()> {
     let message: Value =
         serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if process_bitget_orderbook_message(feed, &message, received_ts).await? {
+        return Ok(());
+    }
     if let Some(event) = BitgetAdapter::parse_message(&message, received_ts) {
         dispatch_bitget_event(feed, event).await;
     }
     Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_bitget_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+) -> Result<bool> {
+    let arg = match message.get("arg") {
+        Some(arg) => arg,
+        None => return Ok(false),
+    };
+    let topic = match arg.get("topic").or_else(|| arg.get("channel")).and_then(|v| v.as_str()) {
+        Some(topic) => topic,
+        None => return Ok(false),
+    };
+
+    if !matches!(topic, "books" | "books1" | "books5" | "books50") {
+        return Ok(false);
+    }
+
+    let book = bitget_parser::parse_l2_book(message, received_ts)
+        .ok_or_else(|| Error::Parse("failed to parse bitget depth update".to_owned()))?;
+    let data = message
+        .get("data")
+        .and_then(|v| v.as_array())
+        .and_then(|v| v.first())
+        .ok_or_else(|| Error::Parse("missing bitget depth payload".to_owned()))?;
+    let seq = data
+        .get("seq")
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(0);
+    let pseq = data
+        .get("pseq")
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(0);
+    let action = match message.get("action").and_then(|v| v.as_str()) {
+        Some("snapshot") => BitgetBookAction::Snapshot,
+        _ => BitgetBookAction::Update,
+    };
+    let update = BitgetDepthUpdate {
+        action,
+        seq,
+        pseq,
+        book,
+    };
+    let symbol_key = match &update.book {
+        L2Book::Snapshot(snapshot) => snapshot.symbol.as_str().to_owned(),
+        L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
+    };
+
+    let maybe_book = {
+        let mut syncs = feed.bitget_book_syncs.lock().expect("bitget sync lock");
+        let sync = syncs
+            .entry(symbol_key)
+            .or_insert_with(|| BitgetBookSync::new(match &update.book {
+                L2Book::Snapshot(snapshot) => snapshot.symbol.clone(),
+                L2Book::Delta(delta) => delta.symbol.clone(),
+            }));
+        sync.apply(update)?
+    };
+
+    if let Some(book) = maybe_book {
+        dispatch_bitget_l2_book(feed, book).await;
+    }
+
+    Ok(true)
 }
 
 fn current_timestamp() -> f64 {
@@ -482,6 +561,7 @@ mod tests {
         FeedHandler,
     };
     use async_trait::async_trait;
+    use cryptofeed_core::error::Error;
     #[cfg(feature = "ticker")]
     use cryptofeed_ticker::{Ticker, TickerHandler};
     #[cfg(feature = "orderbook")]
@@ -921,5 +1001,45 @@ mod tests {
         let state = states.get("BTC-USDT").expect("btc-usdt state");
         assert_eq!(state.bids().len(), 1);
         assert_eq!(state.asks().len(), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn bitget_book_gap_returns_error() {
+        let feed = Bitget::new().l2_book().symbol("BTC-USDT").build();
+        let snapshot = serde_json::json!({
+            "arg": {"instType": "spot", "topic": "books", "symbol": "BTCUSDT"},
+            "action": "snapshot",
+            "data": [{
+                "b": [["64999.10", "1.25"]],
+                "a": [["65000.20", "0.75"]],
+                "seq": 100u64,
+                "pseq": 0u64,
+                "ts": "1710000000456"
+            }]
+        });
+        let gap_update = serde_json::json!({
+            "arg": {"instType": "spot", "topic": "books", "symbol": "BTCUSDT"},
+            "action": "update",
+            "data": [{
+                "b": [["64999.10", "1.25"]],
+                "a": [["65000.20", "0.75"]],
+                "seq": 102u64,
+                "pseq": 999u64,
+                "ts": "1710000000457"
+            }]
+        });
+
+        process_bitget_text_message(&feed, &snapshot.to_string(), 1710000001.5)
+            .await
+            .expect("snapshot");
+        let err = process_bitget_text_message(&feed, &gap_update.to_string(), 1710000001.6)
+            .await
+            .expect_err("gap should fail");
+
+        match err {
+            Error::Parse(message) => assert!(message.contains("sequence gap")),
+            _ => panic!("unexpected error variant"),
+        }
     }
 }

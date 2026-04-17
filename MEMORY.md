@@ -27,6 +27,10 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - live websocket connect
   - combined-stream unwrap
   - ticker/trade/l2_book parsing
+  - snapshot parser and delta sequence parsing
+  - local book sync primitives
+  - bootstrap snapshot dispatch
+  - gap -> resync scheduling
   - handler dispatch
   - reconnect/backoff
   - concurrent feed execution
@@ -36,8 +40,10 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - live subscription payload generation using `instType/topic/symbol`
   - ticker/trade/l2_book parsing
   - runtime-side dispatch and text-message processing
+  - books snapshot/update sync semantics
+  - books sequence gap detection
   - live websocket session now sends real subscribe payloads
-  - but still does not have the same maturity level of live end-to-end runtime coverage as Binance
+  - it is now much closer to Binance in public runtime coverage, but Binance still has the more advanced order book bootstrap/resync path
 
 ## Testing Memory
 
@@ -55,6 +61,6 @@ Project-specific memory for `rust/cryptofeed-rs`.
 
 ## Near-Term Priorities
 
-- Wire Bitget v3 to the same live websocket runtime maturity as Binance.
-- Improve order book synchronization semantics.
-- Upgrade Coinbase and Kraken from parser shells to real runtime paths.
+- Finish Python-vs-Rust public parity checklist for Binance and Bitget.
+- Improve order book synchronization semantics further, especially around bootstrap/resync behavior.
+- Upgrade Coinbase and Kraken from parser shells to real runtime paths only after Binance/Bitget parity is satisfactory.

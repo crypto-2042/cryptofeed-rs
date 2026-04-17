@@ -4,7 +4,7 @@ Last updated: 2026-04-17
 
 ## Current State
 
-`cryptofeed-rs` has moved beyond scaffolding. The workspace, shared abstractions, public model crates, runtime orchestration, Binance public runtime path, Bitget v3 public parser/runtime path, reconnect/backoff, concurrent feed execution, and graceful shutdown support are all in place.
+`cryptofeed-rs` has moved beyond scaffolding. The workspace, shared abstractions, public model crates, runtime orchestration, Binance public runtime path, Bitget v3 public runtime path, reconnect/backoff, concurrent feed execution, graceful shutdown, and order book state synchronization are all in place.
 
 ## Completed
 
@@ -31,6 +31,11 @@ Last updated: 2026-04-17
   - live websocket connect
   - combined-stream unwrap
   - `ticker` / `trade` / `l2_book` parsing
+  - snapshot parser
+  - delta sequence parsing
+  - local book sync primitives
+  - bootstrap snapshot dispatch
+  - gap -> resync scheduling
   - handler dispatch
   - reconnect/backoff
   - concurrent runtime execution
@@ -40,11 +45,14 @@ Last updated: 2026-04-17
   - live subscription payload generation
   - `ticker` / `trade` / `l2_book` parsing
   - runtime dispatch and text-message processing
+  - books snapshot/update sync semantics
+  - books sequence gap detection
   - websocket session sends real subscribe messages
 
 ## In Progress
 
-- Bitget v3 still needs the same runtime maturity as Binance for reconnect/ack/channel lifecycle coverage.
+- Binance and Bitget are now the primary “baseline parity” exchanges for public market data validation.
+- The next remaining maturity work is deeper order book synchronization semantics and then parity validation against Python behavior.
 
 ## Not Started
 
@@ -81,3 +89,8 @@ cargo test --workspace
 - `53d5c6e` `feat: add runtime reconnect backoff`
 - `4b1768b` `feat: add bitget v3 public runtime`
 - `fac83ae` `feat: add graceful shutdown for runtime`
+- `50610ad` `feat: add binance book sync primitives`
+- `c3e595c` `feat: integrate binance book sync state`
+- `a0317e7` `feat: dispatch binance bootstrap snapshots`
+- `2e545c7` `feat: track l2 book runtime state`
+- `321d7ce` `feat: resync binance book gaps`
