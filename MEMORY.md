@@ -33,9 +33,11 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - graceful shutdown
 - Bitget v3 currently has:
   - official public websocket URL
+  - live subscription payload generation using `instType/topic/symbol`
   - ticker/trade/l2_book parsing
   - runtime-side dispatch and text-message processing
-  - but not yet the same live websocket consumption maturity as Binance
+  - live websocket session now sends real subscribe payloads
+  - but still does not have the same maturity level of live end-to-end runtime coverage as Binance
 
 ## Testing Memory
 

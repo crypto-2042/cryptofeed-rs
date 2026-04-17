@@ -37,12 +37,14 @@ Last updated: 2026-04-17
   - graceful shutdown support
 - Bitget v3 public:
   - official v3 public websocket URL
+  - live subscription payload generation
   - `ticker` / `trade` / `l2_book` parsing
   - runtime dispatch and text-message processing
+  - websocket session sends real subscribe messages
 
 ## In Progress
 
-- Bitget v3 still needs a live websocket runtime path comparable to Binance.
+- Bitget v3 still needs the same runtime maturity as Binance for reconnect/ack/channel lifecycle coverage.
 
 ## Not Started
 
