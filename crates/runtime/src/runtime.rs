@@ -258,6 +258,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn plans_bitget_connection_urls() {
+        let mut handler = FeedHandler::new();
+        handler.add_feed(Bitget::new().ticker().trade().l2_book().symbol("BTC-USDT").build());
+
+        assert_eq!(
+            planned_connection_urls(&handler),
+            vec!["wss://ws.bitget.com/v3/ws/public".to_owned()]
+        );
+    }
+
     #[cfg(feature = "ticker")]
     struct TestTickerHandler {
         seen: Arc<Mutex<usize>>,
@@ -484,6 +495,29 @@ mod tests {
             .expect("process bitget trade");
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn dispatches_bitget_ticker_events() {
+        let seen = Arc::new(Mutex::new(0));
+        let feed = Bitget::new()
+            .ticker()
+            .ticker_handler(Arc::new(TestTickerHandler { seen: seen.clone() }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "arg": {"instType": "spot", "topic": "ticker", "symbol": "BTCUSDT"},
+            "data": [{ "bid1Price": "64999.10", "ask1Price": "65000.20" }],
+            "ts": "1710000000456"
+        });
+
+        let event = BitgetAdapter::parse_message(&message, 1710000001.5).expect("bitget ticker");
+        assert!(matches!(event, BitgetEvent::Ticker(_)));
+
+        super::dispatch_bitget_event(&feed, event).await;
+        assert_eq!(*seen.lock().expect("lock"), 1);
     }
 
     #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
