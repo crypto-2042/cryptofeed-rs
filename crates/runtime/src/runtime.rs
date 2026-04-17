@@ -145,6 +145,7 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
     match event {
         #[cfg(feature = "orderbook")]
         BinanceEvent::L2Book(book) => {
+            apply_orderbook_state(feed, &book);
             if let Some(handler) = &feed.orderbook_handler {
                 handler.on_l2_book(book).await;
             }
@@ -169,6 +170,7 @@ async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
     match event {
         #[cfg(feature = "orderbook")]
         BitgetEvent::L2Book(book) => {
+            apply_orderbook_state(feed, &book);
             if let Some(handler) = &feed.orderbook_handler {
                 handler.on_l2_book(book).await;
             }
@@ -196,6 +198,25 @@ async fn process_binance_text_message(feed: &ExchangeFeed, text: &str, received_
         dispatch_binance_event(feed, event).await;
     }
     Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Book) {
+    use cryptofeed_orderbook::L2Book;
+
+    let symbol = match book {
+        L2Book::Snapshot(snapshot) => snapshot.symbol.as_str().to_owned(),
+        L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
+    };
+
+    let mut states = feed.orderbook_states.lock().expect("orderbook state lock");
+    let state = states
+        .entry(symbol.clone())
+        .or_insert_with(|| cryptofeed_orderbook::L2BookState::new(match book {
+            L2Book::Snapshot(snapshot) => snapshot.symbol.clone(),
+            L2Book::Delta(delta) => delta.symbol.clone(),
+        }));
+    state.apply(book.clone());
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -412,6 +433,10 @@ mod tests {
 
         super::dispatch_binance_event(&feed, event).await;
         assert_eq!(*seen.lock().expect("lock"), 1);
+        let states = feed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USDT").expect("btc-usdt state");
+        assert_eq!(state.bids().len(), 1);
+        assert_eq!(state.asks().len(), 1);
     }
 
     #[tokio::test]
@@ -568,5 +593,9 @@ mod tests {
 
         super::dispatch_bitget_event(&feed, event).await;
         assert_eq!(*seen.lock().expect("lock"), 1);
+        let states = feed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USDT").expect("btc-usdt state");
+        assert_eq!(state.bids().len(), 1);
+        assert_eq!(state.asks().len(), 1);
     }
 }

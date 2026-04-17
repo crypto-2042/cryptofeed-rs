@@ -3,14 +3,17 @@ pub mod bitget;
 pub mod coinbase;
 pub mod kraken;
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use cryptofeed_core::{
     exchange::{Channel, ExchangeId},
     symbol::Symbol,
 };
 #[cfg(feature = "orderbook")]
-use cryptofeed_orderbook::OrderBookHandler;
+use cryptofeed_orderbook::{L2BookState, OrderBookHandler};
 #[cfg(feature = "ticker")]
 use cryptofeed_ticker::TickerHandler;
 #[cfg(feature = "trade")]
@@ -27,6 +30,8 @@ pub struct ExchangeFeed {
     pub trade_handler: Option<Arc<dyn TradeHandler>>,
     #[cfg(feature = "orderbook")]
     pub orderbook_handler: Option<Arc<dyn OrderBookHandler>>,
+    #[cfg(feature = "orderbook")]
+    pub orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
 }
 
 pub struct ExchangeFeedBuilder {
@@ -39,6 +44,8 @@ pub struct ExchangeFeedBuilder {
     trade_handler: Option<Arc<dyn TradeHandler>>,
     #[cfg(feature = "orderbook")]
     orderbook_handler: Option<Arc<dyn OrderBookHandler>>,
+    #[cfg(feature = "orderbook")]
+    orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
 }
 
 impl ExchangeFeedBuilder {
@@ -53,6 +60,8 @@ impl ExchangeFeedBuilder {
             trade_handler: None,
             #[cfg(feature = "orderbook")]
             orderbook_handler: None,
+            #[cfg(feature = "orderbook")]
+            orderbook_states: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -107,6 +116,8 @@ impl ExchangeFeedBuilder {
             trade_handler: self.trade_handler,
             #[cfg(feature = "orderbook")]
             orderbook_handler: self.orderbook_handler,
+            #[cfg(feature = "orderbook")]
+            orderbook_states: self.orderbook_states,
         }
     }
 }
