@@ -321,7 +321,11 @@ async fn poll_binance_snapshot_bootstraps(
 
         if let Some(result) = ready {
             let (last_update_id, snapshot) = result?;
-            bootstrap_binance_book(feed, &key, last_update_id, snapshot, pending.remove(&key).unwrap_or_default())?;
+            if let Some(book) =
+                bootstrap_binance_book(feed, &key, last_update_id, snapshot, pending.remove(&key).unwrap_or_default())?
+            {
+                dispatch_binance_l2_book(feed, book).await;
+            }
             receivers.remove(&key);
         }
     }
@@ -336,7 +340,7 @@ fn bootstrap_binance_book(
     last_update_id: u64,
     snapshot: cryptofeed_orderbook::L2BookSnapshot,
     buffered: Vec<BinanceDepthDelta>,
-) -> Result<()> {
+) -> Result<Option<cryptofeed_orderbook::L2Book>> {
     let mut syncs = feed.binance_book_syncs.lock().expect("binance sync lock");
     let sync = syncs
         .entry(symbol_key.to_owned())
@@ -349,7 +353,7 @@ fn bootstrap_binance_book(
         sync.state().clone(),
     );
 
-    Ok(())
+    Ok(Some(cryptofeed_orderbook::L2Book::Snapshot(snapshot)))
 }
 
 #[cfg(feature = "orderbook")]
@@ -686,6 +690,42 @@ mod tests {
         let syncs = feed.binance_book_syncs.lock().expect("syncs");
         let sync = syncs.get("BTC-USDT").expect("book sync");
         assert_eq!(sync.last_update_id(), Some(100));
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn bootstrap_binance_book_dispatches_snapshot() {
+        let seen = Arc::new(Mutex::new(0));
+        let feed = Binance::new()
+            .l2_book()
+            .orderbook_handler(Arc::new(TestOrderBookHandler { seen: seen.clone() }))
+            .symbol("BTC-USDT")
+            .build();
+        let snapshot = cryptofeed_orderbook::L2BookSnapshot {
+            exchange: cryptofeed_core::exchange::ExchangeId::Binance,
+            symbol: cryptofeed_core::symbol::Symbol::spot("btc", "usdt"),
+            bids: vec![cryptofeed_orderbook::PriceLevel {
+                price: rust_decimal::Decimal::from_str_exact("64999.10").unwrap(),
+                amount: rust_decimal::Decimal::from_str_exact("1.25").unwrap(),
+            }],
+            asks: vec![cryptofeed_orderbook::PriceLevel {
+                price: rust_decimal::Decimal::from_str_exact("65000.20").unwrap(),
+                amount: rust_decimal::Decimal::from_str_exact("0.75").unwrap(),
+            }],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        };
+
+        let book = super::bootstrap_binance_book(&feed, "BTC-USDT", 100, snapshot, vec![])
+            .expect("bootstrap")
+            .expect("snapshot event");
+        super::dispatch_binance_l2_book(&feed, book).await;
+
+        assert_eq!(*seen.lock().expect("lock"), 1);
+        let states = feed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USDT").expect("btc-usdt state");
+        assert_eq!(state.bids().len(), 1);
+        assert_eq!(state.asks().len(), 1);
     }
 
     #[cfg(feature = "orderbook")]
