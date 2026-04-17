@@ -1,5 +1,5 @@
 use cryptofeed_core::error::{Error, Result};
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio_tungstenite::{
@@ -25,6 +25,16 @@ impl WsConnection {
             .map_err(|e| Error::Transport(e.to_string()))?;
         Ok(stream)
     }
+}
+
+pub async fn send_text(
+    stream: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+    text: &str,
+) -> Result<()> {
+    stream
+        .send(Message::Text(text.to_owned()))
+        .await
+        .map_err(|e| Error::Transport(e.to_string()))
 }
 
 pub async fn next_text_message(

@@ -11,37 +11,41 @@ use serde_json::Value;
 #[cfg(feature = "trade")]
 pub fn parse_trade(message: &Value, received_ts: f64) -> Option<Trade> {
     let arg = message.get("arg")?;
-    let symbol = parse_symbol(arg.get("instId")?.as_str()?);
-    let first = message.get("data")?.as_array()?.first()?.as_array()?;
+    let symbol = parse_symbol(arg.get("symbol").or_else(|| arg.get("instId"))?.as_str()?);
+    let first = message.get("data")?.as_array()?.first()?;
 
     Some(Trade {
         exchange: ExchangeId::Bitget,
         symbol,
-        side: match first.get(3)?.as_str()? {
+        side: match first.get("S").or_else(|| first.get(3))?.as_str()? {
             "sell" => Side::Sell,
             _ => Side::Buy,
         },
-        amount: parse_decimal(first.get(2)?)?,
-        price: parse_decimal(first.get(1)?)?,
-        exchange_ts: parse_millis(first.first()?)?,
+        amount: parse_decimal(first.get("v").or_else(|| first.get(2))?)?,
+        price: parse_decimal(first.get("p").or_else(|| first.get(1))?)?,
+        exchange_ts: parse_millis(first.get("T").or_else(|| first.get(0))?)?,
         received_ts,
-        id: None,
+        id: first
+            .get("i")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned),
     })
 }
 
 #[cfg(feature = "ticker")]
 pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
     let arg = message.get("arg")?;
-    let symbol = parse_symbol(arg.get("instId")?.as_str()?);
+    let symbol = parse_symbol(arg.get("symbol").or_else(|| arg.get("instId"))?.as_str()?);
     let first = message.get("data")?.as_array()?.first()?;
 
     Some(Ticker {
         exchange: ExchangeId::Bitget,
         symbol,
-        bid: parse_decimal(first.get("bidPr")?)?,
-        ask: parse_decimal(first.get("askPr")?)?,
-        exchange_ts: first
+        bid: parse_decimal(first.get("bid1Price").or_else(|| first.get("bidPr"))?)?,
+        ask: parse_decimal(first.get("ask1Price").or_else(|| first.get("askPr"))?)?,
+        exchange_ts: message
             .get("ts")
+            .or_else(|| first.get("ts"))
             .and_then(parse_millis)
             .unwrap_or(received_ts),
         received_ts,
@@ -51,14 +55,14 @@ pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
 #[cfg(feature = "orderbook")]
 pub fn parse_l2_book(message: &Value, received_ts: f64) -> Option<L2Book> {
     let arg = message.get("arg")?;
-    let symbol = parse_symbol(arg.get("instId")?.as_str()?);
+    let symbol = parse_symbol(arg.get("symbol").or_else(|| arg.get("instId"))?.as_str()?);
     let first = message.get("data")?.as_array()?.first()?;
 
     Some(L2Book::Delta(L2BookDelta {
         exchange: ExchangeId::Bitget,
         symbol,
-        bids: parse_levels(first.get("bids")?)?,
-        asks: parse_levels(first.get("asks")?)?,
+        bids: parse_levels(first.get("b").or_else(|| first.get("bids"))?)?,
+        asks: parse_levels(first.get("a").or_else(|| first.get("asks"))?)?,
         exchange_ts: first
             .get("ts")
             .and_then(parse_millis)
@@ -110,8 +114,14 @@ mod tests {
     #[test]
     fn parses_bitget_trade_message() {
         let message = json!({
-            "arg": {"channel": "trade", "instId": "BTCUSDT"},
-            "data": [[ "1710000000123", "65000.50", "0.0100", "buy" ]]
+            "arg": {"instType": "spot", "topic": "publicTrade", "symbol": "BTCUSDT"},
+            "data": [{
+                "T": "1710000000123",
+                "p": "65000.50",
+                "v": "0.0100",
+                "S": "buy",
+                "i": "123456"
+            }]
         });
 
         let trade = parse_trade(&message, 1710000001.5).expect("trade");
@@ -122,8 +132,9 @@ mod tests {
     #[test]
     fn parses_bitget_ticker_message() {
         let message = json!({
-            "arg": {"channel": "ticker", "instId": "BTCUSDT"},
-            "data": [{ "bidPr": "64999.10", "askPr": "65000.20", "ts": "1710000000456" }]
+            "arg": {"instType": "spot", "topic": "ticker", "symbol": "BTCUSDT"},
+            "data": [{ "bid1Price": "64999.10", "ask1Price": "65000.20" }],
+            "ts": "1710000000456"
         });
 
         let ticker = parse_ticker(&message, 1710000001.5).expect("ticker");
@@ -134,10 +145,10 @@ mod tests {
     #[test]
     fn parses_bitget_l2_book_message() {
         let message = json!({
-            "arg": {"channel": "books", "instId": "BTCUSDT"},
+            "arg": {"instType": "spot", "topic": "books", "symbol": "BTCUSDT"},
             "data": [{
-                "bids": [["64999.10", "1.25"]],
-                "asks": [["65000.20", "0.75"]],
+                "b": [["64999.10", "1.25"]],
+                "a": [["65000.20", "0.75"]],
                 "ts": "1710000000456"
             }]
         });

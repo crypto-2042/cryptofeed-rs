@@ -130,6 +130,8 @@ async fn consume_bitget_session(feed: ExchangeFeed, mut shutdown: watch::Receive
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url);
     let mut stream = connection.connect().await?;
+    let subscribe = BitgetAdapter::subscription_message(&feed);
+    connection::send_text(&mut stream, &subscribe).await?;
 
     while let Some(text) = connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await? {
         process_bitget_text_message(&feed, &text, current_timestamp()).await?;
@@ -482,6 +484,30 @@ mod tests {
             .expect("process bitget trade");
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn ignores_bitget_subscribe_ack_message() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let feed = Bitget::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "event": "subscribe",
+            "arg": { "instType": "spot", "topic": "publicTrade", "symbol": "BTCUSDT" }
+        });
+
+        process_bitget_text_message(&feed, &message.to_string(), 1710000001.5)
+            .await
+            .expect("process subscribe ack");
+
+        assert_eq!(*trade_seen.lock().expect("lock"), 0);
     }
 
     #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]

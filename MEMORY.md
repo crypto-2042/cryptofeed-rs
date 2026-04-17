@@ -16,7 +16,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
 
 ## API Policy Memory
 
-- The Rust implementation must follow the latest official exchange API, not whatever legacy API exists in Python.
+- The Rust implementation must follow the latest stable official exchange API, not whatever legacy API exists in Python.
 - Bitget is the canonical example: Rust uses official v3.
 - Official vendor docs are the source of truth for exchange endpoints and channel naming.
 

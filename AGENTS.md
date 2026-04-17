@@ -21,7 +21,7 @@ These instructions apply to all work under `rust/cryptofeed-rs/`.
 
 ## Exchange API Rules
 
-- New exchange implementations must use the latest official API.
+- New exchange implementations must use the latest stable official API.
 - Do not copy a legacy Python exchange version into Rust just because it already exists.
 - The Python codebase is a semantic migration reference, not the Rust source of truth.
 - Bitget must target official v3 API surfaces.
