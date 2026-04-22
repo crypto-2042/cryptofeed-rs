@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod book_sync;
 pub mod parser;
 
 use cryptofeed_core::exchange::ExchangeId;

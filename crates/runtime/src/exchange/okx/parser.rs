@@ -1,3 +1,5 @@
+#[cfg(feature = "orderbook")]
+use super::book_sync::{OkxBookAction, OkxDepthUpdate};
 #[cfg(feature = "candles")]
 use cryptofeed_candles::Candle;
 use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
@@ -66,6 +68,20 @@ pub fn parse_l2_book(message: &Value, received_ts: f64) -> Option<L2Book> {
     }))
 }
 
+#[cfg(feature = "orderbook")]
+pub fn parse_l2_book_update(message: &Value, received_ts: f64) -> Option<OkxDepthUpdate> {
+    let first = message.get("data")?.as_array()?.first()?;
+    Some(OkxDepthUpdate {
+        action: match message.get("action").and_then(|v| v.as_str()) {
+            Some("snapshot") => OkxBookAction::Snapshot,
+            _ => OkxBookAction::Update,
+        },
+        seq_id: first.get("seqId")?.as_i64()?,
+        prev_seq_id: first.get("prevSeqId")?.as_i64()?,
+        book: parse_l2_book(message, received_ts)?,
+    })
+}
+
 #[cfg(feature = "candles")]
 pub fn parse_candle(message: &Value, received_ts: f64) -> Option<Candle> {
     let arg = message.get("arg")?;
@@ -131,6 +147,8 @@ mod tests {
     use super::parse_candle;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book;
+    #[cfg(feature = "orderbook")]
+    use super::parse_l2_book_update;
     #[cfg(feature = "ticker")]
     use super::parse_ticker;
     #[cfg(feature = "trade")]
@@ -176,6 +194,26 @@ mod tests {
             L2Book::Delta(delta) => assert_eq!(delta.symbol.as_str(), "BTC-USDT"),
             L2Book::Snapshot(_) => panic!("expected delta event model"),
         }
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn parses_okx_l2_book_update_ids() {
+        let message = json!({
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{
+                "bids": [["64999.10", "1.25", "0", "1"]],
+                "asks": [["65000.20", "0.75", "0", "1"]],
+                "ts": "1710000000456",
+                "seqId": 100i64,
+                "prevSeqId": -1i64
+            }]
+        });
+
+        let update = parse_l2_book_update(&message, 1710000001.5).expect("update");
+        assert_eq!(update.seq_id, 100);
+        assert_eq!(update.prev_seq_id, -1);
     }
 
     #[cfg(feature = "candles")]

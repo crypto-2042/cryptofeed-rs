@@ -18,7 +18,11 @@ use crate::exchange::{
     bybit::adapter::BybitEvent,
     bybit::book_sync::BybitBookSync,
     bybit::parser as bybit_parser,
-    okx::adapter::{OkxAdapter, OkxEvent},
+    okx::{
+        adapter::{OkxAdapter, OkxEvent},
+        book_sync::OkxBookSync,
+        parser as okx_parser,
+    },
 };
 use crate::feed::FeedHandler;
 use cryptofeed_core::{
@@ -375,10 +379,7 @@ async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
         }
         #[cfg(feature = "orderbook")]
         OkxEvent::L2Book(book) => {
-            apply_orderbook_state(feed, &book);
-            if let Some(handler) = &feed.orderbook_handler {
-                handler.on_l2_book(book).await;
-            }
+            dispatch_okx_l2_book(feed, book).await;
         }
         #[cfg(feature = "ticker")]
         OkxEvent::Ticker(ticker) => {
@@ -392,6 +393,14 @@ async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
                 handler.on_trade(trade).await;
             }
         }
+    }
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_okx_l2_book(feed: &ExchangeFeed, book: L2Book) {
+    apply_orderbook_state(feed, &book);
+    if let Some(handler) = &feed.orderbook_handler {
+        handler.on_l2_book(book).await;
     }
 }
 
@@ -709,10 +718,56 @@ async fn process_bybit_orderbook_message(
 #[cfg_attr(not(test), allow(dead_code))]
 async fn process_okx_text_message(feed: &ExchangeFeed, text: &str, received_ts: f64) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if process_okx_orderbook_message(feed, &message, received_ts).await? {
+        return Ok(());
+    }
     if let Some(event) = OkxAdapter::parse_message(&message, received_ts) {
         dispatch_okx_event(feed, event).await;
     }
     Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_okx_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+) -> Result<bool> {
+    let arg = match message.get("arg") {
+        Some(arg) => arg,
+        None => return Ok(false),
+    };
+    let channel = match arg.get("channel").and_then(|v| v.as_str()) {
+        Some(channel) => channel,
+        None => return Ok(false),
+    };
+
+    if !matches!(channel, "books" | "books5" | "bbo-tbt") {
+        return Ok(false);
+    }
+
+    let update = okx_parser::parse_l2_book_update(message, received_ts)
+        .ok_or_else(|| Error::Parse("failed to parse okx depth update".to_owned()))?;
+    let symbol_key = match &update.book {
+        L2Book::Snapshot(snapshot) => snapshot.symbol.as_str().to_owned(),
+        L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
+    };
+    let maybe_book = {
+        let mut syncs = feed.okx_book_syncs.lock().expect("okx sync lock");
+        let sync = syncs.entry(symbol_key).or_insert_with(|| {
+            OkxBookSync::new(match &update.book {
+                L2Book::Snapshot(snapshot) => snapshot.symbol.clone(),
+                L2Book::Delta(delta) => delta.symbol.clone(),
+            })
+        });
+        sync.apply(update)?
+    };
+
+    if let Some(book) = maybe_book {
+        dispatch_okx_l2_book(feed, book).await;
+    }
+
+    Ok(true)
 }
 
 #[cfg(feature = "orderbook")]
@@ -1322,6 +1377,79 @@ mod tests {
             .expect("process okx trade");
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn dispatches_okx_l2_book_events() {
+        let seen = Arc::new(Mutex::new(0));
+        let feed = Okx::new()
+            .l2_book()
+            .orderbook_handler(Arc::new(TestOrderBookHandler { seen: seen.clone() }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{
+                "bids": [["64999.10", "1.25", "0", "1"]],
+                "asks": [["65000.20", "0.75", "0", "1"]],
+                "ts": "1710000000456",
+                "seqId": 100i64,
+                "prevSeqId": -1i64
+            }]
+        });
+
+        process_okx_text_message(&feed, &message.to_string(), 1710000001.5)
+            .await
+            .expect("process okx book");
+
+        assert_eq!(*seen.lock().expect("lock"), 1);
+        let states = feed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USDT").expect("btc-usdt state");
+        assert_eq!(state.bids().len(), 1);
+        assert_eq!(state.asks().len(), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn okx_book_gap_returns_error() {
+        let feed = Okx::new().l2_book().symbol("BTC-USDT").build();
+        let snapshot = serde_json::json!({
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{
+                "bids": [["64999.10", "1.25", "0", "1"]],
+                "asks": [["65000.20", "0.75", "0", "1"]],
+                "ts": "1710000000456",
+                "seqId": 100i64,
+                "prevSeqId": -1i64
+            }]
+        });
+        let gap_update = serde_json::json!({
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "update",
+            "data": [{
+                "bids": [["64999.10", "1.25", "0", "1"]],
+                "asks": [["65000.20", "0.75", "0", "1"]],
+                "ts": "1710000000457",
+                "seqId": 102i64,
+                "prevSeqId": 999i64
+            }]
+        });
+
+        process_okx_text_message(&feed, &snapshot.to_string(), 1710000001.5)
+            .await
+            .expect("snapshot");
+        let err = process_okx_text_message(&feed, &gap_update.to_string(), 1710000001.6)
+            .await
+            .expect_err("gap should fail");
+
+        match err {
+            Error::Parse(message) => assert!(message.contains("sequence gap")),
+            _ => panic!("unexpected error variant"),
+        }
     }
 
     #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
