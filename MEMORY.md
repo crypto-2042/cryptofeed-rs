@@ -44,6 +44,18 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - books sequence gap detection
   - live websocket session now sends real subscribe payloads
   - it is now much closer to Binance in public runtime coverage, but Binance still has the more advanced order book bootstrap/resync path
+- Bybit V5 currently has:
+  - official public spot websocket URL
+  - live subscription payload generation
+  - ticker/trade/l2_book/candles parsing
+  - runtime-side dispatch and text-message processing
+  - no dedicated order book sync state yet
+- OKX v5 currently has:
+  - official public websocket URL
+  - live subscription payload generation
+  - ticker/trade/l2_book/candles parsing
+  - runtime-side dispatch and text-message processing
+  - no dedicated order book sync state yet
 
 ## Testing Memory
 
@@ -63,5 +75,5 @@ Project-specific memory for `rust/cryptofeed-rs`.
 
 - Use `PARITY.md` as the source of truth before adding more CEX implementations.
 - The scoped Binance/Bitget public parity gate is complete.
-- Next phase can start adding new CEX runtime implementations, using latest stable official APIs.
-- Coinbase and Kraken are the next likely live runtime candidates.
+- Bybit and OKX live public runtime paths are now present.
+- Next maturity work should add Bybit/OKX order book sync semantics before adding another CEX.

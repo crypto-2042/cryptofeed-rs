@@ -4,7 +4,7 @@ Last updated: 2026-04-22
 
 ## Current State
 
-`cryptofeed-rs` has moved beyond scaffolding. The workspace, shared abstractions, public model crates, runtime orchestration, Binance public runtime path, Bitget v3 public runtime path, reconnect/backoff, concurrent feed execution, graceful shutdown, order book state synchronization, and scoped baseline public parity are all in place.
+`cryptofeed-rs` has moved beyond scaffolding. The workspace, shared abstractions, public model crates, runtime orchestration, Binance public runtime path, Bitget v3 public runtime path, Bybit V5 public runtime path, OKX v5 public runtime path, reconnect/backoff, concurrent feed execution, graceful shutdown, order book state synchronization, and scoped baseline public parity are all in place.
 
 ## Completed
 
@@ -51,17 +51,32 @@ Last updated: 2026-04-22
   - books snapshot/update sync semantics
   - books sequence gap detection
   - websocket session sends real subscribe messages
+- Bybit V5 public:
+  - official V5 public spot websocket URL
+  - live subscription payload generation
+  - `ticker` / `trade` / `l2_book` / `candles` parsing
+  - runtime dispatch and text-message processing
+  - websocket session sends real subscribe messages
+- OKX v5 public:
+  - official v5 public websocket URL
+  - live subscription payload generation
+  - `ticker` / `trade` / `l2_book` / `candles` parsing
+  - runtime dispatch and text-message processing
+  - websocket session sends real subscribe messages
 
 ## In Progress
 
 - Binance and Bitget scoped public baseline parity is complete for the currently selected channels.
 - `PARITY.md` is the source of truth for expansion gates before adding more CEX implementations.
+- Bybit and OKX have live public runtime scaffolding and parity fixtures; next maturity work is order book sync semantics.
 
 ## Not Started
 
 - Private/authenticated support
 - Coinbase live runtime path
 - Kraken live runtime path
+- Bybit order book sync semantics
+- OKX order book sync semantics
 - futures/perpetual-only public channels such as `open_interest` and `index`
 
 ## Verification Baseline
@@ -97,5 +112,8 @@ cargo test --workspace
 - `a0317e7` `feat: dispatch binance bootstrap snapshots`
 - `2e545c7` `feat: track l2 book runtime state`
 - `321d7ce` `feat: resync binance book gaps`
+- `be87f2e` `feat: add bybit okx public scaffolding`
+- `13f146e` `feat: wire bybit public runtime`
+- `b4a88e5` `feat: wire okx public runtime`
 - `449ff49` `feat: add candles public parity`
 - `0f53a06` `feat: add binance funding liquidation parity`

@@ -177,3 +177,25 @@ Do not add new CEX runtime implementations until:
 - [x] Binance `funding` and `liquidations` are implemented or explicitly deferred.
 
 After this gate, new CEX integrations must use latest stable official APIs.
+
+## Next CEX Runtime Status
+
+Bybit V5:
+
+- [x] latest stable API selected
+- [x] public websocket URL
+- [x] subscription payload
+- [x] ticker/trade/l2_book/candles parsers
+- [x] runtime text processing and dispatch
+- [x] fixture parity tests
+- [ ] order book sync semantics
+
+OKX v5:
+
+- [x] latest stable API selected
+- [x] public websocket URL
+- [x] subscription payload
+- [x] ticker/trade/l2_book/candles parsers
+- [x] runtime text processing and dispatch
+- [x] fixture parity tests
+- [ ] order book sync semantics
