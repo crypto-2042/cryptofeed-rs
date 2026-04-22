@@ -14,6 +14,8 @@ use crate::exchange::{
         book_sync::{BitgetBookAction, BitgetBookSync, BitgetDepthUpdate},
         parser as bitget_parser,
     },
+    bybit::adapter::BybitAdapter,
+    okx::adapter::OkxAdapter,
 };
 use crate::feed::FeedHandler;
 use cryptofeed_core::{
@@ -45,6 +47,7 @@ pub async fn run(handler: FeedHandler) -> Result<()> {
             match feed.exchange {
                 ExchangeId::Binance => consume_binance_feed(feed, shutdown).await,
                 ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
+                ExchangeId::Bybit | ExchangeId::Okx => Ok(()),
                 ExchangeId::Coinbase | ExchangeId::Kraken => Ok(()),
             }
         },
@@ -61,8 +64,10 @@ fn planned_url(feed: &ExchangeFeed) -> String {
     match feed.exchange {
         ExchangeId::Binance => BinanceAdapter::subscription_url(feed),
         ExchangeId::Bitget => BitgetAdapter::subscription_url(feed),
+        ExchangeId::Bybit => BybitAdapter::subscription_url(feed),
         ExchangeId::Coinbase => String::new(),
         ExchangeId::Kraken => String::new(),
+        ExchangeId::Okx => OkxAdapter::subscription_url(feed),
     }
 }
 

@@ -1,7 +1,9 @@
 pub mod binance;
 pub mod bitget;
+pub mod bybit;
 pub mod coinbase;
 pub mod kraken;
+pub mod okx;
 
 use std::{
     collections::HashMap,

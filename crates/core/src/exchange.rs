@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 pub enum ExchangeId {
     Binance,
     Bitget,
+    Bybit,
     Coinbase,
     Kraken,
+    Okx,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
