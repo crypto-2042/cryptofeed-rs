@@ -53,13 +53,15 @@ Last updated: 2026-04-17
 
 - Binance and Bitget are now the primary “baseline parity” exchanges for public market data validation.
 - The next remaining maturity work is deeper order book synchronization semantics and then parity validation against Python behavior.
+- `PARITY.md` now tracks Python baseline vs Rust parity and is the source of truth before adding more CEX implementations.
 
 ## Not Started
 
 - Private/authenticated support
 - Coinbase live runtime path
 - Kraken live runtime path
-- full order book snapshot + delta synchronization semantics
+- examples for Binance and Bitget public feeds
+- fixture-based Python-vs-Rust normalized event parity tests
 
 ## Verification Baseline
 

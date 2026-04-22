@@ -62,5 +62,6 @@ Project-specific memory for `rust/cryptofeed-rs`.
 ## Near-Term Priorities
 
 - Finish Python-vs-Rust public parity checklist for Binance and Bitget.
+- Use `PARITY.md` as the source of truth before adding more CEX implementations.
 - Improve order book synchronization semantics further, especially around bootstrap/resync behavior.
 - Upgrade Coinbase and Kraken from parser shells to real runtime paths only after Binance/Bitget parity is satisfactory.
