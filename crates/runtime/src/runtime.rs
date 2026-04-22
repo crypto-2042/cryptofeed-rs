@@ -15,6 +15,7 @@ use crate::exchange::{
         parser as bitget_parser,
     },
     bybit::adapter::BybitAdapter,
+    bybit::adapter::BybitEvent,
     okx::adapter::OkxAdapter,
 };
 use crate::feed::FeedHandler;
@@ -47,7 +48,8 @@ pub async fn run(handler: FeedHandler) -> Result<()> {
             match feed.exchange {
                 ExchangeId::Binance => consume_binance_feed(feed, shutdown).await,
                 ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
-                ExchangeId::Bybit | ExchangeId::Okx => Ok(()),
+                ExchangeId::Bybit => consume_bybit_feed(feed, shutdown).await,
+                ExchangeId::Okx => Ok(()),
                 ExchangeId::Coinbase | ExchangeId::Kraken => Ok(()),
             }
         },
@@ -135,6 +137,15 @@ async fn consume_bitget_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
     .await
 }
 
+async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+    supervisor::retry_with_backoff(3, supervisor::Backoff::new(1, 8), move || {
+        let feed = feed.clone();
+        let shutdown = shutdown.clone();
+        async move { consume_bybit_session(feed, shutdown).await }
+    })
+    .await
+}
+
 async fn consume_binance_session(
     feed: ExchangeFeed,
     mut shutdown: watch::Receiver<bool>,
@@ -184,6 +195,25 @@ async fn consume_bitget_session(
         connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await?
     {
         process_bitget_text_message(&feed, &text, current_timestamp()).await?;
+    }
+
+    Ok(())
+}
+
+async fn consume_bybit_session(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url);
+    let mut stream = connection.connect().await?;
+    let subscribe = BybitAdapter::subscription_message(&feed);
+    connection::send_text(&mut stream, &subscribe).await?;
+
+    while let Some(text) =
+        connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await?
+    {
+        process_bybit_text_message(&feed, &text, current_timestamp()).await?;
     }
 
     Ok(())
@@ -265,6 +295,37 @@ async fn dispatch_bitget_l2_book(feed: &ExchangeFeed, book: L2Book) {
     apply_orderbook_state(feed, &book);
     if let Some(handler) = &feed.orderbook_handler {
         handler.on_l2_book(book).await;
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
+    match event {
+        #[cfg(feature = "candles")]
+        BybitEvent::Candle(candle) => {
+            if let Some(handler) = &feed.candle_handler {
+                handler.on_candle(candle).await;
+            }
+        }
+        #[cfg(feature = "orderbook")]
+        BybitEvent::L2Book(book) => {
+            apply_orderbook_state(feed, &book);
+            if let Some(handler) = &feed.orderbook_handler {
+                handler.on_l2_book(book).await;
+            }
+        }
+        #[cfg(feature = "ticker")]
+        BybitEvent::Ticker(ticker) => {
+            if let Some(handler) = &feed.ticker_handler {
+                handler.on_ticker(ticker).await;
+            }
+        }
+        #[cfg(feature = "trade")]
+        BybitEvent::Trade(trade) => {
+            if let Some(handler) = &feed.trade_handler {
+                handler.on_trade(trade).await;
+            }
+        }
     }
 }
 
@@ -524,6 +585,19 @@ async fn process_bitget_text_message(
     Ok(())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+async fn process_bybit_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(event) = BybitAdapter::parse_message(&message, received_ts) {
+        dispatch_bybit_event(feed, event).await;
+    }
+    Ok(())
+}
+
 #[cfg(feature = "orderbook")]
 async fn process_bitget_orderbook_message(
     feed: &ExchangeFeed,
@@ -617,6 +691,7 @@ mod tests {
 
     use super::{
         planned_connection_urls, process_binance_text_message, process_bitget_text_message,
+        process_bybit_text_message,
     };
     use crate::{
         FeedHandler,
@@ -628,6 +703,7 @@ mod tests {
             Bitget,
             adapter::{BitgetAdapter, BitgetEvent},
         },
+        exchange::bybit::Bybit,
     };
     use async_trait::async_trait;
     use cryptofeed_core::error::Error;
@@ -669,6 +745,25 @@ mod tests {
         assert_eq!(
             planned_connection_urls(&handler),
             vec!["wss://ws.bitget.com/v3/ws/public".to_owned()]
+        );
+    }
+
+    #[test]
+    fn plans_bybit_connection_urls() {
+        let mut handler = FeedHandler::new();
+        handler.add_feed(
+            Bybit::new()
+                .ticker()
+                .trade()
+                .l2_book()
+                .candles()
+                .symbol("BTC-USDT")
+                .build(),
+        );
+
+        assert_eq!(
+            planned_connection_urls(&handler),
+            vec!["wss://stream.bybit.com/v5/public/spot".to_owned()]
         );
     }
 
@@ -997,6 +1092,39 @@ mod tests {
         process_bitget_text_message(&feed, &message.to_string(), 1710000001.5)
             .await
             .expect("process bitget trade");
+
+        assert_eq!(*trade_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn processes_bybit_trade_message() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let feed = Bybit::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "topic": "publicTrade.BTCUSDT",
+            "type": "snapshot",
+            "ts": 1672304486868i64,
+            "data": [{
+                "T": 1672304486865i64,
+                "s": "BTCUSDT",
+                "S": "Buy",
+                "v": "0.001",
+                "p": "16578.50",
+                "i": "20f43950"
+            }]
+        });
+
+        process_bybit_text_message(&feed, &message.to_string(), 1672304487.0)
+            .await
+            .expect("process bybit trade");
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
     }
