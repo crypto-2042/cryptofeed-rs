@@ -5,6 +5,8 @@ members = [
   "crates/trade",
   "crates/orderbook",
   "crates/candles",
+  "crates/funding",
+  "crates/liquidations",
   "crates/runtime",
 ]
 resolver = "2"

@@ -117,6 +117,59 @@ fn binance_candle_matches_python_public_baseline() {
 }
 
 #[test]
+fn binance_funding_matches_python_public_baseline() {
+    let message = json!({
+        "e": "markPriceUpdate",
+        "E": 1562305380000i64,
+        "s": "BTCUSDT",
+        "p": "11185.87786614",
+        "r": "0.00030000",
+        "T": 1562306400000i64
+    });
+
+    let funding = binance_parser::parse_funding(&message, 1562305381.0).expect("funding");
+
+    assert_eq!(funding.symbol.as_str(), "BTC-USDT");
+    assert_eq!(
+        funding.mark_price,
+        Some(Decimal::from_str_exact("11185.87786614").unwrap())
+    );
+    assert_eq!(
+        funding.rate,
+        Some(Decimal::from_str_exact("0.00030000").unwrap())
+    );
+    assert_eq!(funding.next_funding_time, Some(1562306400.0));
+    assert_eq!(funding.exchange_ts, 1562305380.0);
+}
+
+#[test]
+fn binance_liquidation_matches_python_public_baseline() {
+    let message = json!({
+        "e": "forceOrder",
+        "E": 1568014460893i64,
+        "o": {
+            "s": "BTCUSDT",
+            "S": "SELL",
+            "q": "0.014",
+            "p": "9910",
+            "X": "FILLED"
+        }
+    });
+
+    let liquidation =
+        binance_parser::parse_liquidation(&message, 1568014461.0).expect("liquidation");
+
+    assert_eq!(liquidation.symbol.as_str(), "BTC-USDT");
+    assert_eq!(liquidation.side, "sell");
+    assert_eq!(
+        liquidation.quantity,
+        Decimal::from_str_exact("0.014").unwrap()
+    );
+    assert_eq!(liquidation.price, Decimal::from_str_exact("9910").unwrap());
+    assert_eq!(liquidation.exchange_ts, 1568014460.893);
+}
+
+#[test]
 fn binance_combined_stream_unwrap_matches_public_baseline() {
     let message = json!({
         "stream": "btcusdt@aggTrade",

@@ -3,6 +3,10 @@ use super::book_sync::BinanceDepthDelta;
 #[cfg(feature = "candles")]
 use cryptofeed_candles::Candle;
 use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(feature = "funding")]
+use cryptofeed_funding::Funding;
+#[cfg(feature = "liquidations")]
+use cryptofeed_liquidations::{Liquidation, LiquidationStatus};
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::{L2Book, L2BookDelta, PriceLevel};
 #[cfg(feature = "ticker")]
@@ -65,6 +69,65 @@ pub fn parse_candle(message: &Value, received_ts: f64) -> Option<Candle> {
         low: parse_decimal(candle.get("l")?)?,
         volume: parse_decimal(candle.get("v")?)?,
         closed: candle.get("x").and_then(|v| v.as_bool()),
+        exchange_ts: message
+            .get("E")
+            .and_then(parse_millis)
+            .unwrap_or(received_ts),
+        received_ts,
+    })
+}
+
+#[cfg(feature = "funding")]
+pub fn parse_funding(message: &Value, received_ts: f64) -> Option<Funding> {
+    let next_funding_time = message
+        .get("T")
+        .and_then(|v| v.as_i64())
+        .filter(|v| *v > 0)
+        .map(|v| v as f64 / 1000.0);
+    let rate = if next_funding_time.is_some() {
+        message
+            .get("r")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .and_then(|v| Decimal::from_str_exact(v).ok())
+    } else {
+        None
+    };
+
+    Some(Funding {
+        exchange: ExchangeId::Binance,
+        symbol: parse_symbol(message.get("s")?.as_str()?),
+        mark_price: message.get("p").and_then(parse_decimal),
+        rate,
+        next_funding_time,
+        predicted_rate: message.get("P").and_then(parse_decimal),
+        exchange_ts: message
+            .get("E")
+            .and_then(parse_millis)
+            .unwrap_or(received_ts),
+        received_ts,
+    })
+}
+
+#[cfg(feature = "liquidations")]
+pub fn parse_liquidation(message: &Value, received_ts: f64) -> Option<Liquidation> {
+    let order = message.get("o")?;
+    Some(Liquidation {
+        exchange: ExchangeId::Binance,
+        symbol: parse_symbol(order.get("s")?.as_str()?),
+        side: if order.get("S")?.as_str()? == "SELL" {
+            "sell".to_owned()
+        } else {
+            "buy".to_owned()
+        },
+        quantity: parse_decimal(order.get("q")?)?,
+        price: parse_decimal(order.get("p")?)?,
+        id: None,
+        status: if order.get("X")?.as_str()? == "FILLED" {
+            LiquidationStatus::Filled
+        } else {
+            LiquidationStatus::Unfilled
+        },
         exchange_ts: message
             .get("E")
             .and_then(parse_millis)
@@ -162,12 +225,16 @@ fn parse_millis(value: &Value) -> Option<f64> {
 mod tests {
     #[cfg(feature = "candles")]
     use super::parse_candle;
+    #[cfg(feature = "funding")]
+    use super::parse_funding;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book_snapshot;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book_update;
+    #[cfg(feature = "liquidations")]
+    use super::parse_liquidation;
     #[cfg(feature = "ticker")]
     use super::parse_ticker;
     #[cfg(feature = "trade")]
@@ -244,6 +311,58 @@ mod tests {
         assert_eq!(candle.interval, "1m");
         assert_eq!(candle.start, 1615927620.0);
         assert_eq!(candle.closed, Some(true));
+    }
+
+    #[cfg(feature = "funding")]
+    #[test]
+    fn parses_binance_funding_message() {
+        let message = json!({
+            "e": "markPriceUpdate",
+            "E": 1562305380000i64,
+            "s": "BTCUSDT",
+            "p": "11185.87786614",
+            "r": "0.00030000",
+            "T": 1562306400000i64
+        });
+
+        let funding = parse_funding(&message, 1562305381.0).expect("funding");
+
+        assert_eq!(funding.symbol.as_str(), "BTC-USDT");
+        assert_eq!(
+            funding.mark_price,
+            Some(Decimal::from_str_exact("11185.87786614").unwrap())
+        );
+        assert_eq!(
+            funding.rate,
+            Some(Decimal::from_str_exact("0.00030000").unwrap())
+        );
+        assert_eq!(funding.next_funding_time, Some(1562306400.0));
+    }
+
+    #[cfg(feature = "liquidations")]
+    #[test]
+    fn parses_binance_liquidation_message() {
+        let message = json!({
+            "e": "forceOrder",
+            "E": 1568014460893i64,
+            "o": {
+                "s": "BTCUSDT",
+                "S": "SELL",
+                "q": "0.014",
+                "p": "9910",
+                "X": "FILLED"
+            }
+        });
+
+        let liquidation = parse_liquidation(&message, 1568014461.0).expect("liquidation");
+
+        assert_eq!(liquidation.symbol.as_str(), "BTC-USDT");
+        assert_eq!(liquidation.side, "sell");
+        assert_eq!(
+            liquidation.quantity,
+            Decimal::from_str_exact("0.014").unwrap()
+        );
+        assert_eq!(liquidation.price, Decimal::from_str_exact("9910").unwrap());
     }
 
     #[cfg(feature = "orderbook")]

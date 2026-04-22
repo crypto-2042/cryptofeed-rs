@@ -18,6 +18,10 @@ use cryptofeed_core::{
     exchange::{Channel, ExchangeId},
     symbol::Symbol,
 };
+#[cfg(feature = "funding")]
+use cryptofeed_funding::FundingHandler;
+#[cfg(feature = "liquidations")]
+use cryptofeed_liquidations::LiquidationHandler;
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::{L2BookState, OrderBookHandler};
 #[cfg(feature = "ticker")]
@@ -34,6 +38,10 @@ pub struct ExchangeFeed {
     pub ticker_handler: Option<Arc<dyn TickerHandler>>,
     #[cfg(feature = "candles")]
     pub candle_handler: Option<Arc<dyn CandleHandler>>,
+    #[cfg(feature = "funding")]
+    pub funding_handler: Option<Arc<dyn FundingHandler>>,
+    #[cfg(feature = "liquidations")]
+    pub liquidation_handler: Option<Arc<dyn LiquidationHandler>>,
     #[cfg(feature = "trade")]
     pub trade_handler: Option<Arc<dyn TradeHandler>>,
     #[cfg(feature = "orderbook")]
@@ -54,6 +62,10 @@ pub struct ExchangeFeedBuilder {
     ticker_handler: Option<Arc<dyn TickerHandler>>,
     #[cfg(feature = "candles")]
     candle_handler: Option<Arc<dyn CandleHandler>>,
+    #[cfg(feature = "funding")]
+    funding_handler: Option<Arc<dyn FundingHandler>>,
+    #[cfg(feature = "liquidations")]
+    liquidation_handler: Option<Arc<dyn LiquidationHandler>>,
     #[cfg(feature = "trade")]
     trade_handler: Option<Arc<dyn TradeHandler>>,
     #[cfg(feature = "orderbook")]
@@ -76,6 +88,10 @@ impl ExchangeFeedBuilder {
             ticker_handler: None,
             #[cfg(feature = "candles")]
             candle_handler: None,
+            #[cfg(feature = "funding")]
+            funding_handler: None,
+            #[cfg(feature = "liquidations")]
+            liquidation_handler: None,
             #[cfg(feature = "trade")]
             trade_handler: None,
             #[cfg(feature = "orderbook")]
@@ -109,9 +125,31 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    pub fn funding(mut self) -> Self {
+        self.channels.push(Channel::Funding);
+        self
+    }
+
+    pub fn liquidations(mut self) -> Self {
+        self.channels.push(Channel::Liquidations);
+        self
+    }
+
     #[cfg(feature = "candles")]
     pub fn candle_handler(mut self, handler: Arc<dyn CandleHandler>) -> Self {
         self.candle_handler = Some(handler);
+        self
+    }
+
+    #[cfg(feature = "funding")]
+    pub fn funding_handler(mut self, handler: Arc<dyn FundingHandler>) -> Self {
+        self.funding_handler = Some(handler);
+        self
+    }
+
+    #[cfg(feature = "liquidations")]
+    pub fn liquidation_handler(mut self, handler: Arc<dyn LiquidationHandler>) -> Self {
+        self.liquidation_handler = Some(handler);
         self
     }
 
@@ -149,6 +187,10 @@ impl ExchangeFeedBuilder {
             ticker_handler: self.ticker_handler,
             #[cfg(feature = "candles")]
             candle_handler: self.candle_handler,
+            #[cfg(feature = "funding")]
+            funding_handler: self.funding_handler,
+            #[cfg(feature = "liquidations")]
+            liquidation_handler: self.liquidation_handler,
             #[cfg(feature = "trade")]
             trade_handler: self.trade_handler,
             #[cfg(feature = "orderbook")]

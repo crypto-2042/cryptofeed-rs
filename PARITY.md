@@ -71,8 +71,8 @@ Rust Binance current support:
 - [x] `trade`
 - [x] `l2_book`
 - [x] `candles`
-- [ ] `funding`
-- [ ] `liquidations`
+- [x] `funding`
+- [x] `liquidations`
 
 Runtime parity:
 
@@ -96,8 +96,8 @@ Runtime parity:
 - [ ] full live bootstrap integration test with mocked websocket + mocked REST snapshot
 - [ ] checksum validation, if applicable
 - [ ] documented recovery behavior after repeated snapshot failures
-- [ ] normalized funding parser and handler
-- [ ] normalized liquidation parser and handler
+- [x] normalized funding parser and handler
+- [x] normalized liquidation parser and handler
 
 ## Bitget v3 Public Parity
 
@@ -172,6 +172,6 @@ Do not add new CEX runtime implementations until:
 - [x] Binance and Bitget fixture tests exist.
 - [x] `ticker`, `trade`, `l2_book`, and `candles` parity is documented as complete for both exchanges.
 - [x] remaining unsupported Python public channels are explicitly accepted as out of current scope or added to the Rust plan.
-- [ ] Binance `funding` and `liquidations` are implemented or explicitly deferred.
+- [x] Binance `funding` and `liquidations` are implemented or explicitly deferred.
 
 After this gate, new CEX integrations must use latest stable official APIs.

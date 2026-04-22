@@ -5,6 +5,10 @@ use serde_json::Value;
 
 #[cfg(feature = "candles")]
 use cryptofeed_candles::Candle;
+#[cfg(feature = "funding")]
+use cryptofeed_funding::Funding;
+#[cfg(feature = "liquidations")]
+use cryptofeed_liquidations::Liquidation;
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::L2Book;
 #[cfg(feature = "ticker")]
@@ -17,6 +21,10 @@ pub struct BinanceAdapter;
 pub enum BinanceEvent {
     #[cfg(feature = "candles")]
     Candle(Candle),
+    #[cfg(feature = "funding")]
+    Funding(Funding),
+    #[cfg(feature = "liquidations")]
+    Liquidation(Liquidation),
     #[cfg(feature = "orderbook")]
     L2Book(L2Book),
     #[cfg(feature = "ticker")]
@@ -42,6 +50,8 @@ impl BinanceAdapter {
                     Channel::Trade => format!("{exchange_symbol}@aggTrade"),
                     Channel::L2Book => format!("{exchange_symbol}@depth@100ms"),
                     Channel::Candles => format!("{exchange_symbol}@kline_1m"),
+                    Channel::Funding => format!("{exchange_symbol}@markPrice"),
+                    Channel::Liquidations => format!("{exchange_symbol}@forceOrder"),
                 };
                 streams.push(stream);
             }
@@ -65,6 +75,14 @@ impl BinanceAdapter {
         match event {
             #[cfg(feature = "candles")]
             "kline" => parser::parse_candle(payload, received_ts).map(BinanceEvent::Candle),
+            #[cfg(feature = "funding")]
+            "markPriceUpdate" => {
+                parser::parse_funding(payload, received_ts).map(BinanceEvent::Funding)
+            }
+            #[cfg(feature = "liquidations")]
+            "forceOrder" => {
+                parser::parse_liquidation(payload, received_ts).map(BinanceEvent::Liquidation)
+            }
             #[cfg(feature = "orderbook")]
             "depthUpdate" => parser::parse_l2_book(payload, received_ts).map(BinanceEvent::L2Book),
             #[cfg(feature = "trade")]

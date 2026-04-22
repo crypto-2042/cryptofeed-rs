@@ -193,6 +193,18 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
                 handler.on_candle(candle).await;
             }
         }
+        #[cfg(feature = "funding")]
+        BinanceEvent::Funding(funding) => {
+            if let Some(handler) = &feed.funding_handler {
+                handler.on_funding(funding).await;
+            }
+        }
+        #[cfg(feature = "liquidations")]
+        BinanceEvent::Liquidation(liquidation) => {
+            if let Some(handler) = &feed.liquidation_handler {
+                handler.on_liquidation(liquidation).await;
+            }
+        }
         #[cfg(feature = "orderbook")]
         BinanceEvent::L2Book(book) => {
             apply_orderbook_state(feed, &book);

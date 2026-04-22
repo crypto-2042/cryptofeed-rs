@@ -40,19 +40,20 @@ impl BitgetAdapter {
             .iter()
             .flat_map(|symbol| {
                 let exchange_symbol = symbol.as_str().replace('-', "");
-                feed.channels.iter().map(move |channel| {
+                feed.channels.iter().filter_map(move |channel| {
                     let topic = match channel {
                         Channel::Candles => "candle1m",
                         Channel::Ticker => "ticker",
                         Channel::Trade => "publicTrade",
                         Channel::L2Book => "books",
+                        Channel::Funding | Channel::Liquidations => return None,
                     };
 
-                    serde_json::json!({
+                    Some(serde_json::json!({
                         "instType": "spot",
                         "topic": topic,
                         "symbol": exchange_symbol,
-                    })
+                    }))
                 })
             })
             .collect();
