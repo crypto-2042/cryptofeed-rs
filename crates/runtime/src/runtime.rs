@@ -16,6 +16,8 @@ use crate::exchange::{
     },
     bybit::adapter::BybitAdapter,
     bybit::adapter::BybitEvent,
+    bybit::book_sync::BybitBookSync,
+    bybit::parser as bybit_parser,
     okx::adapter::{OkxAdapter, OkxEvent},
 };
 use crate::feed::FeedHandler;
@@ -337,10 +339,7 @@ async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
         }
         #[cfg(feature = "orderbook")]
         BybitEvent::L2Book(book) => {
-            apply_orderbook_state(feed, &book);
-            if let Some(handler) = &feed.orderbook_handler {
-                handler.on_l2_book(book).await;
-            }
+            dispatch_bybit_l2_book(feed, book).await;
         }
         #[cfg(feature = "ticker")]
         BybitEvent::Ticker(ticker) => {
@@ -354,6 +353,14 @@ async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
                 handler.on_trade(trade).await;
             }
         }
+    }
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_bybit_l2_book(feed: &ExchangeFeed, book: L2Book) {
+    apply_orderbook_state(feed, &book);
+    if let Some(handler) = &feed.orderbook_handler {
+        handler.on_l2_book(book).await;
     }
 }
 
@@ -651,10 +658,52 @@ async fn process_bybit_text_message(
     received_ts: f64,
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if process_bybit_orderbook_message(feed, &message, received_ts).await? {
+        return Ok(());
+    }
     if let Some(event) = BybitAdapter::parse_message(&message, received_ts) {
         dispatch_bybit_event(feed, event).await;
     }
     Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_bybit_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+) -> Result<bool> {
+    let topic = match message.get("topic").and_then(|v| v.as_str()) {
+        Some(topic) => topic,
+        None => return Ok(false),
+    };
+
+    if !topic.starts_with("orderbook.") {
+        return Ok(false);
+    }
+
+    let update = bybit_parser::parse_l2_book_update(message, received_ts)
+        .ok_or_else(|| Error::Parse("failed to parse bybit depth update".to_owned()))?;
+    let symbol_key = match &update.book {
+        L2Book::Snapshot(snapshot) => snapshot.symbol.as_str().to_owned(),
+        L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
+    };
+    let maybe_book = {
+        let mut syncs = feed.bybit_book_syncs.lock().expect("bybit sync lock");
+        let sync = syncs.entry(symbol_key).or_insert_with(|| {
+            BybitBookSync::new(match &update.book {
+                L2Book::Snapshot(snapshot) => snapshot.symbol.clone(),
+                L2Book::Delta(delta) => delta.symbol.clone(),
+            })
+        });
+        sync.apply(update)?
+    };
+
+    if let Some(book) = maybe_book {
+        dispatch_bybit_l2_book(feed, book).await;
+    }
+
+    Ok(true)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -1196,6 +1245,40 @@ mod tests {
             .expect("process bybit trade");
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn dispatches_bybit_l2_book_events() {
+        let seen = Arc::new(Mutex::new(0));
+        let feed = Bybit::new()
+            .l2_book()
+            .orderbook_handler(Arc::new(TestOrderBookHandler { seen: seen.clone() }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "topic": "orderbook.50.BTCUSDT",
+            "type": "snapshot",
+            "ts": 1672304484978i64,
+            "data": {
+                "s": "BTCUSDT",
+                "b": [["16493.50", "0.006"]],
+                "a": [["16493.60", "0.100"]],
+                "u": 18521288u64,
+                "seq": 7961638724u64
+            }
+        });
+
+        process_bybit_text_message(&feed, &message.to_string(), 1672304485.0)
+            .await
+            .expect("process bybit book");
+
+        assert_eq!(*seen.lock().expect("lock"), 1);
+        let states = feed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USDT").expect("btc-usdt state");
+        assert_eq!(state.bids().len(), 1);
+        assert_eq!(state.asks().len(), 1);
     }
 
     #[test]

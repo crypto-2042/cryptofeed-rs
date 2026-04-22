@@ -1,3 +1,5 @@
+#[cfg(feature = "orderbook")]
+use super::book_sync::{BybitBookAction, BybitDepthUpdate};
 #[cfg(feature = "candles")]
 use cryptofeed_candles::Candle;
 use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
@@ -61,6 +63,20 @@ pub fn parse_l2_book(message: &Value, received_ts: f64) -> Option<L2Book> {
             .unwrap_or(received_ts),
         received_ts,
     }))
+}
+
+#[cfg(feature = "orderbook")]
+pub fn parse_l2_book_update(message: &Value, received_ts: f64) -> Option<BybitDepthUpdate> {
+    let data = message.get("data")?;
+    Some(BybitDepthUpdate {
+        action: match message.get("type")?.as_str()? {
+            "snapshot" => BybitBookAction::Snapshot,
+            _ => BybitBookAction::Delta,
+        },
+        update_id: data.get("u")?.as_u64()?,
+        seq: data.get("seq").and_then(|v| v.as_u64()),
+        book: parse_l2_book(message, received_ts)?,
+    })
 }
 
 #[cfg(feature = "candles")]
@@ -131,6 +147,8 @@ mod tests {
     use super::parse_candle;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book;
+    #[cfg(feature = "orderbook")]
+    use super::parse_l2_book_update;
     #[cfg(feature = "ticker")]
     use super::parse_ticker;
     #[cfg(feature = "trade")]
@@ -196,6 +214,27 @@ mod tests {
             L2Book::Delta(delta) => assert_eq!(delta.symbol.as_str(), "BTC-USDT"),
             L2Book::Snapshot(_) => panic!("expected delta event model"),
         }
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn parses_bybit_l2_book_update_ids() {
+        let message = json!({
+            "topic": "orderbook.50.BTCUSDT",
+            "type": "snapshot",
+            "ts": 1672304484978i64,
+            "data": {
+                "s": "BTCUSDT",
+                "b": [["16493.50", "0.006"]],
+                "a": [["16493.60", "0.100"]],
+                "u": 18521288u64,
+                "seq": 7961638724u64
+            }
+        });
+
+        let update = parse_l2_book_update(&message, 1672304485.0).expect("update");
+        assert_eq!(update.update_id, 18521288);
+        assert_eq!(update.seq, Some(7961638724));
     }
 
     #[cfg(feature = "candles")]

@@ -14,6 +14,8 @@ use std::{
 use crate::exchange::binance::book_sync::BinanceBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::bitget::book_sync::BitgetBookSync;
+#[cfg(feature = "orderbook")]
+use crate::exchange::bybit::book_sync::BybitBookSync;
 #[cfg(feature = "candles")]
 use cryptofeed_candles::CandleHandler;
 use cryptofeed_core::{
@@ -54,6 +56,8 @@ pub struct ExchangeFeed {
     pub binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
     #[cfg(feature = "orderbook")]
     pub bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    pub bybit_book_syncs: Arc<Mutex<HashMap<String, BybitBookSync>>>,
 }
 
 pub struct ExchangeFeedBuilder {
@@ -78,6 +82,8 @@ pub struct ExchangeFeedBuilder {
     binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
     #[cfg(feature = "orderbook")]
     bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    bybit_book_syncs: Arc<Mutex<HashMap<String, BybitBookSync>>>,
 }
 
 impl ExchangeFeedBuilder {
@@ -104,6 +110,8 @@ impl ExchangeFeedBuilder {
             binance_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             bitget_book_syncs: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            bybit_book_syncs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -203,6 +211,8 @@ impl ExchangeFeedBuilder {
             binance_book_syncs: self.binance_book_syncs,
             #[cfg(feature = "orderbook")]
             bitget_book_syncs: self.bitget_book_syncs,
+            #[cfg(feature = "orderbook")]
+            bybit_book_syncs: self.bybit_book_syncs,
         }
     }
 }
