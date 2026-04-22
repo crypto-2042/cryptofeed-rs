@@ -4,7 +4,7 @@ Last updated: 2026-04-17
 
 ## Current State
 
-`cryptofeed-rs` has moved beyond scaffolding. The workspace, shared abstractions, public model crates, runtime orchestration, Binance public runtime path, Bitget v3 public runtime path, reconnect/backoff, concurrent feed execution, graceful shutdown, and order book state synchronization are all in place.
+`cryptofeed-rs` has moved beyond scaffolding. The workspace, shared abstractions, public model crates, runtime orchestration, Binance public runtime path, Bitget v3 public runtime path, reconnect/backoff, concurrent feed execution, graceful shutdown, order book state synchronization, and baseline public parity for ticker/trade/l2_book/candles are all in place.
 
 ## Completed
 
@@ -19,6 +19,7 @@ Last updated: 2026-04-17
   - `Ticker`
   - `Trade`
   - `L2Book`
+  - `Candle`
   - public handler traits
 - Runtime shell:
   - `FeedHandler`
@@ -30,7 +31,7 @@ Last updated: 2026-04-17
   - websocket URL planning
   - live websocket connect
   - combined-stream unwrap
-  - `ticker` / `trade` / `l2_book` parsing
+  - `ticker` / `trade` / `l2_book` / `candles` parsing
   - snapshot parser
   - delta sequence parsing
   - local book sync primitives
@@ -43,7 +44,7 @@ Last updated: 2026-04-17
 - Bitget v3 public:
   - official v3 public websocket URL
   - live subscription payload generation
-  - `ticker` / `trade` / `l2_book` parsing
+  - `ticker` / `trade` / `l2_book` / `candles` parsing
   - runtime dispatch and text-message processing
   - books snapshot/update sync semantics
   - books sequence gap detection
@@ -52,7 +53,7 @@ Last updated: 2026-04-17
 ## In Progress
 
 - Binance and Bitget are now the primary “baseline parity” exchanges for public market data validation.
-- The next remaining maturity work is deeper order book synchronization semantics and then parity validation against Python behavior.
+- The next remaining parity work is Binance-specific `funding` and `liquidations`, or an explicit decision to defer them.
 - `PARITY.md` now tracks Python baseline vs Rust parity and is the source of truth before adding more CEX implementations.
 
 ## Not Started
@@ -60,8 +61,9 @@ Last updated: 2026-04-17
 - Private/authenticated support
 - Coinbase live runtime path
 - Kraken live runtime path
-- examples for Binance and Bitget public feeds
-- fixture-based Python-vs-Rust normalized event parity tests
+- Binance `funding`
+- Binance `liquidations`
+- futures/perpetual-only public channels such as `open_interest` and `index`
 
 ## Verification Baseline
 

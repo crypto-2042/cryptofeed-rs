@@ -26,7 +26,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - websocket URL planning
   - live websocket connect
   - combined-stream unwrap
-  - ticker/trade/l2_book parsing
+  - ticker/trade/l2_book/candles parsing
   - snapshot parser and delta sequence parsing
   - local book sync primitives
   - bootstrap snapshot dispatch
@@ -38,7 +38,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Bitget v3 currently has:
   - official public websocket URL
   - live subscription payload generation using `instType/topic/symbol`
-  - ticker/trade/l2_book parsing
+  - ticker/trade/l2_book/candles parsing
   - runtime-side dispatch and text-message processing
   - books snapshot/update sync semantics
   - books sequence gap detection
@@ -61,7 +61,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
 
 ## Near-Term Priorities
 
-- Finish Python-vs-Rust public parity checklist for Binance and Bitget.
+- Finish Binance-specific Python public parity items: `funding` and `liquidations`, or explicitly defer them.
 - Use `PARITY.md` as the source of truth before adding more CEX implementations.
 - Improve order book synchronization semantics further, especially around bootstrap/resync behavior.
 - Upgrade Coinbase and Kraken from parser shells to real runtime paths only after Binance/Bitget parity is satisfactory.

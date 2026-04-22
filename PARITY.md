@@ -28,12 +28,14 @@ Relevant Python public market-data concepts:
   - `CANDLES`
   - exchange-specific public channels such as `FUNDING`, `OPEN_INTEREST`, `LIQUIDATIONS`
 
-Current Rust public baseline scope is intentionally narrower:
+Current Rust public baseline scope for Binance and Bitget:
 
 - `ticker`
 - `trade`
 - `l2_book`
 - `candles`
+- Binance-specific `funding`
+- Binance-specific `liquidations`
 - Binance
 - Bitget v3
 
@@ -94,6 +96,8 @@ Runtime parity:
 - [ ] full live bootstrap integration test with mocked websocket + mocked REST snapshot
 - [ ] checksum validation, if applicable
 - [ ] documented recovery behavior after repeated snapshot failures
+- [ ] normalized funding parser and handler
+- [ ] normalized liquidation parser and handler
 
 ## Bitget v3 Public Parity
 
@@ -133,6 +137,23 @@ Runtime parity:
 - [ ] documented recovery behavior after seq/pseq gap
 - [ ] checksum validation, if applicable
 
+Unsupported Python public channels in current Bitget parity scope:
+
+- `funding`: not part of current Python Bitget spot public baseline.
+- `liquidations`: not part of current Python Bitget spot public baseline.
+- `open_interest`: not part of current Python Bitget spot public baseline.
+- `index`: not part of current Python Bitget spot public baseline.
+
+## Deferred Public Channels
+
+These are public concepts in Python `cryptofeed`, but are not required before expanding beyond Binance and Bitget spot-public baseline unless explicitly moved into scope:
+
+- `open_interest`
+- `index`
+- exchange-specific derivatives-only variants
+
+These should be reconsidered when futures/perpetual support is added.
+
 ## Verification Baseline
 
 Run from `rust/cryptofeed-rs/`:
@@ -150,6 +171,7 @@ Do not add new CEX runtime implementations until:
 - [x] Binance and Bitget examples exist.
 - [x] Binance and Bitget fixture tests exist.
 - [x] `ticker`, `trade`, `l2_book`, and `candles` parity is documented as complete for both exchanges.
-- [ ] remaining unsupported Python public channels are explicitly accepted as out of current scope or added to the Rust plan.
+- [x] remaining unsupported Python public channels are explicitly accepted as out of current scope or added to the Rust plan.
+- [ ] Binance `funding` and `liquidations` are implemented or explicitly deferred.
 
 After this gate, new CEX integrations must use latest stable official APIs.
