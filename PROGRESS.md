@@ -1,10 +1,10 @@
 # Progress
 
-Last updated: 2026-04-17
+Last updated: 2026-04-22
 
 ## Current State
 
-`cryptofeed-rs` has moved beyond scaffolding. The workspace, shared abstractions, public model crates, runtime orchestration, Binance public runtime path, Bitget v3 public runtime path, reconnect/backoff, concurrent feed execution, graceful shutdown, order book state synchronization, and baseline public parity for ticker/trade/l2_book/candles are all in place.
+`cryptofeed-rs` has moved beyond scaffolding. The workspace, shared abstractions, public model crates, runtime orchestration, Binance public runtime path, Bitget v3 public runtime path, reconnect/backoff, concurrent feed execution, graceful shutdown, order book state synchronization, and scoped baseline public parity are all in place.
 
 ## Completed
 
@@ -20,6 +20,8 @@ Last updated: 2026-04-17
   - `Trade`
   - `L2Book`
   - `Candle`
+  - `Funding`
+  - `Liquidation`
   - public handler traits
 - Runtime shell:
   - `FeedHandler`
@@ -31,7 +33,7 @@ Last updated: 2026-04-17
   - websocket URL planning
   - live websocket connect
   - combined-stream unwrap
-  - `ticker` / `trade` / `l2_book` / `candles` parsing
+  - `ticker` / `trade` / `l2_book` / `candles` / `funding` / `liquidations` parsing
   - snapshot parser
   - delta sequence parsing
   - local book sync primitives
@@ -52,17 +54,14 @@ Last updated: 2026-04-17
 
 ## In Progress
 
-- Binance and Bitget are now the primary “baseline parity” exchanges for public market data validation.
-- The next remaining parity work is Binance-specific `funding` and `liquidations`, or an explicit decision to defer them.
-- `PARITY.md` now tracks Python baseline vs Rust parity and is the source of truth before adding more CEX implementations.
+- Binance and Bitget scoped public baseline parity is complete for the currently selected channels.
+- `PARITY.md` is the source of truth for expansion gates before adding more CEX implementations.
 
 ## Not Started
 
 - Private/authenticated support
 - Coinbase live runtime path
 - Kraken live runtime path
-- Binance `funding`
-- Binance `liquidations`
 - futures/perpetual-only public channels such as `open_interest` and `index`
 
 ## Verification Baseline
@@ -98,3 +97,5 @@ cargo test --workspace
 - `a0317e7` `feat: dispatch binance bootstrap snapshots`
 - `2e545c7` `feat: track l2 book runtime state`
 - `321d7ce` `feat: resync binance book gaps`
+- `449ff49` `feat: add candles public parity`
+- `0f53a06` `feat: add binance funding liquidation parity`

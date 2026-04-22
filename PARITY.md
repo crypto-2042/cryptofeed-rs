@@ -166,6 +166,8 @@ cargo test --workspace
 
 ## Expansion Gate
 
+Current status: passed for the scoped Binance/Bitget public baseline.
+
 Do not add new CEX runtime implementations until:
 
 - [x] Binance and Bitget examples exist.

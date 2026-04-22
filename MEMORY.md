@@ -26,7 +26,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - websocket URL planning
   - live websocket connect
   - combined-stream unwrap
-  - ticker/trade/l2_book/candles parsing
+  - ticker/trade/l2_book/candles/funding/liquidations parsing
   - snapshot parser and delta sequence parsing
   - local book sync primitives
   - bootstrap snapshot dispatch
@@ -61,7 +61,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
 
 ## Near-Term Priorities
 
-- Finish Binance-specific Python public parity items: `funding` and `liquidations`, or explicitly defer them.
 - Use `PARITY.md` as the source of truth before adding more CEX implementations.
-- Improve order book synchronization semantics further, especially around bootstrap/resync behavior.
-- Upgrade Coinbase and Kraken from parser shells to real runtime paths only after Binance/Bitget parity is satisfactory.
+- The scoped Binance/Bitget public parity gate is complete.
+- Next phase can start adding new CEX runtime implementations, using latest stable official APIs.
+- Coinbase and Kraken are the next likely live runtime candidates.
