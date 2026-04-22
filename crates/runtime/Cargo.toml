@@ -6,13 +6,15 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = ["ticker", "trade", "orderbook"]
+default = ["ticker", "trade", "orderbook", "candles"]
 ticker = ["dep:cryptofeed-ticker"]
 trade = ["dep:cryptofeed-trade"]
 orderbook = ["dep:cryptofeed-orderbook"]
+candles = ["dep:cryptofeed-candles"]
 
 [dependencies]
 cryptofeed-core = { path = "../core" }
+cryptofeed-candles = { path = "../candles", optional = true }
 cryptofeed-ticker = { path = "../ticker", optional = true }
 cryptofeed-trade = { path = "../trade", optional = true }
 cryptofeed-orderbook = { path = "../orderbook", optional = true }

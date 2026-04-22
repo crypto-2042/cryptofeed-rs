@@ -1,0 +1,12 @@
+[package]
+name = "cryptofeed-candles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+cryptofeed-core = { path = "../core" }
+async-trait.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true

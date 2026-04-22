@@ -33,6 +33,7 @@ Current Rust public baseline scope is intentionally narrower:
 - `ticker`
 - `trade`
 - `l2_book`
+- `candles`
 - Binance
 - Bitget v3
 
@@ -67,7 +68,7 @@ Rust Binance current support:
 - [x] `ticker`
 - [x] `trade`
 - [x] `l2_book`
-- [ ] `candles`
+- [x] `candles`
 - [ ] `funding`
 - [ ] `liquidations`
 
@@ -80,6 +81,7 @@ Runtime parity:
 - [x] normalized ticker parser
 - [x] normalized trade parser
 - [x] normalized l2 book parser
+- [x] normalized candle parser
 - [x] handler dispatch
 - [x] per-symbol `L2BookState`
 - [x] REST snapshot parser
@@ -109,7 +111,7 @@ Rust Bitget current support:
 - [x] `ticker`
 - [x] `trade`
 - [x] `l2_book`
-- [ ] `candles`
+- [x] `candles`
 
 Runtime parity:
 
@@ -122,6 +124,7 @@ Runtime parity:
 - [x] normalized ticker parser
 - [x] normalized trade parser
 - [x] normalized l2 book parser
+- [x] normalized candle parser
 - [x] handler dispatch
 - [x] per-symbol `L2BookState`
 - [x] books snapshot/update sync state
@@ -146,7 +149,7 @@ Do not add new CEX runtime implementations until:
 
 - [x] Binance and Bitget examples exist.
 - [x] Binance and Bitget fixture tests exist.
-- [ ] `ticker`, `trade`, and `l2_book` parity is documented as complete for both exchanges.
+- [x] `ticker`, `trade`, `l2_book`, and `candles` parity is documented as complete for both exchanges.
 - [ ] remaining unsupported Python public channels are explicitly accepted as out of current scope or added to the Rust plan.
 
 After this gate, new CEX integrations must use latest stable official APIs.

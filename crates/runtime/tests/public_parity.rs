@@ -80,6 +80,43 @@ fn binance_l2_book_matches_python_public_baseline() {
 }
 
 #[test]
+fn binance_candle_matches_python_public_baseline() {
+    let message = json!({
+        "e": "kline",
+        "E": 1615927655524u64,
+        "s": "BTCUSDT",
+        "k": {
+            "t": 1615927620000u64,
+            "T": 1615927679999u64,
+            "i": "1m",
+            "o": "56215.99000000",
+            "c": "56232.07000000",
+            "h": "56238.59000000",
+            "l": "56181.99000000",
+            "v": "13.80522200",
+            "n": 505u64,
+            "x": true
+        }
+    });
+
+    let candle = binance_parser::parse_candle(&message, 1615927656.0).expect("candle");
+
+    assert_eq!(candle.symbol.as_str(), "BTC-USDT");
+    assert_eq!(candle.interval, "1m");
+    assert_eq!(candle.start, 1615927620.0);
+    assert_eq!(candle.end, 1615927679.999);
+    assert_eq!(
+        candle.open,
+        Decimal::from_str_exact("56215.99000000").unwrap()
+    );
+    assert_eq!(
+        candle.close,
+        Decimal::from_str_exact("56232.07000000").unwrap()
+    );
+    assert_eq!(candle.closed, Some(true));
+}
+
+#[test]
 fn binance_combined_stream_unwrap_matches_public_baseline() {
     let message = json!({
         "stream": "btcusdt@aggTrade",
@@ -177,6 +214,31 @@ fn bitget_l2_book_matches_python_public_baseline() {
         }
         L2Book::Snapshot(_) => panic!("expected delta event model"),
     }
+}
+
+#[test]
+fn bitget_candle_matches_python_public_baseline() {
+    let message = json!({
+        "arg": {"instType": "spot", "topic": "candle1m", "symbol": "BTCUSDT"},
+        "data": [[
+            "1710000000000",
+            "65000.00",
+            "65100.00",
+            "64900.00",
+            "65050.00",
+            "12.50"
+        ]]
+    });
+
+    let candle = bitget_parser::parse_candle(&message, 1710000061.0).expect("candle");
+
+    assert_eq!(candle.symbol.as_str(), "BTC-USDT");
+    assert_eq!(candle.interval, "1m");
+    assert_eq!(candle.start, 1710000000.0);
+    assert_eq!(candle.end, 1710000060.0);
+    assert_eq!(candle.open, Decimal::from_str_exact("65000.00").unwrap());
+    assert_eq!(candle.close, Decimal::from_str_exact("65050.00").unwrap());
+    assert_eq!(candle.volume, Decimal::from_str_exact("12.50").unwrap());
 }
 
 #[test]

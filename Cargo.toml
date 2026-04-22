@@ -4,6 +4,7 @@ members = [
   "crates/ticker",
   "crates/trade",
   "crates/orderbook",
+  "crates/candles",
   "crates/runtime",
 ]
 resolver = "2"

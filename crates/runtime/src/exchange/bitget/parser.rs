@@ -1,3 +1,5 @@
+#[cfg(feature = "candles")]
+use cryptofeed_candles::Candle;
 use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::{L2Book, L2BookDelta, PriceLevel};
@@ -48,6 +50,31 @@ pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
             .or_else(|| first.get("ts"))
             .and_then(parse_millis)
             .unwrap_or(received_ts),
+        received_ts,
+    })
+}
+
+#[cfg(feature = "candles")]
+pub fn parse_candle(message: &Value, received_ts: f64) -> Option<Candle> {
+    let arg = message.get("arg")?;
+    let symbol = parse_symbol(arg.get("symbol").or_else(|| arg.get("instId"))?.as_str()?);
+    let row = message.get("data")?.as_array()?.first()?.as_array()?;
+    let start = parse_millis(row.first()?)?;
+
+    Some(Candle {
+        exchange: ExchangeId::Bitget,
+        symbol,
+        start,
+        end: start + 60.0,
+        interval: "1m".to_owned(),
+        trades: None,
+        open: parse_decimal(row.get(1)?)?,
+        high: parse_decimal(row.get(2)?)?,
+        low: parse_decimal(row.get(3)?)?,
+        close: parse_decimal(row.get(4)?)?,
+        volume: parse_decimal(row.get(5)?)?,
+        closed: None,
+        exchange_ts: start,
         received_ts,
     })
 }
@@ -109,6 +136,8 @@ fn parse_millis(value: &Value) -> Option<f64> {
 mod tests {
     use serde_json::json;
 
+    #[cfg(feature = "candles")]
+    use super::parse_candle;
     use super::{parse_l2_book, parse_ticker, parse_trade};
 
     #[cfg(feature = "trade")]
@@ -140,6 +169,27 @@ mod tests {
 
         let ticker = parse_ticker(&message, 1710000001.5).expect("ticker");
         assert_eq!(ticker.symbol.as_str(), "BTC-USDT");
+    }
+
+    #[cfg(feature = "candles")]
+    #[test]
+    fn parses_bitget_candle_message() {
+        let message = json!({
+            "arg": {"instType": "spot", "topic": "candle1m", "symbol": "BTCUSDT"},
+            "data": [[
+                "1710000000000",
+                "65000.00",
+                "65100.00",
+                "64900.00",
+                "65050.00",
+                "12.50"
+            ]]
+        });
+
+        let candle = parse_candle(&message, 1710000061.0).expect("candle");
+        assert_eq!(candle.symbol.as_str(), "BTC-USDT");
+        assert_eq!(candle.interval, "1m");
+        assert_eq!(candle.start, 1710000000.0);
     }
 
     #[cfg(feature = "orderbook")]

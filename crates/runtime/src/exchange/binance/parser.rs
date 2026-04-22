@@ -1,5 +1,7 @@
 #[cfg(feature = "orderbook")]
 use super::book_sync::BinanceDepthDelta;
+#[cfg(feature = "candles")]
+use cryptofeed_candles::Candle;
 use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::{L2Book, L2BookDelta, PriceLevel};
@@ -39,6 +41,30 @@ pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
         symbol: parse_symbol(message.get("s")?.as_str()?),
         bid: parse_decimal(message.get("b")?)?,
         ask: parse_decimal(message.get("a")?)?,
+        exchange_ts: message
+            .get("E")
+            .and_then(parse_millis)
+            .unwrap_or(received_ts),
+        received_ts,
+    })
+}
+
+#[cfg(feature = "candles")]
+pub fn parse_candle(message: &Value, received_ts: f64) -> Option<Candle> {
+    let candle = message.get("k")?;
+    Some(Candle {
+        exchange: ExchangeId::Binance,
+        symbol: parse_symbol(message.get("s")?.as_str()?),
+        start: parse_millis(candle.get("t")?)?,
+        end: parse_millis(candle.get("T")?)?,
+        interval: candle.get("i")?.as_str()?.to_owned(),
+        trades: candle.get("n").and_then(|v| v.as_u64()),
+        open: parse_decimal(candle.get("o")?)?,
+        close: parse_decimal(candle.get("c")?)?,
+        high: parse_decimal(candle.get("h")?)?,
+        low: parse_decimal(candle.get("l")?)?,
+        volume: parse_decimal(candle.get("v")?)?,
+        closed: candle.get("x").and_then(|v| v.as_bool()),
         exchange_ts: message
             .get("E")
             .and_then(parse_millis)
@@ -134,6 +160,8 @@ fn parse_millis(value: &Value) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "candles")]
+    use super::parse_candle;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book;
     #[cfg(feature = "orderbook")]
@@ -187,6 +215,35 @@ mod tests {
         assert_eq!(ticker.symbol.as_str(), "BTC-USDT");
         assert_eq!(ticker.bid, Decimal::from_str_exact("64999.10").unwrap());
         assert_eq!(ticker.ask, Decimal::from_str_exact("65000.20").unwrap());
+    }
+
+    #[cfg(feature = "candles")]
+    #[test]
+    fn parses_binance_candle_message() {
+        let message = json!({
+            "e": "kline",
+            "E": 1615927655524u64,
+            "s": "BTCUSDT",
+            "k": {
+                "t": 1615927620000u64,
+                "T": 1615927679999u64,
+                "i": "1m",
+                "o": "56215.99000000",
+                "c": "56232.07000000",
+                "h": "56238.59000000",
+                "l": "56181.99000000",
+                "v": "13.80522200",
+                "n": 505u64,
+                "x": true
+            }
+        });
+
+        let candle = parse_candle(&message, 1615927656.0).expect("candle");
+
+        assert_eq!(candle.symbol.as_str(), "BTC-USDT");
+        assert_eq!(candle.interval, "1m");
+        assert_eq!(candle.start, 1615927620.0);
+        assert_eq!(candle.closed, Some(true));
     }
 
     #[cfg(feature = "orderbook")]

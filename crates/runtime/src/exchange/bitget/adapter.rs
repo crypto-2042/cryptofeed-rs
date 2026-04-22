@@ -3,6 +3,8 @@ use crate::exchange::ExchangeFeed;
 use cryptofeed_core::exchange::Channel;
 use serde_json::Value;
 
+#[cfg(feature = "candles")]
+use cryptofeed_candles::Candle;
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::L2Book;
 #[cfg(feature = "ticker")]
@@ -13,6 +15,8 @@ use cryptofeed_trade::Trade;
 pub struct BitgetAdapter;
 
 pub enum BitgetEvent {
+    #[cfg(feature = "candles")]
+    Candle(Candle),
     #[cfg(feature = "orderbook")]
     L2Book(L2Book),
     #[cfg(feature = "ticker")]
@@ -38,6 +42,7 @@ impl BitgetAdapter {
                 let exchange_symbol = symbol.as_str().replace('-', "");
                 feed.channels.iter().map(move |channel| {
                     let topic = match channel {
+                        Channel::Candles => "candle1m",
                         Channel::Ticker => "ticker",
                         Channel::Trade => "publicTrade",
                         Channel::L2Book => "books",
@@ -64,6 +69,8 @@ impl BitgetAdapter {
         let topic = arg.get("topic").or_else(|| arg.get("channel"))?.as_str()?;
 
         match topic {
+            #[cfg(feature = "candles")]
+            "candle1m" => parser::parse_candle(message, received_ts).map(BitgetEvent::Candle),
             #[cfg(feature = "trade")]
             "trade" => parser::parse_trade(message, received_ts).map(BitgetEvent::Trade),
             #[cfg(feature = "trade")]

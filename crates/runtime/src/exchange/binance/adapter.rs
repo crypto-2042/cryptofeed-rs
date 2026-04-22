@@ -3,6 +3,8 @@ use crate::exchange::ExchangeFeed;
 use cryptofeed_core::exchange::Channel;
 use serde_json::Value;
 
+#[cfg(feature = "candles")]
+use cryptofeed_candles::Candle;
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::L2Book;
 #[cfg(feature = "ticker")]
@@ -13,6 +15,8 @@ use cryptofeed_trade::Trade;
 pub struct BinanceAdapter;
 
 pub enum BinanceEvent {
+    #[cfg(feature = "candles")]
+    Candle(Candle),
     #[cfg(feature = "orderbook")]
     L2Book(L2Book),
     #[cfg(feature = "ticker")]
@@ -37,6 +41,7 @@ impl BinanceAdapter {
                     Channel::Ticker => format!("{exchange_symbol}@bookTicker"),
                     Channel::Trade => format!("{exchange_symbol}@aggTrade"),
                     Channel::L2Book => format!("{exchange_symbol}@depth@100ms"),
+                    Channel::Candles => format!("{exchange_symbol}@kline_1m"),
                 };
                 streams.push(stream);
             }
@@ -58,6 +63,8 @@ impl BinanceAdapter {
         let event = payload.get("e")?.as_str()?;
 
         match event {
+            #[cfg(feature = "candles")]
+            "kline" => parser::parse_candle(payload, received_ts).map(BinanceEvent::Candle),
             #[cfg(feature = "orderbook")]
             "depthUpdate" => parser::parse_l2_book(payload, received_ts).map(BinanceEvent::L2Book),
             #[cfg(feature = "trade")]
@@ -86,6 +93,14 @@ mod tests {
                 "btcusdt@aggTrade".to_owned(),
             ]
         );
+    }
+
+    #[cfg(feature = "candles")]
+    #[test]
+    fn builds_binance_candle_stream_name() {
+        let feed = Binance::new().candles().symbol("BTC-USDT").build();
+        let streams = BinanceAdapter::streams(&feed);
+        assert_eq!(streams, vec!["btcusdt@kline_1m".to_owned()]);
     }
 
     #[test]

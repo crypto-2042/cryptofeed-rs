@@ -1,3 +1,6 @@
+#[cfg(feature = "candles")]
+pub use cryptofeed_candles::CandleHandler;
+
 #[cfg(feature = "ticker")]
 pub use cryptofeed_ticker::TickerHandler;
 

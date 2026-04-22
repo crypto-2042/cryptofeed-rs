@@ -12,6 +12,8 @@ use std::{
 use crate::exchange::binance::book_sync::BinanceBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::bitget::book_sync::BitgetBookSync;
+#[cfg(feature = "candles")]
+use cryptofeed_candles::CandleHandler;
 use cryptofeed_core::{
     exchange::{Channel, ExchangeId},
     symbol::Symbol,
@@ -30,6 +32,8 @@ pub struct ExchangeFeed {
     pub symbols: Vec<Symbol>,
     #[cfg(feature = "ticker")]
     pub ticker_handler: Option<Arc<dyn TickerHandler>>,
+    #[cfg(feature = "candles")]
+    pub candle_handler: Option<Arc<dyn CandleHandler>>,
     #[cfg(feature = "trade")]
     pub trade_handler: Option<Arc<dyn TradeHandler>>,
     #[cfg(feature = "orderbook")]
@@ -48,6 +52,8 @@ pub struct ExchangeFeedBuilder {
     symbols: Vec<Symbol>,
     #[cfg(feature = "ticker")]
     ticker_handler: Option<Arc<dyn TickerHandler>>,
+    #[cfg(feature = "candles")]
+    candle_handler: Option<Arc<dyn CandleHandler>>,
     #[cfg(feature = "trade")]
     trade_handler: Option<Arc<dyn TradeHandler>>,
     #[cfg(feature = "orderbook")]
@@ -68,6 +74,8 @@ impl ExchangeFeedBuilder {
             symbols: Vec::new(),
             #[cfg(feature = "ticker")]
             ticker_handler: None,
+            #[cfg(feature = "candles")]
+            candle_handler: None,
             #[cfg(feature = "trade")]
             trade_handler: None,
             #[cfg(feature = "orderbook")]
@@ -93,6 +101,17 @@ impl ExchangeFeedBuilder {
 
     pub fn l2_book(mut self) -> Self {
         self.channels.push(Channel::L2Book);
+        self
+    }
+
+    pub fn candles(mut self) -> Self {
+        self.channels.push(Channel::Candles);
+        self
+    }
+
+    #[cfg(feature = "candles")]
+    pub fn candle_handler(mut self, handler: Arc<dyn CandleHandler>) -> Self {
+        self.candle_handler = Some(handler);
         self
     }
 
@@ -128,6 +147,8 @@ impl ExchangeFeedBuilder {
             symbols: self.symbols,
             #[cfg(feature = "ticker")]
             ticker_handler: self.ticker_handler,
+            #[cfg(feature = "candles")]
+            candle_handler: self.candle_handler,
             #[cfg(feature = "trade")]
             trade_handler: self.trade_handler,
             #[cfg(feature = "orderbook")]

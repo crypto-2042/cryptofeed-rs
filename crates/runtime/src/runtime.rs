@@ -187,6 +187,12 @@ async fn consume_bitget_session(
 #[cfg_attr(not(test), allow(dead_code))]
 async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
     match event {
+        #[cfg(feature = "candles")]
+        BinanceEvent::Candle(candle) => {
+            if let Some(handler) = &feed.candle_handler {
+                handler.on_candle(candle).await;
+            }
+        }
         #[cfg(feature = "orderbook")]
         BinanceEvent::L2Book(book) => {
             apply_orderbook_state(feed, &book);
@@ -212,6 +218,12 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
 #[cfg_attr(not(test), allow(dead_code))]
 async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
     match event {
+        #[cfg(feature = "candles")]
+        BitgetEvent::Candle(candle) => {
+            if let Some(handler) = &feed.candle_handler {
+                handler.on_candle(candle).await;
+            }
+        }
         #[cfg(feature = "orderbook")]
         BitgetEvent::L2Book(book) => {
             dispatch_bitget_l2_book(feed, book).await;

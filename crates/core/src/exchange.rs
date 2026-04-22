@@ -10,6 +10,7 @@ pub enum ExchangeId {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Channel {
+    Candles,
     Ticker,
     Trade,
     L2Book,
