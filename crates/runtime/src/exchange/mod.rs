@@ -8,16 +8,16 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(feature = "orderbook")]
+use crate::exchange::binance::book_sync::BinanceBookSync;
+#[cfg(feature = "orderbook")]
+use crate::exchange::bitget::book_sync::BitgetBookSync;
 use cryptofeed_core::{
     exchange::{Channel, ExchangeId},
     symbol::Symbol,
 };
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::{L2BookState, OrderBookHandler};
-#[cfg(feature = "orderbook")]
-use crate::exchange::binance::book_sync::BinanceBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::bitget::book_sync::BitgetBookSync;
 #[cfg(feature = "ticker")]
 use cryptofeed_ticker::TickerHandler;
 #[cfg(feature = "trade")]

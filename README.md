@@ -19,6 +19,15 @@ cargo fmt --all
 cargo clippy --workspace --all-features -- -D warnings
 ```
 
+## Examples
+
+Run from `rust/cryptofeed-rs/`:
+
+```bash
+cargo run -p cryptofeed-rs --example binance_public
+cargo run -p cryptofeed-rs --example bitget_public
+```
+
 ## Exchange Policy
 
 New CEX integrations must use the latest stable official exchange API rather than legacy versions.

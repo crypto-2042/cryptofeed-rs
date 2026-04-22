@@ -49,8 +49,8 @@ mod tests {
     use super::Backoff;
     use cryptofeed_core::error::{Error, Result};
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     #[test]
@@ -90,15 +90,14 @@ mod tests {
         let attempts = Arc::new(AtomicUsize::new(0));
         let counter = attempts.clone();
 
-        let result: Result<()> =
-            super::retry_with_backoff(1, Backoff::new(0, 0), move || {
-                let counter = counter.clone();
-                async move {
-                    counter.fetch_add(1, Ordering::SeqCst);
-                    Err(Error::Transport("still failing".to_owned()))
-                }
-            })
-            .await;
+        let result: Result<()> = super::retry_with_backoff(1, Backoff::new(0, 0), move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err(Error::Transport("still failing".to_owned()))
+            }
+        })
+        .await;
 
         assert!(matches!(result, Err(Error::Transport(_))));
         assert_eq!(attempts.load(Ordering::SeqCst), 2);

@@ -76,7 +76,9 @@ impl BinanceBookSync {
         }
 
         if delta.first_update_id != current + 1 {
-            return Err(Error::Parse("binance book sequence gap detected".to_owned()));
+            return Err(Error::Parse(
+                "binance book sequence gap detected".to_owned(),
+            ));
         }
 
         self.last_update_id = Some(delta.last_update_id);
@@ -119,7 +121,12 @@ mod tests {
         }
     }
 
-    fn delta(first: u64, last: u64, bids: Vec<PriceLevel>, asks: Vec<PriceLevel>) -> BinanceDepthDelta {
+    fn delta(
+        first: u64,
+        last: u64,
+        bids: Vec<PriceLevel>,
+        asks: Vec<PriceLevel>,
+    ) -> BinanceDepthDelta {
         BinanceDepthDelta {
             first_update_id: first,
             last_update_id: last,
@@ -151,7 +158,10 @@ mod tests {
 
         assert_eq!(sync.last_update_id(), Some(101));
         assert_eq!(sync.state().bids().len(), 0);
-        assert_eq!(sync.state().asks()[0].amount, Decimal::from_str_exact("1.00").unwrap());
+        assert_eq!(
+            sync.state().asks()[0].amount,
+            Decimal::from_str_exact("1.00").unwrap()
+        );
     }
 
     #[test]
@@ -160,12 +170,7 @@ mod tests {
         sync.bootstrap(100, snapshot(), vec![]).expect("bootstrap");
 
         let applied = sync
-            .apply_delta(delta(
-                90,
-                100,
-                vec![level("64998.50", "2.00")],
-                vec![],
-            ))
+            .apply_delta(delta(90, 100, vec![level("64998.50", "2.00")], vec![]))
             .expect("stale delta");
 
         assert!(applied.is_none());
@@ -178,22 +183,12 @@ mod tests {
         sync.bootstrap(
             100,
             snapshot(),
-            vec![delta(
-                100,
-                101,
-                vec![level("64999.10", "0")],
-                vec![],
-            )],
+            vec![delta(100, 101, vec![level("64999.10", "0")], vec![])],
         )
         .expect("bootstrap");
 
         let err = sync
-            .apply_next_delta(delta(
-                103,
-                104,
-                vec![level("64998.50", "2.00")],
-                vec![],
-            ))
+            .apply_next_delta(delta(103, 104, vec![level("64998.50", "2.00")], vec![]))
             .expect_err("gap should fail");
 
         match err {

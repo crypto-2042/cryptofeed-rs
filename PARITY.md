@@ -48,7 +48,7 @@ Current Rust public baseline scope is intentionally narrower:
 - [x] Runtime uses decimal price and amount types.
 - [x] Runtime normalizes symbols to `BASE-QUOTE`.
 - [x] New exchange implementations must use latest stable official APIs.
-- [ ] Add public examples showing Binance and Bitget usage.
+- [x] Add public examples showing Binance and Bitget usage.
 - [ ] Add fixture-based parity tests from captured Python/Rust normalized events.
 
 ## Binance Public Parity
@@ -144,7 +144,7 @@ cargo test --workspace
 
 Do not add new CEX runtime implementations until:
 
-- [ ] Binance and Bitget examples exist.
+- [x] Binance and Bitget examples exist.
 - [ ] Binance and Bitget fixture tests exist.
 - [ ] `ticker`, `trade`, and `l2_book` parity is documented as complete for both exchanges.
 - [ ] remaining unsupported Python public channels are explicitly accepted as out of current scope or added to the Rust plan.

@@ -1,10 +1,10 @@
+use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::{L2Book, L2BookDelta, PriceLevel};
 #[cfg(feature = "ticker")]
 use cryptofeed_ticker::Ticker;
 #[cfg(feature = "trade")]
-use cryptofeed_trade::{model::Side, Trade};
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+use cryptofeed_trade::{Trade, model::Side};
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -97,7 +97,8 @@ fn parse_levels(value: &Value) -> Option<Vec<PriceLevel>> {
 }
 
 fn parse_millis(value: &Value) -> Option<f64> {
-    value.as_str()
+    value
+        .as_str()
         .and_then(|v| v.parse::<f64>().ok())
         .or_else(|| value.as_f64())
         .or_else(|| value.as_i64().map(|v| v as f64))

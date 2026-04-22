@@ -1,5 +1,5 @@
-use crate::exchange::ExchangeFeed;
 use super::parser;
+use crate::exchange::ExchangeFeed;
 use cryptofeed_core::exchange::Channel;
 use serde_json::Value;
 
@@ -61,10 +61,7 @@ impl BitgetAdapter {
 
     pub fn parse_message(message: &Value, received_ts: f64) -> Option<BitgetEvent> {
         let arg = message.get("arg")?;
-        let topic = arg
-            .get("topic")
-            .or_else(|| arg.get("channel"))?
-            .as_str()?;
+        let topic = arg.get("topic").or_else(|| arg.get("channel"))?.as_str()?;
 
         match topic {
             #[cfg(feature = "trade")]

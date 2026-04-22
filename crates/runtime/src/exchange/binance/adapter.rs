@@ -1,5 +1,5 @@
-use crate::exchange::ExchangeFeed;
 use super::parser;
+use crate::exchange::ExchangeFeed;
 use cryptofeed_core::exchange::Channel;
 use serde_json::Value;
 

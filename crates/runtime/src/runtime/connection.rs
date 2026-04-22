@@ -2,12 +2,7 @@ use cryptofeed_core::error::{Error, Result};
 use futures::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::Message,
-    MaybeTlsStream,
-    WebSocketStream,
-};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 use url::Url;
 
 pub struct WsConnection {
@@ -44,7 +39,9 @@ pub async fn next_text_message(
         let message = message.map_err(|e| Error::Transport(e.to_string()))?;
         match message {
             Message::Text(text) => return Ok(Some(text.to_string())),
-            Message::Binary(_) | Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => continue,
+            Message::Binary(_) | Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {
+                continue;
+            }
             Message::Close(_) => return Ok(None),
         }
     }

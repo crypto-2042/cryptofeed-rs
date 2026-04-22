@@ -1,12 +1,12 @@
 #[cfg(feature = "orderbook")]
 use super::book_sync::BinanceDepthDelta;
+use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::{L2Book, L2BookDelta, PriceLevel};
 #[cfg(feature = "ticker")]
 use cryptofeed_ticker::Ticker;
 #[cfg(feature = "trade")]
-use cryptofeed_trade::{model::Side, Trade};
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+use cryptofeed_trade::{Trade, model::Side};
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -126,22 +126,25 @@ fn parse_levels(value: &Value) -> Option<Vec<PriceLevel>> {
 }
 
 fn parse_millis(value: &Value) -> Option<f64> {
-    value.as_f64().or_else(|| value.as_i64().map(|v| v as f64)).map(|v| v / 1000.0)
+    value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|v| v as f64))
+        .map(|v| v / 1000.0)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_trade_symbol;
-    #[cfg(feature = "ticker")]
-    use super::parse_ticker;
-    #[cfg(feature = "trade")]
-    use super::parse_trade;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book_snapshot;
     #[cfg(feature = "orderbook")]
     use super::parse_l2_book_update;
+    #[cfg(feature = "ticker")]
+    use super::parse_ticker;
+    #[cfg(feature = "trade")]
+    use super::parse_trade;
+    use super::parse_trade_symbol;
     use rust_decimal::Decimal;
     use serde_json::json;
 
@@ -204,8 +207,14 @@ mod tests {
                 assert_eq!(delta.symbol.as_str(), "BTC-USDT");
                 assert_eq!(delta.bids.len(), 1);
                 assert_eq!(delta.asks.len(), 1);
-                assert_eq!(delta.bids[0].price, Decimal::from_str_exact("64999.10").unwrap());
-                assert_eq!(delta.asks[0].amount, Decimal::from_str_exact("0.75").unwrap());
+                assert_eq!(
+                    delta.bids[0].price,
+                    Decimal::from_str_exact("64999.10").unwrap()
+                );
+                assert_eq!(
+                    delta.asks[0].amount,
+                    Decimal::from_str_exact("0.75").unwrap()
+                );
             }
             cryptofeed_orderbook::L2Book::Snapshot(_) => panic!("expected delta"),
         }
