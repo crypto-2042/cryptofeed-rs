@@ -16,7 +16,7 @@ use crate::exchange::{
     },
     bybit::adapter::BybitAdapter,
     bybit::adapter::BybitEvent,
-    okx::adapter::OkxAdapter,
+    okx::adapter::{OkxAdapter, OkxEvent},
 };
 use crate::feed::FeedHandler;
 use cryptofeed_core::{
@@ -49,7 +49,7 @@ pub async fn run(handler: FeedHandler) -> Result<()> {
                 ExchangeId::Binance => consume_binance_feed(feed, shutdown).await,
                 ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
                 ExchangeId::Bybit => consume_bybit_feed(feed, shutdown).await,
-                ExchangeId::Okx => Ok(()),
+                ExchangeId::Okx => consume_okx_feed(feed, shutdown).await,
                 ExchangeId::Coinbase | ExchangeId::Kraken => Ok(()),
             }
         },
@@ -146,6 +146,15 @@ async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>)
     .await
 }
 
+async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+    supervisor::retry_with_backoff(3, supervisor::Backoff::new(1, 8), move || {
+        let feed = feed.clone();
+        let shutdown = shutdown.clone();
+        async move { consume_okx_session(feed, shutdown).await }
+    })
+    .await
+}
+
 async fn consume_binance_session(
     feed: ExchangeFeed,
     mut shutdown: watch::Receiver<bool>,
@@ -214,6 +223,25 @@ async fn consume_bybit_session(
         connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await?
     {
         process_bybit_text_message(&feed, &text, current_timestamp()).await?;
+    }
+
+    Ok(())
+}
+
+async fn consume_okx_session(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url);
+    let mut stream = connection.connect().await?;
+    let subscribe = OkxAdapter::subscription_message(&feed);
+    connection::send_text(&mut stream, &subscribe).await?;
+
+    while let Some(text) =
+        connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await?
+    {
+        process_okx_text_message(&feed, &text, current_timestamp()).await?;
     }
 
     Ok(())
@@ -322,6 +350,37 @@ async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
         }
         #[cfg(feature = "trade")]
         BybitEvent::Trade(trade) => {
+            if let Some(handler) = &feed.trade_handler {
+                handler.on_trade(trade).await;
+            }
+        }
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
+    match event {
+        #[cfg(feature = "candles")]
+        OkxEvent::Candle(candle) => {
+            if let Some(handler) = &feed.candle_handler {
+                handler.on_candle(candle).await;
+            }
+        }
+        #[cfg(feature = "orderbook")]
+        OkxEvent::L2Book(book) => {
+            apply_orderbook_state(feed, &book);
+            if let Some(handler) = &feed.orderbook_handler {
+                handler.on_l2_book(book).await;
+            }
+        }
+        #[cfg(feature = "ticker")]
+        OkxEvent::Ticker(ticker) => {
+            if let Some(handler) = &feed.ticker_handler {
+                handler.on_ticker(ticker).await;
+            }
+        }
+        #[cfg(feature = "trade")]
+        OkxEvent::Trade(trade) => {
             if let Some(handler) = &feed.trade_handler {
                 handler.on_trade(trade).await;
             }
@@ -598,6 +657,15 @@ async fn process_bybit_text_message(
     Ok(())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+async fn process_okx_text_message(feed: &ExchangeFeed, text: &str, received_ts: f64) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(event) = OkxAdapter::parse_message(&message, received_ts) {
+        dispatch_okx_event(feed, event).await;
+    }
+    Ok(())
+}
+
 #[cfg(feature = "orderbook")]
 async fn process_bitget_orderbook_message(
     feed: &ExchangeFeed,
@@ -691,7 +759,7 @@ mod tests {
 
     use super::{
         planned_connection_urls, process_binance_text_message, process_bitget_text_message,
-        process_bybit_text_message,
+        process_bybit_text_message, process_okx_text_message,
     };
     use crate::{
         FeedHandler,
@@ -704,6 +772,7 @@ mod tests {
             adapter::{BitgetAdapter, BitgetEvent},
         },
         exchange::bybit::Bybit,
+        exchange::okx::Okx,
     };
     use async_trait::async_trait;
     use cryptofeed_core::error::Error;
@@ -1125,6 +1194,49 @@ mod tests {
         process_bybit_text_message(&feed, &message.to_string(), 1672304487.0)
             .await
             .expect("process bybit trade");
+
+        assert_eq!(*trade_seen.lock().expect("lock"), 1);
+    }
+
+    #[test]
+    fn plans_okx_connection_urls() {
+        let mut handler = FeedHandler::new();
+        handler.add_feed(
+            Okx::new()
+                .ticker()
+                .trade()
+                .l2_book()
+                .candles()
+                .symbol("BTC-USDT")
+                .build(),
+        );
+
+        assert_eq!(
+            planned_connection_urls(&handler),
+            vec!["wss://ws.okx.com:8443/ws/v5/public".to_owned()]
+        );
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn processes_okx_trade_message() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let feed = Okx::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let message = serde_json::json!({
+            "arg": {"channel": "trades", "instId": "BTC-USDT"},
+            "data": [{ "tradeId": "1", "px": "65000.50", "sz": "0.0100", "side": "buy", "ts": "1710000000123" }]
+        });
+
+        process_okx_text_message(&feed, &message.to_string(), 1710000001.5)
+            .await
+            .expect("process okx trade");
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
     }

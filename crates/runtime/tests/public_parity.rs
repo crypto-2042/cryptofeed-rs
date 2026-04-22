@@ -2,6 +2,7 @@ use cryptofeed_orderbook::L2Book;
 use cryptofeed_rs::binance::{adapter::BinanceAdapter, parser as binance_parser};
 use cryptofeed_rs::bitget::{adapter::BitgetAdapter, parser as bitget_parser};
 use cryptofeed_rs::bybit::parser as bybit_parser;
+use cryptofeed_rs::okx::parser as okx_parser;
 use rust_decimal::Decimal;
 use serde_json::json;
 
@@ -407,4 +408,73 @@ fn bybit_candle_matches_public_baseline() {
     assert_eq!(candle.interval, "1");
     assert_eq!(candle.open, Decimal::from_str_exact("16649.5").unwrap());
     assert_eq!(candle.close, Decimal::from_str_exact("16677").unwrap());
+}
+
+#[test]
+fn okx_ticker_matches_public_baseline() {
+    let message = json!({
+        "arg": {"channel": "tickers", "instId": "BTC-USDT"},
+        "data": [{ "bidPx": "64999.10", "askPx": "65000.20", "ts": "1710000000456" }]
+    });
+
+    let ticker = okx_parser::parse_ticker(&message, 1710000001.5).expect("ticker");
+
+    assert_eq!(ticker.symbol.as_str(), "BTC-USDT");
+    assert_eq!(ticker.bid, Decimal::from_str_exact("64999.10").unwrap());
+    assert_eq!(ticker.ask, Decimal::from_str_exact("65000.20").unwrap());
+}
+
+#[test]
+fn okx_trade_matches_public_baseline() {
+    let message = json!({
+        "arg": {"channel": "trades", "instId": "BTC-USDT"},
+        "data": [{ "tradeId": "1", "px": "65000.50", "sz": "0.0100", "side": "buy", "ts": "1710000000123" }]
+    });
+
+    let trade = okx_parser::parse_trade(&message, 1710000001.5).expect("trade");
+
+    assert_eq!(trade.symbol.as_str(), "BTC-USDT");
+    assert_eq!(trade.price, Decimal::from_str_exact("65000.50").unwrap());
+    assert_eq!(trade.amount, Decimal::from_str_exact("0.0100").unwrap());
+    assert_eq!(trade.id.as_deref(), Some("1"));
+}
+
+#[test]
+fn okx_l2_book_matches_public_baseline() {
+    let message = json!({
+        "arg": {"channel": "books", "instId": "BTC-USDT"},
+        "data": [{
+            "bids": [["64999.10", "1.25", "0", "1"]],
+            "asks": [["65000.20", "0.75", "0", "1"]],
+            "ts": "1710000000456"
+        }]
+    });
+
+    let book = okx_parser::parse_l2_book(&message, 1710000001.5).expect("book");
+
+    match book {
+        L2Book::Delta(delta) => {
+            assert_eq!(delta.symbol.as_str(), "BTC-USDT");
+            assert_eq!(
+                delta.bids[0].price,
+                Decimal::from_str_exact("64999.10").unwrap()
+            );
+        }
+        L2Book::Snapshot(_) => panic!("expected delta event model"),
+    }
+}
+
+#[test]
+fn okx_candle_matches_public_baseline() {
+    let message = json!({
+        "arg": {"channel": "candle1m", "instId": "BTC-USDT"},
+        "data": [["1710000000000", "65000.00", "65100.00", "64900.00", "65050.00", "12.50", "0", "0", "1"]]
+    });
+
+    let candle = okx_parser::parse_candle(&message, 1710000061.0).expect("candle");
+
+    assert_eq!(candle.symbol.as_str(), "BTC-USDT");
+    assert_eq!(candle.interval, "1m");
+    assert_eq!(candle.open, Decimal::from_str_exact("65000.00").unwrap());
+    assert_eq!(candle.close, Decimal::from_str_exact("65050.00").unwrap());
 }
