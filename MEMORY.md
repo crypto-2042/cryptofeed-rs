@@ -49,13 +49,13 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - live subscription payload generation
   - ticker/trade/l2_book/candles parsing
   - runtime-side dispatch and text-message processing
-  - no dedicated order book sync state yet
+  - dedicated order book sync state
 - OKX v5 currently has:
   - official public websocket URL
   - live subscription payload generation
   - ticker/trade/l2_book/candles parsing
   - runtime-side dispatch and text-message processing
-  - no dedicated order book sync state yet
+  - dedicated order book sync state
 
 ## Testing Memory
 
@@ -76,4 +76,5 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Use `PARITY.md` as the source of truth before adding more CEX implementations.
 - The scoped Binance/Bitget public parity gate is complete.
 - Bybit and OKX live public runtime paths are now present.
-- Next maturity work should add Bybit/OKX order book sync semantics before adding another CEX.
+- Bybit and OKX order book sync semantics are now present.
+- Next maturity work should add deeper mocked websocket integration tests, then continue with Coinbase/Kraken live runtime.

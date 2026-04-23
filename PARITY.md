@@ -188,7 +188,7 @@ Bybit V5:
 - [x] ticker/trade/l2_book/candles parsers
 - [x] runtime text processing and dispatch
 - [x] fixture parity tests
-- [ ] order book sync semantics
+- [x] order book sync semantics
 
 OKX v5:
 
@@ -198,4 +198,4 @@ OKX v5:
 - [x] ticker/trade/l2_book/candles parsers
 - [x] runtime text processing and dispatch
 - [x] fixture parity tests
-- [ ] order book sync semantics
+- [x] order book sync semantics

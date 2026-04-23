@@ -57,26 +57,27 @@ Last updated: 2026-04-22
   - `ticker` / `trade` / `l2_book` / `candles` parsing
   - runtime dispatch and text-message processing
   - websocket session sends real subscribe messages
+  - order book sync semantics
 - OKX v5 public:
   - official v5 public websocket URL
   - live subscription payload generation
   - `ticker` / `trade` / `l2_book` / `candles` parsing
   - runtime dispatch and text-message processing
   - websocket session sends real subscribe messages
+  - order book sync semantics
 
 ## In Progress
 
 - Binance and Bitget scoped public baseline parity is complete for the currently selected channels.
 - `PARITY.md` is the source of truth for expansion gates before adding more CEX implementations.
-- Bybit and OKX have live public runtime scaffolding and parity fixtures; next maturity work is order book sync semantics.
+- Bybit and OKX now have live public runtime scaffolding, parity fixtures, and order book sync semantics.
 
 ## Not Started
 
 - Private/authenticated support
 - Coinbase live runtime path
 - Kraken live runtime path
-- Bybit order book sync semantics
-- OKX order book sync semantics
+- deeper mocked websocket integration tests
 - futures/perpetual-only public channels such as `open_interest` and `index`
 
 ## Verification Baseline
@@ -115,5 +116,7 @@ cargo test --workspace
 - `be87f2e` `feat: add bybit okx public scaffolding`
 - `13f146e` `feat: wire bybit public runtime`
 - `b4a88e5` `feat: wire okx public runtime`
+- `0a40c13` `feat: add bybit order book sync`
+- `eae1fd4` `feat: add okx order book sync`
 - `449ff49` `feat: add candles public parity`
 - `0f53a06` `feat: add binance funding liquidation parity`
