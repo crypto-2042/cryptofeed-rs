@@ -6,6 +6,7 @@ pub enum ExchangeId {
     Bitget,
     Bybit,
     Coinbase,
+    Gateio,
     Kraken,
     Okx,
 }

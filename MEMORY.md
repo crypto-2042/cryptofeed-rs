@@ -56,6 +56,12 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - ticker/trade/l2_book/candles parsing
   - runtime-side dispatch and text-message processing
   - dedicated order book sync state
+- Gate.io API v4 currently has:
+  - official public websocket URL
+  - live subscription payload generation
+  - ticker/trade/l2_book/candles parsing
+  - runtime-side dispatch and text-message processing
+  - no dedicated order book sync state yet
 
 ## Testing Memory
 
@@ -77,4 +83,5 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - The scoped Binance/Bitget public parity gate is complete.
 - Bybit and OKX live public runtime paths are now present.
 - Bybit and OKX order book sync semantics are now present.
-- Next maturity work should add deeper mocked websocket integration tests, then continue with Coinbase/Kraken live runtime.
+- Gate.io live public runtime path is now present.
+- Next maturity work should add Gate.io order book sync semantics, then continue with Coinbase/Kraken live runtime.

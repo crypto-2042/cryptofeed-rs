@@ -199,3 +199,13 @@ OKX v5:
 - [x] runtime text processing and dispatch
 - [x] fixture parity tests
 - [x] order book sync semantics
+
+Gate.io API v4:
+
+- [x] latest stable API selected
+- [x] public websocket URL
+- [x] subscription payload
+- [x] ticker/trade/l2_book/candles parsers
+- [x] runtime text processing and dispatch
+- [x] fixture parity tests
+- [ ] order book sync semantics

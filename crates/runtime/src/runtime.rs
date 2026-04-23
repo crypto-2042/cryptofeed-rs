@@ -18,6 +18,7 @@ use crate::exchange::{
     bybit::adapter::BybitEvent,
     bybit::book_sync::BybitBookSync,
     bybit::parser as bybit_parser,
+    gateio::adapter::{GateioAdapter, GateioEvent},
     okx::{
         adapter::{OkxAdapter, OkxEvent},
         book_sync::OkxBookSync,
@@ -56,6 +57,7 @@ pub async fn run(handler: FeedHandler) -> Result<()> {
                 ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
                 ExchangeId::Bybit => consume_bybit_feed(feed, shutdown).await,
                 ExchangeId::Okx => consume_okx_feed(feed, shutdown).await,
+                ExchangeId::Gateio => consume_gateio_feed(feed, shutdown).await,
                 ExchangeId::Coinbase | ExchangeId::Kraken => Ok(()),
             }
         },
@@ -74,6 +76,7 @@ fn planned_url(feed: &ExchangeFeed) -> String {
         ExchangeId::Bitget => BitgetAdapter::subscription_url(feed),
         ExchangeId::Bybit => BybitAdapter::subscription_url(feed),
         ExchangeId::Coinbase => String::new(),
+        ExchangeId::Gateio => GateioAdapter::subscription_url(feed),
         ExchangeId::Kraken => String::new(),
         ExchangeId::Okx => OkxAdapter::subscription_url(feed),
     }
@@ -157,6 +160,15 @@ async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -
         let feed = feed.clone();
         let shutdown = shutdown.clone();
         async move { consume_okx_session(feed, shutdown).await }
+    })
+    .await
+}
+
+async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+    supervisor::retry_with_backoff(3, supervisor::Backoff::new(1, 8), move || {
+        let feed = feed.clone();
+        let shutdown = shutdown.clone();
+        async move { consume_gateio_session(feed, shutdown).await }
     })
     .await
 }
@@ -248,6 +260,26 @@ async fn consume_okx_session(
         connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await?
     {
         process_okx_text_message(&feed, &text, current_timestamp()).await?;
+    }
+
+    Ok(())
+}
+
+async fn consume_gateio_session(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url);
+    let mut stream = connection.connect().await?;
+    for subscribe in GateioAdapter::subscription_messages(&feed) {
+        connection::send_text(&mut stream, &subscribe).await?;
+    }
+
+    while let Some(text) =
+        connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await?
+    {
+        process_gateio_text_message(&feed, &text, current_timestamp()).await?;
     }
 
     Ok(())
@@ -389,6 +421,37 @@ async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
         }
         #[cfg(feature = "trade")]
         OkxEvent::Trade(trade) => {
+            if let Some(handler) = &feed.trade_handler {
+                handler.on_trade(trade).await;
+            }
+        }
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
+    match event {
+        #[cfg(feature = "candles")]
+        GateioEvent::Candle(candle) => {
+            if let Some(handler) = &feed.candle_handler {
+                handler.on_candle(candle).await;
+            }
+        }
+        #[cfg(feature = "orderbook")]
+        GateioEvent::L2Book(book) => {
+            apply_orderbook_state(feed, &book);
+            if let Some(handler) = &feed.orderbook_handler {
+                handler.on_l2_book(book).await;
+            }
+        }
+        #[cfg(feature = "ticker")]
+        GateioEvent::Ticker(ticker) => {
+            if let Some(handler) = &feed.ticker_handler {
+                handler.on_ticker(ticker).await;
+            }
+        }
+        #[cfg(feature = "trade")]
+        GateioEvent::Trade(trade) => {
             if let Some(handler) = &feed.trade_handler {
                 handler.on_trade(trade).await;
             }
@@ -727,6 +790,19 @@ async fn process_okx_text_message(feed: &ExchangeFeed, text: &str, received_ts: 
     Ok(())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
+async fn process_gateio_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(event) = GateioAdapter::parse_message(&message, received_ts) {
+        dispatch_gateio_event(feed, event).await;
+    }
+    Ok(())
+}
+
 #[cfg(feature = "orderbook")]
 async fn process_okx_orderbook_message(
     feed: &ExchangeFeed,
@@ -863,7 +939,7 @@ mod tests {
 
     use super::{
         planned_connection_urls, process_binance_text_message, process_bitget_text_message,
-        process_bybit_text_message, process_okx_text_message,
+        process_bybit_text_message, process_gateio_text_message, process_okx_text_message,
     };
     use crate::{
         FeedHandler,
@@ -876,6 +952,7 @@ mod tests {
             adapter::{BitgetAdapter, BitgetEvent},
         },
         exchange::bybit::Bybit,
+        exchange::gateio::Gateio,
         exchange::okx::Okx,
     };
     use async_trait::async_trait;
@@ -939,6 +1016,25 @@ mod tests {
         assert_eq!(
             planned_connection_urls(&handler),
             vec!["wss://stream.bybit.com/v5/public/spot".to_owned()]
+        );
+    }
+
+    #[test]
+    fn plans_gateio_connection_urls() {
+        let mut handler = FeedHandler::new();
+        handler.add_feed(
+            Gateio::new()
+                .ticker()
+                .trade()
+                .l2_book()
+                .candles()
+                .symbol("BTC-USDT")
+                .build(),
+        );
+
+        assert_eq!(
+            planned_connection_urls(&handler),
+            vec!["wss://api.gateio.ws/ws/v4/".to_owned()]
         );
     }
 
@@ -1550,6 +1646,71 @@ mod tests {
             process_okx_text_message(&feed, &message.to_string(), 1710000001.5)
                 .await
                 .expect("process okx public message");
+        }
+
+        assert_eq!(*ticker_seen.lock().expect("lock"), 1);
+        assert_eq!(*trade_seen.lock().expect("lock"), 1);
+        assert_eq!(*book_seen.lock().expect("lock"), 1);
+        assert_eq!(*candle_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles"
+    ))]
+    #[tokio::test]
+    async fn processes_gateio_public_session_messages() {
+        let ticker_seen = Arc::new(Mutex::new(0));
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let candle_seen = Arc::new(Mutex::new(0));
+        let feed = Gateio::new()
+            .ticker()
+            .trade()
+            .l2_book()
+            .candles()
+            .ticker_handler(Arc::new(TestTickerHandler {
+                seen: ticker_seen.clone(),
+            }))
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .candle_handler(Arc::new(TestCandleHandler {
+                seen: candle_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let ticker = serde_json::json!({
+            "channel": "spot.book_ticker",
+            "event": "update",
+            "result": {"s": "BTC_USDT", "b": "64999.10", "a": "65000.20", "t": 1710000000}
+        });
+        let trade = serde_json::json!({
+            "channel": "spot.trades",
+            "event": "update",
+            "result": [{ "id": "1", "currency_pair": "BTC_USDT", "price": "65000.50", "amount": "0.0100", "side": "buy", "create_time_ms": "1710000000123" }]
+        });
+        let book = serde_json::json!({
+            "channel": "spot.order_book_update",
+            "event": "update",
+            "result": {"s": "BTC_USDT", "b": [["64999.10", "1.25"]], "a": [["65000.20", "0.75"]], "t": 1710000000}
+        });
+        let candle = serde_json::json!({
+            "channel": "spot.candlesticks",
+            "event": "update",
+            "result": {"t": "1710000000", "v": "12.50", "c": "65050.00", "h": "65100.00", "l": "64900.00", "o": "65000.00", "n": "1m_BTC_USDT", "w": true}
+        });
+
+        for message in [ticker, trade, book, candle] {
+            process_gateio_text_message(&feed, &message.to_string(), 1710000001.5)
+                .await
+                .expect("process gateio public message");
         }
 
         assert_eq!(*ticker_seen.lock().expect("lock"), 1);

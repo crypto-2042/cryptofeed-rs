@@ -65,6 +65,12 @@ Last updated: 2026-04-22
   - runtime dispatch and text-message processing
   - websocket session sends real subscribe messages
   - order book sync semantics
+- Gate.io API v4 public:
+  - official v4 public websocket URL
+  - live subscription payload generation
+  - `ticker` / `trade` / `l2_book` / `candles` parsing
+  - runtime dispatch and text-message processing
+  - websocket session sends real subscribe messages
 
 ## In Progress
 
@@ -78,6 +84,7 @@ Last updated: 2026-04-22
 - Coinbase live runtime path
 - Kraken live runtime path
 - deeper mocked websocket integration tests
+- Gate.io order book sync semantics
 - futures/perpetual-only public channels such as `open_interest` and `index`
 
 ## Verification Baseline

@@ -2,6 +2,7 @@ use cryptofeed_orderbook::L2Book;
 use cryptofeed_rs::binance::{adapter::BinanceAdapter, parser as binance_parser};
 use cryptofeed_rs::bitget::{adapter::BitgetAdapter, parser as bitget_parser};
 use cryptofeed_rs::bybit::parser as bybit_parser;
+use cryptofeed_rs::gateio::parser as gateio_parser;
 use cryptofeed_rs::okx::parser as okx_parser;
 use rust_decimal::Decimal;
 use serde_json::json;
@@ -472,6 +473,96 @@ fn okx_candle_matches_public_baseline() {
     });
 
     let candle = okx_parser::parse_candle(&message, 1710000061.0).expect("candle");
+
+    assert_eq!(candle.symbol.as_str(), "BTC-USDT");
+    assert_eq!(candle.interval, "1m");
+    assert_eq!(candle.open, Decimal::from_str_exact("65000.00").unwrap());
+    assert_eq!(candle.close, Decimal::from_str_exact("65050.00").unwrap());
+}
+
+#[test]
+fn gateio_ticker_matches_public_baseline() {
+    let message = json!({
+        "channel": "spot.book_ticker",
+        "event": "update",
+        "result": {"s": "BTC_USDT", "b": "64999.10", "a": "65000.20", "t": 1710000000}
+    });
+
+    let ticker = gateio_parser::parse_ticker(&message, 1710000001.5).expect("ticker");
+
+    assert_eq!(ticker.symbol.as_str(), "BTC-USDT");
+    assert_eq!(ticker.bid, Decimal::from_str_exact("64999.10").unwrap());
+    assert_eq!(ticker.ask, Decimal::from_str_exact("65000.20").unwrap());
+}
+
+#[test]
+fn gateio_trade_matches_public_baseline() {
+    let message = json!({
+        "channel": "spot.trades",
+        "event": "update",
+        "result": [{
+            "id": "1",
+            "currency_pair": "BTC_USDT",
+            "price": "65000.50",
+            "amount": "0.0100",
+            "side": "buy",
+            "create_time_ms": "1710000000123"
+        }]
+    });
+
+    let trade = gateio_parser::parse_trade(&message, 1710000001.5).expect("trade");
+
+    assert_eq!(trade.symbol.as_str(), "BTC-USDT");
+    assert_eq!(trade.price, Decimal::from_str_exact("65000.50").unwrap());
+    assert_eq!(trade.amount, Decimal::from_str_exact("0.0100").unwrap());
+    assert_eq!(trade.id.as_deref(), Some("1"));
+}
+
+#[test]
+fn gateio_l2_book_matches_public_baseline() {
+    let message = json!({
+        "channel": "spot.order_book_update",
+        "event": "update",
+        "result": {
+            "s": "BTC_USDT",
+            "b": [["64999.10", "1.25"]],
+            "a": [["65000.20", "0.75"]],
+            "t": 1710000000
+        }
+    });
+
+    let book = gateio_parser::parse_l2_book(&message, 1710000001.5).expect("book");
+
+    match book {
+        L2Book::Delta(delta) => {
+            assert_eq!(delta.symbol.as_str(), "BTC-USDT");
+            assert_eq!(
+                delta.bids[0].price,
+                Decimal::from_str_exact("64999.10").unwrap()
+            );
+        }
+        L2Book::Snapshot(_) => panic!("expected delta event model"),
+    }
+}
+
+#[test]
+fn gateio_candle_matches_public_baseline() {
+    let message = json!({
+        "channel": "spot.candlesticks",
+        "event": "update",
+        "result": {
+            "t": "1710000000",
+            "v": "12.50",
+            "c": "65050.00",
+            "h": "65100.00",
+            "l": "64900.00",
+            "o": "65000.00",
+            "n": "1m_BTC_USDT",
+            "w": true
+        }
+    });
+
+    let candle = gateio_parser::parse_candle(&message, 1710000061.0).expect("candle");
 
     assert_eq!(candle.symbol.as_str(), "BTC-USDT");
     assert_eq!(candle.interval, "1m");
