@@ -61,7 +61,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - live subscription payload generation
   - ticker/trade/l2_book/candles parsing
   - runtime-side dispatch and text-message processing
-  - no dedicated order book sync state yet
+  - dedicated order book sync state
 
 ## Testing Memory
 
@@ -84,4 +84,5 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Bybit and OKX live public runtime paths are now present.
 - Bybit and OKX order book sync semantics are now present.
 - Gate.io live public runtime path is now present.
-- Next maturity work should add Gate.io order book sync semantics, then continue with Coinbase/Kraken live runtime.
+- Gate.io order book sync semantics are now present.
+- Next maturity work should continue with Coinbase/Kraken live runtime.

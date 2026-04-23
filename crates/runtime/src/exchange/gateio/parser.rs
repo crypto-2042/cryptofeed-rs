@@ -10,6 +10,9 @@ use cryptofeed_trade::{Trade, model::Side};
 use rust_decimal::Decimal;
 use serde_json::Value;
 
+#[cfg(feature = "orderbook")]
+use super::book_sync::GateioDepthDelta;
+
 #[cfg(feature = "ticker")]
 pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
     let result = message.get("result")?;
@@ -60,10 +63,50 @@ pub fn parse_l2_book(message: &Value, received_ts: f64) -> Option<L2Book> {
         asks: parse_levels(result.get("a")?)?,
         exchange_ts: result
             .get("t")
-            .and_then(parse_seconds)
+            .and_then(parse_gateio_book_ts)
             .unwrap_or(received_ts),
         received_ts,
     }))
+}
+
+#[cfg(feature = "orderbook")]
+pub fn parse_l2_book_update(message: &Value, received_ts: f64) -> Option<GateioDepthDelta> {
+    let result = message.get("result")?;
+    let book = match parse_l2_book(message, received_ts)? {
+        L2Book::Delta(delta) => delta,
+        L2Book::Snapshot(_) => return None,
+    };
+
+    Some(GateioDepthDelta {
+        first_update_id: parse_u64(result.get("U")?)?,
+        last_update_id: parse_u64(result.get("u")?)?,
+        book,
+    })
+}
+
+#[cfg(feature = "orderbook")]
+pub fn parse_l2_book_snapshot(
+    message: &Value,
+    exchange_symbol: &str,
+    received_ts: f64,
+) -> Option<(u64, cryptofeed_orderbook::L2BookSnapshot)> {
+    let last_update_id = parse_u64(message.get("id")?)?;
+    let exchange_ts = message
+        .get("current")
+        .and_then(parse_seconds)
+        .unwrap_or(received_ts);
+
+    Some((
+        last_update_id,
+        cryptofeed_orderbook::L2BookSnapshot {
+            exchange: ExchangeId::Gateio,
+            symbol: parse_symbol(exchange_symbol),
+            bids: parse_levels(message.get("bids")?)?,
+            asks: parse_levels(message.get("asks")?)?,
+            exchange_ts,
+            received_ts,
+        },
+    ))
 }
 
 #[cfg(feature = "candles")]
@@ -133,18 +176,40 @@ fn parse_seconds(value: &Value) -> Option<f64> {
         .or_else(|| value.as_i64().map(|v| v as f64))
 }
 
+#[cfg(feature = "orderbook")]
+fn parse_u64(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|v| v.parse().ok()))
+}
+
+#[cfg(feature = "orderbook")]
+fn parse_gateio_book_ts(value: &Value) -> Option<f64> {
+    let raw = value
+        .as_str()
+        .and_then(|v| v.parse::<f64>().ok())
+        .or_else(|| value.as_f64())
+        .or_else(|| value.as_i64().map(|v| v as f64))?;
+
+    if raw >= 10_000_000_000.0 {
+        Some(raw / 1000.0)
+    } else {
+        Some(raw)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     #[cfg(feature = "candles")]
     use super::parse_candle;
-    #[cfg(feature = "orderbook")]
-    use super::parse_l2_book;
     #[cfg(feature = "ticker")]
     use super::parse_ticker;
     #[cfg(feature = "trade")]
     use super::parse_trade;
+    #[cfg(feature = "orderbook")]
+    use super::{parse_l2_book, parse_l2_book_snapshot, parse_l2_book_update};
     #[cfg(feature = "orderbook")]
     use cryptofeed_orderbook::L2Book;
 
@@ -197,6 +262,49 @@ mod tests {
             L2Book::Delta(delta) => assert_eq!(delta.symbol.as_str(), "BTC-USDT"),
             L2Book::Snapshot(_) => panic!("expected delta event model"),
         }
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn parses_gateio_l2_book_update_ids() {
+        let message = json!({
+            "channel": "spot.order_book_update",
+            "event": "update",
+            "result": {
+                "s": "BTC_USDT",
+                "U": 100u64,
+                "u": 101u64,
+                "b": [["64999.10", "1.25"]],
+                "a": [["65000.20", "0.75"]],
+                "t": 1710000000456u64
+            }
+        });
+
+        let update = parse_l2_book_update(&message, 1710000001.5).expect("book update");
+
+        assert_eq!(update.first_update_id, 100);
+        assert_eq!(update.last_update_id, 101);
+        assert_eq!(update.book.symbol.as_str(), "BTC-USDT");
+        assert_eq!(update.book.exchange_ts, 1710000000.456);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn parses_gateio_l2_book_snapshot_response() {
+        let message = json!({
+            "id": 100u64,
+            "current": 1710000000.456,
+            "bids": [["64999.10", "1.25"]],
+            "asks": [["65000.20", "0.75"]]
+        });
+
+        let (last_update_id, snapshot) =
+            parse_l2_book_snapshot(&message, "BTC_USDT", 1710000001.5).expect("snapshot");
+
+        assert_eq!(last_update_id, 100);
+        assert_eq!(snapshot.symbol.as_str(), "BTC-USDT");
+        assert_eq!(snapshot.bids.len(), 1);
+        assert_eq!(snapshot.asks.len(), 1);
     }
 
     #[cfg(feature = "candles")]

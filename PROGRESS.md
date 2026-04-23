@@ -71,12 +71,13 @@ Last updated: 2026-04-22
   - `ticker` / `trade` / `l2_book` / `candles` parsing
   - runtime dispatch and text-message processing
   - websocket session sends real subscribe messages
+  - order book sync semantics
 
 ## In Progress
 
 - Binance and Bitget scoped public baseline parity is complete for the currently selected channels.
 - `PARITY.md` is the source of truth for expansion gates before adding more CEX implementations.
-- Bybit and OKX now have live public runtime scaffolding, parity fixtures, and order book sync semantics.
+- Bybit, OKX, and Gate.io now have live public runtime scaffolding, parity fixtures, and order book sync semantics.
 
 ## Not Started
 
@@ -84,7 +85,6 @@ Last updated: 2026-04-22
 - Coinbase live runtime path
 - Kraken live runtime path
 - deeper mocked websocket integration tests
-- Gate.io order book sync semantics
 - futures/perpetual-only public channels such as `open_interest` and `index`
 
 ## Verification Baseline

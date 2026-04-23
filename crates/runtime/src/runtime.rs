@@ -18,7 +18,11 @@ use crate::exchange::{
     bybit::adapter::BybitEvent,
     bybit::book_sync::BybitBookSync,
     bybit::parser as bybit_parser,
-    gateio::adapter::{GateioAdapter, GateioEvent},
+    gateio::{
+        adapter::{GateioAdapter, GateioEvent},
+        book_sync::{GateioBookSync, GateioDepthDelta},
+        parser as gateio_parser,
+    },
     okx::{
         adapter::{OkxAdapter, OkxEvent},
         book_sync::OkxBookSync,
@@ -275,10 +279,30 @@ async fn consume_gateio_session(
     for subscribe in GateioAdapter::subscription_messages(&feed) {
         connection::send_text(&mut stream, &subscribe).await?;
     }
+    #[cfg(feature = "orderbook")]
+    let mut snapshot_receivers = spawn_gateio_snapshot_fetches(&feed);
+    #[cfg(feature = "orderbook")]
+    let mut pending_deltas: std::collections::HashMap<String, Vec<GateioDepthDelta>> =
+        std::collections::HashMap::new();
 
     while let Some(text) =
         connection::next_text_message_or_shutdown(&mut stream, &mut shutdown).await?
     {
+        #[cfg(feature = "orderbook")]
+        poll_gateio_snapshot_bootstraps(&feed, &mut snapshot_receivers, &mut pending_deltas)
+            .await?;
+        #[cfg(feature = "orderbook")]
+        if process_gateio_orderbook_message(
+            &feed,
+            &text,
+            current_timestamp(),
+            &mut snapshot_receivers,
+            &mut pending_deltas,
+        )
+        .await?
+        {
+            continue;
+        }
         process_gateio_text_message(&feed, &text, current_timestamp()).await?;
     }
 
@@ -456,6 +480,14 @@ async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
                 handler.on_trade(trade).await;
             }
         }
+    }
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_gateio_l2_book(feed: &ExchangeFeed, book: L2Book) {
+    apply_orderbook_state(feed, &book);
+    if let Some(handler) = &feed.orderbook_handler {
+        handler.on_l2_book(book).await;
     }
 }
 
@@ -705,6 +737,209 @@ fn schedule_binance_resync(
     receivers
         .entry(symbol_key.to_owned())
         .or_insert_with(|| spawn_binance_snapshot_fetch(symbol));
+}
+
+#[cfg(feature = "orderbook")]
+fn spawn_gateio_snapshot_fetches(
+    feed: &ExchangeFeed,
+) -> std::collections::HashMap<
+    String,
+    oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+> {
+    let mut receivers = std::collections::HashMap::new();
+
+    for symbol in &feed.symbols {
+        let symbol_key = symbol.as_str().to_owned();
+        let rx = spawn_gateio_snapshot_fetch(symbol.clone());
+        receivers.insert(symbol_key, rx);
+    }
+
+    receivers
+}
+
+#[cfg(feature = "orderbook")]
+fn spawn_gateio_snapshot_fetch(
+    symbol: cryptofeed_core::symbol::Symbol,
+) -> oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>> {
+    let (tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let _ = tx.send(fetch_gateio_l2_snapshot(symbol).await);
+    });
+    rx
+}
+
+#[cfg(feature = "orderbook")]
+async fn fetch_gateio_l2_snapshot(
+    symbol: cryptofeed_core::symbol::Symbol,
+) -> Result<(u64, cryptofeed_orderbook::L2BookSnapshot)> {
+    let exchange_symbol = symbol.as_str().replace('-', "_");
+    let url = format!(
+        "https://api.gateio.ws/api/v4/spot/order_book?currency_pair={exchange_symbol}&limit=100&with_id=true"
+    );
+    let response = reqwest::get(&url)
+        .await
+        .map_err(|e| Error::Transport(e.to_string()))?;
+    let payload: Value = response
+        .json()
+        .await
+        .map_err(|e| Error::Parse(e.to_string()))?;
+    gateio_parser::parse_l2_book_snapshot(&payload, &exchange_symbol, current_timestamp())
+        .ok_or_else(|| Error::Parse("failed to parse gateio l2 snapshot".to_owned()))
+}
+
+#[cfg(feature = "orderbook")]
+async fn poll_gateio_snapshot_bootstraps(
+    feed: &ExchangeFeed,
+    receivers: &mut std::collections::HashMap<
+        String,
+        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    >,
+    pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
+) -> Result<()> {
+    use tokio::sync::oneshot::error::TryRecvError;
+
+    let keys: Vec<String> = receivers.keys().cloned().collect();
+    for key in keys {
+        let ready = if let Some(receiver) = receivers.get_mut(&key) {
+            match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Closed) => {
+                    return Err(Error::Transport(
+                        "gateio snapshot bootstrap channel closed".to_owned(),
+                    ));
+                }
+            }
+        } else {
+            None
+        };
+
+        if let Some(result) = ready {
+            let (last_update_id, snapshot) = result?;
+            if let Some(book) = bootstrap_gateio_book(
+                feed,
+                &key,
+                last_update_id,
+                snapshot,
+                pending.remove(&key).unwrap_or_default(),
+            )? {
+                dispatch_gateio_l2_book(feed, book).await;
+            }
+            receivers.remove(&key);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+fn bootstrap_gateio_book(
+    feed: &ExchangeFeed,
+    symbol_key: &str,
+    last_update_id: u64,
+    snapshot: cryptofeed_orderbook::L2BookSnapshot,
+    buffered: Vec<GateioDepthDelta>,
+) -> Result<Option<cryptofeed_orderbook::L2Book>> {
+    let mut syncs = feed.gateio_book_syncs.lock().expect("gateio sync lock");
+    let sync = syncs
+        .entry(symbol_key.to_owned())
+        .or_insert_with(|| GateioBookSync::new(snapshot.symbol.clone()));
+    sync.bootstrap(last_update_id, snapshot.clone(), buffered)?;
+
+    let mut states = feed.orderbook_states.lock().expect("orderbook state lock");
+    states.insert(symbol_key.to_owned(), sync.state().clone());
+
+    Ok(Some(cryptofeed_orderbook::L2Book::Snapshot(snapshot)))
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_gateio_orderbook_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+    receivers: &mut std::collections::HashMap<
+        String,
+        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    >,
+    pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
+) -> Result<bool> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if message.get("channel").and_then(|v| v.as_str()) != Some("spot.order_book_update") {
+        return Ok(false);
+    }
+    if message.get("event").and_then(|v| v.as_str()) != Some("update") {
+        return Ok(false);
+    }
+
+    let update = gateio_parser::parse_l2_book_update(&message, received_ts)
+        .ok_or_else(|| Error::Parse("failed to parse gateio depth update".to_owned()))?;
+    let symbol_key = update.book.symbol.as_str().to_owned();
+
+    if feed
+        .gateio_book_syncs
+        .lock()
+        .expect("gateio sync lock")
+        .contains_key(&symbol_key)
+    {
+        let maybe_book = {
+            let mut syncs = feed.gateio_book_syncs.lock().expect("gateio sync lock");
+            let sync = syncs.get_mut(&symbol_key).expect("gateio sync state");
+            sync.apply_next_delta(update.clone())
+        };
+
+        match maybe_book {
+            Ok(Some(book)) => {
+                dispatch_gateio_l2_book(feed, book).await;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                if matches!(err, Error::Parse(_)) {
+                    schedule_gateio_resync(feed, &symbol_key, update, receivers, pending);
+                } else {
+                    return Err(err);
+                }
+            }
+        }
+    } else {
+        pending.entry(symbol_key).or_default().push(update);
+    }
+
+    Ok(true)
+}
+
+#[cfg(feature = "orderbook")]
+fn reset_gateio_sync_state(
+    feed: &ExchangeFeed,
+    symbol_key: &str,
+    update: GateioDepthDelta,
+    pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
+) {
+    feed.gateio_book_syncs
+        .lock()
+        .expect("gateio sync lock")
+        .remove(symbol_key);
+    pending
+        .entry(symbol_key.to_owned())
+        .or_default()
+        .push(update);
+}
+
+#[cfg(feature = "orderbook")]
+fn schedule_gateio_resync(
+    feed: &ExchangeFeed,
+    symbol_key: &str,
+    update: GateioDepthDelta,
+    receivers: &mut std::collections::HashMap<
+        String,
+        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    >,
+    pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
+) {
+    let symbol = update.book.symbol.clone();
+    reset_gateio_sync_state(feed, symbol_key, update, pending);
+    receivers
+        .entry(symbol_key.to_owned())
+        .or_insert_with(|| spawn_gateio_snapshot_fetch(symbol));
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -958,7 +1193,7 @@ mod tests {
     use async_trait::async_trait;
     #[cfg(feature = "candles")]
     use cryptofeed_candles::{Candle, CandleHandler};
-    use cryptofeed_core::error::Error;
+    use cryptofeed_core::{error::Error, exchange::ExchangeId};
     #[cfg(feature = "orderbook")]
     use cryptofeed_orderbook::{L2Book, OrderBookHandler};
     #[cfg(feature = "ticker")]
@@ -1717,6 +1952,91 @@ mod tests {
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
         assert_eq!(*book_seen.lock().expect("lock"), 1);
         assert_eq!(*candle_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn bootstrap_gateio_book_dispatches_snapshot() {
+        let feed = Gateio::new().l2_book().symbol("BTC-USDT").build();
+        let snapshot = cryptofeed_orderbook::L2BookSnapshot {
+            exchange: ExchangeId::Gateio,
+            symbol: cryptofeed_core::symbol::Symbol::spot("btc", "usdt"),
+            bids: vec![cryptofeed_orderbook::PriceLevel {
+                price: rust_decimal::Decimal::from_str_exact("64999.10").unwrap(),
+                amount: rust_decimal::Decimal::from_str_exact("1.25").unwrap(),
+            }],
+            asks: vec![cryptofeed_orderbook::PriceLevel {
+                price: rust_decimal::Decimal::from_str_exact("65000.20").unwrap(),
+                amount: rust_decimal::Decimal::from_str_exact("0.75").unwrap(),
+            }],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        };
+
+        let book = super::bootstrap_gateio_book(&feed, "BTC-USDT", 100, snapshot, vec![])
+            .expect("bootstrap")
+            .expect("snapshot event");
+
+        assert!(matches!(book, L2Book::Snapshot(_)));
+        let states = feed.orderbook_states.lock().expect("lock");
+        assert_eq!(states.get("BTC-USDT").expect("state").bids().len(), 1);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn gateio_book_gap_schedules_resync() {
+        let feed = Gateio::new().l2_book().symbol("BTC-USDT").build();
+        let snapshot = cryptofeed_orderbook::L2BookSnapshot {
+            exchange: ExchangeId::Gateio,
+            symbol: cryptofeed_core::symbol::Symbol::spot("btc", "usdt"),
+            bids: vec![cryptofeed_orderbook::PriceLevel {
+                price: rust_decimal::Decimal::from_str_exact("64999.10").unwrap(),
+                amount: rust_decimal::Decimal::from_str_exact("1.25").unwrap(),
+            }],
+            asks: vec![cryptofeed_orderbook::PriceLevel {
+                price: rust_decimal::Decimal::from_str_exact("65000.20").unwrap(),
+                amount: rust_decimal::Decimal::from_str_exact("0.75").unwrap(),
+            }],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        };
+        super::bootstrap_gateio_book(&feed, "BTC-USDT", 100, snapshot, vec![]).expect("bootstrap");
+
+        let gap_update = serde_json::json!({
+            "channel": "spot.order_book_update",
+            "event": "update",
+            "result": {
+                "s": "BTC_USDT",
+                "U": 102u64,
+                "u": 103u64,
+                "b": [["64998.50", "2.00"]],
+                "a": [],
+                "t": 1710000000456u64
+            }
+        });
+        let mut receivers = std::collections::HashMap::new();
+        let mut pending = std::collections::HashMap::new();
+
+        let handled = super::process_gateio_orderbook_message(
+            &feed,
+            &gap_update.to_string(),
+            1710000001.5,
+            &mut receivers,
+            &mut pending,
+        )
+        .await
+        .expect("gap schedules resync");
+
+        assert!(handled);
+        assert!(
+            !feed
+                .gateio_book_syncs
+                .lock()
+                .expect("lock")
+                .contains_key("BTC-USDT")
+        );
+        assert_eq!(pending.get("BTC-USDT").expect("pending").len(), 1);
+        assert!(receivers.contains_key("BTC-USDT"));
     }
 
     #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
