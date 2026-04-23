@@ -879,6 +879,8 @@ mod tests {
         exchange::okx::Okx,
     };
     use async_trait::async_trait;
+    #[cfg(feature = "candles")]
+    use cryptofeed_candles::{Candle, CandleHandler};
     use cryptofeed_core::error::Error;
     #[cfg(feature = "orderbook")]
     use cryptofeed_orderbook::{L2Book, OrderBookHandler};
@@ -975,6 +977,19 @@ mod tests {
     #[async_trait]
     impl OrderBookHandler for TestOrderBookHandler {
         async fn on_l2_book(&self, _book: L2Book) {
+            *self.seen.lock().expect("lock") += 1;
+        }
+    }
+
+    #[cfg(feature = "candles")]
+    struct TestCandleHandler {
+        seen: Arc<Mutex<usize>>,
+    }
+
+    #[cfg(feature = "candles")]
+    #[async_trait]
+    impl CandleHandler for TestCandleHandler {
+        async fn on_candle(&self, _candle: Candle) {
             *self.seen.lock().expect("lock") += 1;
         }
     }
@@ -1336,6 +1351,75 @@ mod tests {
         assert_eq!(state.asks().len(), 1);
     }
 
+    #[cfg(all(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles"
+    ))]
+    #[tokio::test]
+    async fn processes_bybit_public_session_messages() {
+        let ticker_seen = Arc::new(Mutex::new(0));
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let candle_seen = Arc::new(Mutex::new(0));
+        let feed = Bybit::new()
+            .ticker()
+            .trade()
+            .l2_book()
+            .candles()
+            .ticker_handler(Arc::new(TestTickerHandler {
+                seen: ticker_seen.clone(),
+            }))
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .candle_handler(Arc::new(TestCandleHandler {
+                seen: candle_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let ticker = serde_json::json!({
+            "topic": "tickers.BTCUSDT",
+            "type": "snapshot",
+            "ts": 1672304486868i64,
+            "data": { "symbol": "BTCUSDT", "bid1Price": "16578.50", "ask1Price": "16579.00" }
+        });
+        let trade = serde_json::json!({
+            "topic": "publicTrade.BTCUSDT",
+            "type": "snapshot",
+            "ts": 1672304486868i64,
+            "data": [{ "T": 1672304486865i64, "s": "BTCUSDT", "S": "Buy", "v": "0.001", "p": "16578.50", "i": "20f43950" }]
+        });
+        let book = serde_json::json!({
+            "topic": "orderbook.50.BTCUSDT",
+            "type": "snapshot",
+            "ts": 1672304484978i64,
+            "data": { "s": "BTCUSDT", "b": [["16493.50", "0.006"]], "a": [["16493.60", "0.100"]], "u": 18521288u64, "seq": 7961638724u64 }
+        });
+        let candle = serde_json::json!({
+            "topic": "kline.1.BTCUSDT",
+            "type": "snapshot",
+            "ts": 1672324988882i64,
+            "data": [{ "start": 1672324800000i64, "end": 1672324859999i64, "interval": "1", "open": "16649.5", "close": "16677", "high": "16677", "low": "16608", "volume": "2.081", "confirm": false }]
+        });
+
+        for message in [ticker, trade, book, candle] {
+            process_bybit_text_message(&feed, &message.to_string(), 1672304487.0)
+                .await
+                .expect("process bybit public message");
+        }
+
+        assert_eq!(*ticker_seen.lock().expect("lock"), 1);
+        assert_eq!(*trade_seen.lock().expect("lock"), 1);
+        assert_eq!(*book_seen.lock().expect("lock"), 1);
+        assert_eq!(*candle_seen.lock().expect("lock"), 1);
+    }
+
     #[test]
     fn plans_okx_connection_urls() {
         let mut handler = FeedHandler::new();
@@ -1410,6 +1494,68 @@ mod tests {
         let state = states.get("BTC-USDT").expect("btc-usdt state");
         assert_eq!(state.bids().len(), 1);
         assert_eq!(state.asks().len(), 1);
+    }
+
+    #[cfg(all(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles"
+    ))]
+    #[tokio::test]
+    async fn processes_okx_public_session_messages() {
+        let ticker_seen = Arc::new(Mutex::new(0));
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let candle_seen = Arc::new(Mutex::new(0));
+        let feed = Okx::new()
+            .ticker()
+            .trade()
+            .l2_book()
+            .candles()
+            .ticker_handler(Arc::new(TestTickerHandler {
+                seen: ticker_seen.clone(),
+            }))
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .candle_handler(Arc::new(TestCandleHandler {
+                seen: candle_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .build();
+
+        let ticker = serde_json::json!({
+            "arg": {"channel": "tickers", "instId": "BTC-USDT"},
+            "data": [{ "bidPx": "64999.10", "askPx": "65000.20", "ts": "1710000000456" }]
+        });
+        let trade = serde_json::json!({
+            "arg": {"channel": "trades", "instId": "BTC-USDT"},
+            "data": [{ "tradeId": "1", "px": "65000.50", "sz": "0.0100", "side": "buy", "ts": "1710000000123" }]
+        });
+        let book = serde_json::json!({
+            "arg": {"channel": "books", "instId": "BTC-USDT"},
+            "action": "snapshot",
+            "data": [{ "bids": [["64999.10", "1.25", "0", "1"]], "asks": [["65000.20", "0.75", "0", "1"]], "ts": "1710000000456", "seqId": 100i64, "prevSeqId": -1i64 }]
+        });
+        let candle = serde_json::json!({
+            "arg": {"channel": "candle1m", "instId": "BTC-USDT"},
+            "data": [["1710000000000", "65000.00", "65100.00", "64900.00", "65050.00", "12.50", "0", "0", "1"]]
+        });
+
+        for message in [ticker, trade, book, candle] {
+            process_okx_text_message(&feed, &message.to_string(), 1710000001.5)
+                .await
+                .expect("process okx public message");
+        }
+
+        assert_eq!(*ticker_seen.lock().expect("lock"), 1);
+        assert_eq!(*trade_seen.lock().expect("lock"), 1);
+        assert_eq!(*book_seen.lock().expect("lock"), 1);
+        assert_eq!(*candle_seen.lock().expect("lock"), 1);
     }
 
     #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
