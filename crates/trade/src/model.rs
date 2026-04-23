@@ -42,4 +42,27 @@ mod tests {
 
         assert_eq!(trade.symbol.as_str(), "BTC-USDT");
     }
+
+    #[test]
+    fn trade_roundtrips_with_serde_json() {
+        let trade = Trade {
+            exchange: ExchangeId::Binance,
+            symbol: Symbol::spot("btc", "usdt"),
+            side: Side::Sell,
+            amount: Decimal::from_str_exact("0.2501").unwrap(),
+            price: Decimal::from_str_exact("64001.20").unwrap(),
+            exchange_ts: 1710000001.0,
+            received_ts: 1710000001.2,
+            id: Some("trade-id-1".to_owned()),
+        };
+
+        let json = serde_json::to_string(&trade).unwrap();
+        let decoded: Trade = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded.symbol.as_str(), "BTC-USDT");
+        assert!(matches!(decoded.side, Side::Sell));
+        assert_eq!(decoded.amount, Decimal::from_str_exact("0.2501").unwrap());
+        assert_eq!(decoded.price, Decimal::from_str_exact("64001.20").unwrap());
+        assert_eq!(decoded.id.as_deref(), Some("trade-id-1"));
+    }
 }

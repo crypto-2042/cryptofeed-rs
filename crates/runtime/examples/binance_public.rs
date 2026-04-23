@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cryptofeed_orderbook::{L2Book, OrderBookHandler};
-use cryptofeed_rs::{FeedHandler, binance::Binance};
-use cryptofeed_ticker::{Ticker, TickerHandler};
-use cryptofeed_trade::{Trade, TradeHandler};
+use cryptofeed_rs::prelude::*;
 
 struct PrintHandler;
 

@@ -13,6 +13,8 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - `crates/runtime`
 - Package names keep the `cryptofeed-` prefix.
 - Exchange implementations are centralized in `crates/runtime`.
+- The category crates are intentionally thin API crates (normalized models + handler traits), while runtime owns transport/protocol execution.
+- Prefer `prelude` exports (`cryptofeed_rs::prelude::*` and crate-local preludes) to keep examples and user code imports stable.
 
 ## API Policy Memory
 
@@ -71,6 +73,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-features -- -D warnings`
   - `cargo test --workspace`
+- Model contract tests (including serde roundtrip checks) should live in the category crates first, with runtime tests focused on exchange parsing/routing behavior.
 
 ## Operational Memory
 

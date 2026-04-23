@@ -208,4 +208,64 @@ mod tests {
             Decimal::from_str_exact("1.00").unwrap()
         );
     }
+
+    #[test]
+    fn snapshot_roundtrips_with_serde_json() {
+        let snapshot = L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Binance,
+            symbol: Symbol::spot("btc", "usdt"),
+            bids: vec![PriceLevel {
+                price: Decimal::from_str_exact("64999.10").unwrap(),
+                amount: Decimal::from_str_exact("1.25").unwrap(),
+            }],
+            asks: vec![PriceLevel {
+                price: Decimal::from_str_exact("65000.20").unwrap(),
+                amount: Decimal::from_str_exact("0.75").unwrap(),
+            }],
+            exchange_ts: 10.0,
+            received_ts: 11.0,
+        });
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let decoded: L2Book = serde_json::from_str(&json).unwrap();
+
+        match decoded {
+            L2Book::Snapshot(snapshot) => {
+                assert_eq!(snapshot.symbol.as_str(), "BTC-USDT");
+                assert_eq!(snapshot.bids.len(), 1);
+                assert_eq!(snapshot.asks.len(), 1);
+            }
+            L2Book::Delta(_) => panic!("expected snapshot"),
+        }
+    }
+
+    #[test]
+    fn delta_roundtrips_with_serde_json() {
+        let delta = L2Book::Delta(L2BookDelta {
+            exchange: ExchangeId::Binance,
+            symbol: Symbol::spot("btc", "usdt"),
+            bids: vec![PriceLevel {
+                price: Decimal::from_str_exact("64998.50").unwrap(),
+                amount: Decimal::from_str_exact("2.00").unwrap(),
+            }],
+            asks: vec![PriceLevel {
+                price: Decimal::from_str_exact("65000.20").unwrap(),
+                amount: Decimal::from_str_exact("1.00").unwrap(),
+            }],
+            exchange_ts: 12.0,
+            received_ts: 13.0,
+        });
+
+        let json = serde_json::to_string(&delta).unwrap();
+        let decoded: L2Book = serde_json::from_str(&json).unwrap();
+
+        match decoded {
+            L2Book::Delta(delta) => {
+                assert_eq!(delta.symbol.as_str(), "BTC-USDT");
+                assert_eq!(delta.bids.len(), 1);
+                assert_eq!(delta.asks.len(), 1);
+            }
+            L2Book::Snapshot(_) => panic!("expected delta"),
+        }
+    }
 }

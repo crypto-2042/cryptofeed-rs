@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-04-22
+Last updated: 2026-04-23
 
 ## Current State
 
@@ -23,12 +23,16 @@ Last updated: 2026-04-22
   - `Funding`
   - `Liquidation`
   - public handler traits
+  - per-crate `prelude` modules for stable model/handler imports
+  - serde roundtrip contract tests for normalized models
 - Runtime shell:
   - `FeedHandler`
   - exchange builders
   - router shell
   - transport shell
   - supervision shell
+  - runtime `prelude` module for consolidated user-facing imports
+  - shared dispatch helpers to reduce exchange event-dispatch duplication
 - Binance public runtime:
   - websocket URL planning
   - live websocket connect
@@ -127,3 +131,4 @@ cargo test --workspace
 - `eae1fd4` `feat: add okx order book sync`
 - `449ff49` `feat: add candles public parity`
 - `0f53a06` `feat: add binance funding liquidation parity`
+- `(unreleased)` `chore: add prelude modules, unify handler templates, and expand model contract tests`

@@ -44,4 +44,27 @@ mod tests {
         assert_eq!(liquidation.symbol.as_str(), "BTC-USDT");
         assert_eq!(liquidation.status, LiquidationStatus::Filled);
     }
+
+    #[test]
+    fn liquidation_roundtrips_with_serde_json() {
+        let liquidation = Liquidation {
+            exchange: ExchangeId::Binance,
+            symbol: Symbol::spot("btc", "usdt"),
+            side: "buy".to_owned(),
+            quantity: Decimal::from_str_exact("0.25").unwrap(),
+            price: Decimal::from_str_exact("64050").unwrap(),
+            id: Some("liq-1".to_owned()),
+            status: LiquidationStatus::Unfilled,
+            exchange_ts: 1710000010.0,
+            received_ts: 1710000011.0,
+        };
+
+        let json = serde_json::to_string(&liquidation).unwrap();
+        let decoded: Liquidation = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded.symbol.as_str(), "BTC-USDT");
+        assert_eq!(decoded.side, "buy");
+        assert_eq!(decoded.id.as_deref(), Some("liq-1"));
+        assert_eq!(decoded.status, LiquidationStatus::Unfilled);
+    }
 }

@@ -10,3 +10,6 @@ cryptofeed-core = { path = "../core" }
 async-trait.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

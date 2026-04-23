@@ -36,4 +36,32 @@ mod tests {
         assert_eq!(funding.symbol.as_str(), "BTC-USDT");
         assert!(funding.rate.is_some());
     }
+
+    #[test]
+    fn funding_roundtrips_with_serde_json() {
+        let funding = Funding {
+            exchange: ExchangeId::Binance,
+            symbol: Symbol::spot("btc", "usdt"),
+            mark_price: Some(Decimal::from_str_exact("64000.1").unwrap()),
+            rate: Some(Decimal::from_str_exact("0.000123").unwrap()),
+            next_funding_time: Some(1710003600.0),
+            predicted_rate: Some(Decimal::from_str_exact("0.000111").unwrap()),
+            exchange_ts: 1710000000.0,
+            received_ts: 1710000001.0,
+        };
+
+        let json = serde_json::to_string(&funding).unwrap();
+        let decoded: Funding = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded.symbol.as_str(), "BTC-USDT");
+        assert_eq!(
+            decoded.mark_price,
+            Some(Decimal::from_str_exact("64000.1").unwrap())
+        );
+        assert_eq!(
+            decoded.predicted_rate,
+            Some(Decimal::from_str_exact("0.000111").unwrap())
+        );
+        assert_eq!(decoded.next_funding_time, Some(1710003600.0));
+    }
 }

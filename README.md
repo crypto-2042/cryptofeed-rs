@@ -10,6 +10,11 @@ Public-first Rust workspace for normalized cryptocurrency exchange market data.
 - `cryptofeed-orderbook`
 - `cryptofeed-rs`
 
+## Architecture
+
+- Type crates (`cryptofeed-ticker`, `cryptofeed-trade`, `cryptofeed-orderbook`, `cryptofeed-candles`, `cryptofeed-funding`, `cryptofeed-liquidations`) define normalized public models and handler traits as a stable API surface.
+- `cryptofeed-rs` (`crates/runtime`) owns exchange adapters, websocket/http transport, routing, reconnect/shutdown, and parsing/runtime orchestration as the implementation surface.
+
 ## Development
 
 ```bash
@@ -26,6 +31,13 @@ Run from `rust/cryptofeed-rs/`:
 ```bash
 cargo run -p cryptofeed-rs --example binance_public
 cargo run -p cryptofeed-rs --example bitget_public
+```
+
+Example imports use the runtime prelude:
+
+```rust
+use async_trait::async_trait;
+use cryptofeed_rs::prelude::*;
 ```
 
 ## Exchange Policy

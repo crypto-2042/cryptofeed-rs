@@ -313,42 +313,17 @@ async fn consume_gateio_session(
 async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
     match event {
         #[cfg(feature = "candles")]
-        BinanceEvent::Candle(candle) => {
-            if let Some(handler) = &feed.candle_handler {
-                handler.on_candle(candle).await;
-            }
-        }
+        BinanceEvent::Candle(candle) => dispatch_candle(feed, candle).await,
         #[cfg(feature = "funding")]
-        BinanceEvent::Funding(funding) => {
-            if let Some(handler) = &feed.funding_handler {
-                handler.on_funding(funding).await;
-            }
-        }
+        BinanceEvent::Funding(funding) => dispatch_funding(feed, funding).await,
         #[cfg(feature = "liquidations")]
-        BinanceEvent::Liquidation(liquidation) => {
-            if let Some(handler) = &feed.liquidation_handler {
-                handler.on_liquidation(liquidation).await;
-            }
-        }
+        BinanceEvent::Liquidation(liquidation) => dispatch_liquidation(feed, liquidation).await,
         #[cfg(feature = "orderbook")]
-        BinanceEvent::L2Book(book) => {
-            apply_orderbook_state(feed, &book);
-            if let Some(handler) = &feed.orderbook_handler {
-                handler.on_l2_book(book).await;
-            }
-        }
+        BinanceEvent::L2Book(book) => dispatch_l2_book(feed, book).await,
         #[cfg(feature = "ticker")]
-        BinanceEvent::Ticker(ticker) => {
-            if let Some(handler) = &feed.ticker_handler {
-                handler.on_ticker(ticker).await;
-            }
-        }
+        BinanceEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
-        BinanceEvent::Trade(trade) => {
-            if let Some(handler) = &feed.trade_handler {
-                handler.on_trade(trade).await;
-            }
-        }
+        BinanceEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
 }
 
@@ -356,99 +331,57 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
 async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
     match event {
         #[cfg(feature = "candles")]
-        BitgetEvent::Candle(candle) => {
-            if let Some(handler) = &feed.candle_handler {
-                handler.on_candle(candle).await;
-            }
-        }
+        BitgetEvent::Candle(candle) => dispatch_candle(feed, candle).await,
         #[cfg(feature = "orderbook")]
         BitgetEvent::L2Book(book) => {
             dispatch_bitget_l2_book(feed, book).await;
         }
         #[cfg(feature = "ticker")]
-        BitgetEvent::Ticker(ticker) => {
-            if let Some(handler) = &feed.ticker_handler {
-                handler.on_ticker(ticker).await;
-            }
-        }
+        BitgetEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
-        BitgetEvent::Trade(trade) => {
-            if let Some(handler) = &feed.trade_handler {
-                handler.on_trade(trade).await;
-            }
-        }
+        BitgetEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
 }
 
 #[cfg(feature = "orderbook")]
 async fn dispatch_bitget_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    apply_orderbook_state(feed, &book);
-    if let Some(handler) = &feed.orderbook_handler {
-        handler.on_l2_book(book).await;
-    }
+    dispatch_l2_book(feed, book).await;
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
     match event {
         #[cfg(feature = "candles")]
-        BybitEvent::Candle(candle) => {
-            if let Some(handler) = &feed.candle_handler {
-                handler.on_candle(candle).await;
-            }
-        }
+        BybitEvent::Candle(candle) => dispatch_candle(feed, candle).await,
         #[cfg(feature = "orderbook")]
         BybitEvent::L2Book(book) => {
             dispatch_bybit_l2_book(feed, book).await;
         }
         #[cfg(feature = "ticker")]
-        BybitEvent::Ticker(ticker) => {
-            if let Some(handler) = &feed.ticker_handler {
-                handler.on_ticker(ticker).await;
-            }
-        }
+        BybitEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
-        BybitEvent::Trade(trade) => {
-            if let Some(handler) = &feed.trade_handler {
-                handler.on_trade(trade).await;
-            }
-        }
+        BybitEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
 }
 
 #[cfg(feature = "orderbook")]
 async fn dispatch_bybit_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    apply_orderbook_state(feed, &book);
-    if let Some(handler) = &feed.orderbook_handler {
-        handler.on_l2_book(book).await;
-    }
+    dispatch_l2_book(feed, book).await;
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
     match event {
         #[cfg(feature = "candles")]
-        OkxEvent::Candle(candle) => {
-            if let Some(handler) = &feed.candle_handler {
-                handler.on_candle(candle).await;
-            }
-        }
+        OkxEvent::Candle(candle) => dispatch_candle(feed, candle).await,
         #[cfg(feature = "orderbook")]
         OkxEvent::L2Book(book) => {
             dispatch_okx_l2_book(feed, book).await;
         }
         #[cfg(feature = "ticker")]
-        OkxEvent::Ticker(ticker) => {
-            if let Some(handler) = &feed.ticker_handler {
-                handler.on_ticker(ticker).await;
-            }
-        }
+        OkxEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
-        OkxEvent::Trade(trade) => {
-            if let Some(handler) = &feed.trade_handler {
-                handler.on_trade(trade).await;
-            }
-        }
+        OkxEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
 }
 
@@ -456,47 +389,24 @@ async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
 async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
     match event {
         #[cfg(feature = "candles")]
-        GateioEvent::Candle(candle) => {
-            if let Some(handler) = &feed.candle_handler {
-                handler.on_candle(candle).await;
-            }
-        }
+        GateioEvent::Candle(candle) => dispatch_candle(feed, candle).await,
         #[cfg(feature = "orderbook")]
-        GateioEvent::L2Book(book) => {
-            apply_orderbook_state(feed, &book);
-            if let Some(handler) = &feed.orderbook_handler {
-                handler.on_l2_book(book).await;
-            }
-        }
+        GateioEvent::L2Book(book) => dispatch_l2_book(feed, book).await,
         #[cfg(feature = "ticker")]
-        GateioEvent::Ticker(ticker) => {
-            if let Some(handler) = &feed.ticker_handler {
-                handler.on_ticker(ticker).await;
-            }
-        }
+        GateioEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
-        GateioEvent::Trade(trade) => {
-            if let Some(handler) = &feed.trade_handler {
-                handler.on_trade(trade).await;
-            }
-        }
+        GateioEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
 }
 
 #[cfg(feature = "orderbook")]
 async fn dispatch_gateio_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    apply_orderbook_state(feed, &book);
-    if let Some(handler) = &feed.orderbook_handler {
-        handler.on_l2_book(book).await;
-    }
+    dispatch_l2_book(feed, book).await;
 }
 
 #[cfg(feature = "orderbook")]
 async fn dispatch_okx_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    apply_orderbook_state(feed, &book);
-    if let Some(handler) = &feed.orderbook_handler {
-        handler.on_l2_book(book).await;
-    }
+    dispatch_l2_book(feed, book).await;
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -533,6 +443,49 @@ fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Boo
 
 #[cfg(feature = "orderbook")]
 async fn dispatch_binance_l2_book(feed: &ExchangeFeed, book: L2Book) {
+    dispatch_l2_book(feed, book).await;
+}
+
+#[cfg(feature = "candles")]
+async fn dispatch_candle(feed: &ExchangeFeed, candle: cryptofeed_candles::Candle) {
+    if let Some(handler) = &feed.candle_handler {
+        handler.on_candle(candle).await;
+    }
+}
+
+#[cfg(feature = "funding")]
+async fn dispatch_funding(feed: &ExchangeFeed, funding: cryptofeed_funding::Funding) {
+    if let Some(handler) = &feed.funding_handler {
+        handler.on_funding(funding).await;
+    }
+}
+
+#[cfg(feature = "liquidations")]
+async fn dispatch_liquidation(
+    feed: &ExchangeFeed,
+    liquidation: cryptofeed_liquidations::Liquidation,
+) {
+    if let Some(handler) = &feed.liquidation_handler {
+        handler.on_liquidation(liquidation).await;
+    }
+}
+
+#[cfg(feature = "ticker")]
+async fn dispatch_ticker(feed: &ExchangeFeed, ticker: cryptofeed_ticker::Ticker) {
+    if let Some(handler) = &feed.ticker_handler {
+        handler.on_ticker(ticker).await;
+    }
+}
+
+#[cfg(feature = "trade")]
+async fn dispatch_trade(feed: &ExchangeFeed, trade: cryptofeed_trade::Trade) {
+    if let Some(handler) = &feed.trade_handler {
+        handler.on_trade(trade).await;
+    }
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) {
     apply_orderbook_state(feed, &book);
     if let Some(handler) = &feed.orderbook_handler {
         handler.on_l2_book(book).await;
