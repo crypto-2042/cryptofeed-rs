@@ -38,9 +38,8 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-After the source has been pushed to
-[the project repository](https://github.com/crypto-2042/cryptofeed-rs), a Git
-dependency can use `cryptofeed-rs = { git = "https://github.com/crypto-2042/cryptofeed-rs" }`.
+A Git dependency from
+[the project repository](https://github.com/crypto-2042/cryptofeed-rs) can use `cryptofeed-rs = { git = "https://github.com/crypto-2042/cryptofeed-rs" }`.
 Use a registry version such as `"0.1"` only after the crates are actually
 published.
 
@@ -187,7 +186,7 @@ Options and MARGIN remain implementation references and fail preflight.
 ### 现货 (Spot)
 
 | Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Funding | Liquidations | Open Interest | Index | Mark price |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Binance | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Bitget v3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Bybit v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
@@ -197,7 +196,7 @@ Options and MARGIN remain implementation references and fail preflight.
 ### 合约 (Perpetual / Dated Futures)
 
 | Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Funding | Liquidations | Open Interest | Index | Mark price |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Binance USD-M / coin-M perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
 | Binance USD-M / coin-M dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ | ✓ |
 | Bitget v3 perpetual (USDT/USDC/coin) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -250,7 +249,7 @@ Notes:
   sampled stream (at most one order per contract per second), not a complete
   liquidation ledger.
 - The additions above have deterministic offline regression coverage.
-  [The 2026-10-08 smoke](docs/live-smoke-2026-10-08.md) received Bitget
+  [The 2026-10-08 smoke](docs/reports/live-smoke-2026-10-08.md) received Bitget
   spot/perpetual L1, derivative ticker fields, and OKX SWAP index events.
   Gate.io liquidation subscription was accepted, but no liquidation occurred
   in the short observation window.
@@ -269,7 +268,7 @@ Notes:
   quantity; Gate.io public liquidation sizes retain the native contract unit.
   Other trade and book quantities preserve the exchange-native unit.
 - L3 order books have no public stream across the active exchanges and are
-  deferred (see `docs/plan-advanced-public-channels.md`).
+  deferred (see [the protocol baseline](docs/exchange-protocol-baseline.md#l3-order-book-scope)).
 - Authenticated data and trading are out of scope.
 
 ## Development
@@ -335,9 +334,8 @@ cannot permanently stop socket reads; high-volume consumers should prefer the
 bounded event-stream API.
 
 The offline evidence and parity workflow is documented in
-[`docs/harness.md`](docs/harness.md). The implementation roadmap and acceptance
-criteria are in
-[`docs/current-exchanges-implementation-plan.md`](docs/current-exchanges-implementation-plan.md).
+[the harness guide](docs/harness.md). See the [documentation index](docs/README.md)
+for protocol references, decisions, and dated live-validation reports.
 
 ## Exchange Policy
 
@@ -359,14 +357,10 @@ New CEX integrations must use the latest stable official exchange API rather tha
   protocol source of truth.
 - **Repository**: https://github.com/crypto-2042/cryptofeed-rs.
 - **License**: this workspace currently declares XFree86-1.1 (see `LICENSE`).
-  The maintainer must confirm licensing and ownership before the first public
-  distribution. This declaration is not a claim that the current Python
+  The maintainer must confirm licensing and ownership before the first formal
+  release. This declaration is not a claim that the current Python
   upstream has the same license; any reused material needs provenance tied
   to its exact source revision.
 - **Maturity**: experimental public-market-data release. The API surface and
   the supported exchange scope are still evolving; `PROGRESS.md` tracks the
   current implementation state and the remaining release work.
-
-The [2026-10-08 pre-push review](docs/pre-push-review-2026-10-08.md) records
-engineering gates, corrected protocol/model contracts, manual evidence,
-and the remaining maintainer decisions before public distribution.

@@ -190,7 +190,7 @@
     <h1>cryptofeed-rs <span class="accent">功能实现状态</span></h1>
     <div class="subtitle">
       纯 Rust 归一化加密货币行情 SDK · 状态截至 2026-10-08 · 数据来源：README / PARITY.md / PROGRESS.md /
-      docs/exchange-protocol-baseline.md / docs/plan-advanced-public-channels.md / docs/live-smoke-2026-08-17.md
+      docs/exchange-protocol-baseline.md / docs/reports/live-smoke-2026-08-17.md
     </div>
     <div class="badges">
       <div class="badge green"><span class="num">5</span><span class="lbl">活跃交易所实现</span></div>
@@ -204,7 +204,7 @@
   <!-- ============ 1. Capability matrix ============ -->
   <section>
     <h2><span class="step">1</span> 能力矩阵（按标的类型分组：现货 / 合约 / 期权 / MARGIN）</h2>
-    <p class="note">首版推送前工程复核：字段语义、无损 JSON 精度、产品限定、Bybit delta 状态、周期格式和日历月边界已修正。383 项测试（含 82 parity）、Rust 1.85、全部 feature、文档与 lint 门禁通过；依赖审计零漏洞。10 配置聚合冒烟及 Bybit/Binance/Bitget 最终目标复核干净退出。最终工程门禁已复跑，源代码提交推送已获授权；GitHub 私有漏洞报告已启用并验证，正式发版仍需确认许可证来源。<a href="pre-push-review-2026-10-08.md">完整结论与验证范围</a></p>
+    <p class="note">首版推送前工程复核：字段语义、无损 JSON 精度、产品限定、Bybit delta 状态、周期格式和日历月边界已修正。383 项测试（含 82 parity）、Rust 1.85、全部 feature、文档与 lint 门禁通过；依赖审计零漏洞。10 配置聚合冒烟及 Bybit/Binance/Bitget 最终目标复核干净退出。最终工程门禁已复跑，源代码已推送 GitHub；GitHub 私有漏洞报告已启用并验证，正式发版仍需确认许可证来源。<a href="reports/live-smoke-pre-push-2026-10-08.md">实盘验证范围</a></p>
     <p class="note">2026-10-08 增量：Bitget 现货/合约 L1 与合约 Funding/OI/Index/MarkPrice；Gate.io 永续公共强平；OKX 合约指数映射与多合约派发。已增加协议 fixture、离线 parity、runtime 派发及单 feature 测试；本次 Bitget/OKX 高频频道实盘收到数据，Gate.io 强平仅验证订阅成功；Binance OI、Gate.io 交割强平仍未开放。</p>
     <p class="note">能力预检（capability preflight）是权威门禁：不在矩阵中的组合必须在连接前显式失败，绝不静默订阅空频道。行按标的类型分组展示，同一标的类型下的交易所逐行对比。每格两个标记：<b style="color:var(--green)">绿块=本项目支持</b> / <b style="color:var(--red)">红块=不支持</b>，<b style="color:var(--blue)">蓝块=Python cryptofeed 源码已实现</b> / <b style="color:var(--muted)">灰块=未实现</b>（Python 基线：../cryptofeed 2026-08-07 源码 websocket_channels 映射）。</p>
     <div style="overflow-x:auto;">
@@ -265,7 +265,7 @@
   <!-- ============ 2. Live smoke ============ -->
   <section>
     <h2><span class="step">2</span> 实盘冒烟结果（2026-08-17 当前候选）</h2>
-    <p class="note">当前候选已完成五个活跃交易所现货与衍生品共 10 个配置的聚合冒烟；精确计数见 docs/live-smoke-2026-08-17.md。下图仍展示历史基线分布。</p>
+    <p class="note">当前候选已完成五个活跃交易所现货与衍生品共 10 个配置的聚合冒烟；精确计数见 docs/reports/live-smoke-2026-08-17.md。下图仍展示历史基线分布。</p>
     <div class="chart" id="chart"></div>
     <div class="legend">
       <span><span class="sw" style="background:#f0b429"></span> Candle</span>
@@ -291,13 +291,13 @@
       </div>
       <div class="kb-col wip">
         <h3>进行中<span class="cnt">0 项</span></h3>
-        <p class="kb-placeholder">2026-10-08 新增频道已完成离线回归；本次实盘：7 类 exchange/product/channel 组合收到数据，Gate.io 公共强平订阅成功、窗口内 0 事件；详见 <a href="live-smoke-2026-10-08.md">2026-10-08 报告</a>。—— 2026-08-07 批次：订阅-回调不匹配告警、事件级可观测性（计数+事件流）、广播订阅者模式（FeedEvent）、CHANGELOG + 衍生品示例已全部完成。</p>
+        <p class="kb-placeholder">2026-10-08 新增频道已完成离线回归；本次实盘：7 类 exchange/product/channel 组合收到数据，Gate.io 公共强平订阅成功、窗口内 0 事件；详见 <a href="reports/live-smoke-2026-10-08.md">2026-10-08 报告</a>。—— 2026-08-07 批次：订阅-回调不匹配告警、事件级可观测性（计数+事件流）、广播订阅者模式（FeedEvent）、CHANGELOG + 衍生品示例已全部完成。</p>
       </div>
       <div class="kb-col hold">
         <h3>暂缓 / 范围外<span class="cnt">12 项</span></h3>
         <div class="kb-item">
           <div class="t">正式发版身份确认</div>
-          <div class="d">GitHub 仓库和 origin 已确认；Rust 作者署名未填写，许可证与实际复用来源待维护者确认。GitHub 私有漏洞报告已启用并验证，安全政策已提供私有报告入口。<a href="pre-push-review-2026-10-08.md">工程审查报告</a></div>
+          <div class="d">GitHub 仓库和 origin 已确认；Rust 作者署名未填写，许可证与实际复用来源待维护者确认。GitHub 私有漏洞报告已启用并验证，安全政策已提供私有报告入口。<a href="../SECURITY.md">安全报告渠道</a></div>
         </div>
         <div class="kb-item">
           <div class="t">Binance 合约 OI（2026-10-08 明确暂缓）</div>
@@ -507,8 +507,8 @@
   </section>
 
   <footer>
-    来源：README.md · PARITY.md · PROGRESS.md · docs/exchange-protocol-baseline.md · docs/live-smoke-2026-08-04.md ·
-    docs/current-exchanges-implementation-plan.md · AGENTS.md。生成于 <span id="gen-date"></span>。
+    来源：README.md · PARITY.md · PROGRESS.md · docs/exchange-protocol-baseline.md · docs/reports/live-smoke-2026-08-04.md ·
+    AGENTS.md。生成于 <span id="gen-date"></span>。
     验证基线：<code>cargo fmt --all --check</code> · <code>cargo clippy --workspace --all-features --all-targets -- -D warnings</code> ·
     <code>cargo test --workspace</code> · <code>cargo check --workspace --no-default-features</code>。
   </footer>

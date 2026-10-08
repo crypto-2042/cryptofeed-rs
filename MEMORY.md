@@ -99,7 +99,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-features --all-targets -- -D warnings`
   - `cargo test --workspace`
-- Manual live-smoke outcomes belong in dated `docs/live-smoke-*.md` reports and
+- Manual live-smoke outcomes belong in dated `docs/reports/live-smoke-*.md` reports and
   remain outside CI.
 - Model contract tests (including serde roundtrip checks) should live in the category crates first, with runtime tests focused on exchange parsing/routing behavior.
 - Full-session doubles drive the generic `consume_*_session_with` helpers over

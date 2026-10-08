@@ -1,3 +1,6 @@
 /target
 Cargo.lock
 .DS_Store
+
+# Local review notes, retired implementation plans, and presentation drafts
+/.local/

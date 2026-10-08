@@ -104,7 +104,7 @@ The historical index-price/L1/depth observations above follow the long-stable
 USD-M/COIN-M market-stream contract and the 2026-08-04 baseline. The current
 Binance developer docs site is client-rendered and was unreachable for
 re-verification on 2026-08-06; a live smoke run is the acceptance evidence for
-these cells (see `docs/live-smoke-2026-08-04.md` for the previous run).
+these cells (see `docs/reports/live-smoke-2026-08-04.md` for the previous run).
 - Historical Binance option fixtures remain parser migration references, but
   the legacy `nbstream` endpoint returned 404 and no current endpoint has
   passed live validation. Capability preflight therefore rejects Binance
@@ -473,6 +473,16 @@ Official references:
 - When a REST order-book snapshot has no sequence id, wait for at least one
   buffered WebSocket delta before consuming it; the first delta and timestamp
   check provide the required bridge. Never accept an unanchored snapshot.
+
+## L3 order-book scope
+
+The 2026-08-05 scope review found no public order-by-order (L3) depth stream
+across the five active exchanges. Their public books expose price levels:
+Binance `@depth`, Bybit `orderbook.*`, OKX and Bitget `books*`, and Gate.io
+`order_book_update`. L3 remains outside the capability matrix. Reopening it
+requires a verified official public L3 source and a new implementation plan.
+This preserves the scope decision from the retired implementation plan; it is
+not a new live-service verification.
 
 ## Manual live-smoke acceptance
 

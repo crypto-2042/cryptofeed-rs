@@ -176,7 +176,9 @@ the HTTP catalog fetchers per exchange.
   changing exchange coverage).
 - `PROGRESS.md` — milestones.
 - `MEMORY.md` — durable project constraints/lessons.
+- `docs/README.md` — public documentation index.
 - `docs/harness.md` — fixture formats and parity behavior.
+- `docs/reports/` — dated, sanitized live-validation evidence.
 - `docs/ai-coding.md` — the AI-assisted workflow agreement.
 - `docs/exchange-protocol-baseline.md` — current official protocol facts.
 - `AGENTS.md` / `CLAUDE.md` — identical repository rules; when one changes,
@@ -189,6 +191,9 @@ the HTTP catalog fetchers per exchange.
   invented ones.
 
 ## Repository Hygiene
+
+- Keep internal review notes, retired implementation plans, and presentation
+  drafts in ignored `.local/docs/`, not in the public `docs/` tree.
 
 - Workspace dependency resolver 3 honors the declared Rust 1.85 MSRV. Keep
   the no-lockfile policy and run the MSRV gate against fresh dependency resolution.

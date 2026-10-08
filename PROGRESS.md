@@ -20,7 +20,7 @@ recovery are in place.
 - 2026-10-08 targeted live smoke: Bitget spot/perpetual L1, perpetual
   funding/OI/index/mark price, and OKX SWAP index delivered normalized events.
   Gate.io perpetual public liquidation subscription succeeded, with no
-  liquidation events in the short window; see `docs/live-smoke-2026-10-08.md`.
+  liquidation events in the short window; see `docs/reports/live-smoke-2026-10-08.md`.
 
 - Pure Rust workspace split into core and normalized public data categories.
 - Stable `FeedHandler` entrypoint and exchange builders.
@@ -154,13 +154,14 @@ recovery are in place.
   11 package-content checks, and zero-vulnerability dependency audit. Current
   and 403 historical blob credential-pattern scans found no matches.
 - Aggregate 10-configuration smoke and post-fix Bybit/Binance/Bitget targeted
-  checks exited cleanly; see `docs/live-smoke-pre-push-2026-10-08.md`.
+  checks exited cleanly; see `docs/reports/live-smoke-pre-push-2026-10-08.md`.
 - GitHub repository confirmed: https://github.com/crypto-2042/cryptofeed-rs.
   It was public and empty at the engineering review, with ADMIN permission.
 - The final review also covers derivative ticker delta reconstruction,
   dated Funding preflight, official candle interval vocabulary, calendar-month
   ends, and documented Binance index extraction. See
-  `docs/pre-push-review-2026-10-08.md` for exact checks and limitations.
+  `docs/reports/live-smoke-pre-push-2026-10-08.md` for manual evidence and
+  limitations; automated gate results are recorded above.
 - The original engineering review did not commit or push. On 2026-10-08 the
   maintainer authorized source submission to GitHub; final engineering gates
   were rerun and private vulnerability reporting was enabled and verified.
@@ -192,7 +193,7 @@ recovery are in place.
   failure requires an intermittent live failure; tracked passively.
 - L3 order books: none of the five active exchanges exposes a public
   order-by-order depth stream (verified 2026-08-05); public depth is
-  price-level only. See `docs/plan-advanced-public-channels.md` Section 2.2.
+  price-level only. See `docs/exchange-protocol-baseline.md` (L3 order-book scope).
 
 ## Verification Baseline
 

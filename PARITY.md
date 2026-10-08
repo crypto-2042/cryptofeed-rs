@@ -88,7 +88,7 @@ public perpetual liquidation subscription was acknowledged successfully;
 no liquidation event occurred in the 45-second window. Dated-product fan-out,
 other Bitget derivative categories, and Gate.io liquidation normalization
 remain offline-verified in this increment. See
-[the smoke report](docs/live-smoke-2026-10-08.md).
+[the smoke report](docs/reports/live-smoke-2026-10-08.md).
 
 ## Exchange Protocol Gates
 
@@ -268,14 +268,13 @@ cargo test -p cryptofeed-rs --test public_parity
   bounded resnapshot path is implemented and deterministically covered).
 - L3 order books: no public order-by-order depth stream across the five active
   exchanges (verified 2026-08-05); see
-  `docs/plan-advanced-public-channels.md` Section 2.2.
+  [the protocol baseline](docs/exchange-protocol-baseline.md#l3-order-book-scope).
 - Deeper full-session WebSocket/REST doubles and remaining checksum coverage.
 
 Funding and liquidations (Bitget v3, Bybit v5, OKX v5, Gate.io perpetual
 liquidations), open interest (Bitget, Bybit, OKX, Gate.io), index price
 (OKX explicit index/contract mapping, Binance derivative index-price stream,
 Bitget/Bybit/Gate.io derivative tickers), and L1 (all five active exchanges) are implemented for spot/contract scope. Options, MARGIN, and L3 are
-deferred. See `docs/plan-advanced-public-channels.md`. Further expansion
-requires a new explicit plan and current official protocol evidence. See
-`docs/current-exchanges-implementation-plan.md` for the detailed acceptance
-model and remaining release work.
+deferred. Further expansion requires a new explicit plan and current official
+protocol evidence. See [the harness guide](docs/harness.md) for acceptance
+criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.

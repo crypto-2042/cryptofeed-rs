@@ -10,9 +10,9 @@ control-message handling, and known live-wire differences, is maintained in
 [`exchange-protocol-baseline.md`](exchange-protocol-baseline.md). Review that
 baseline before changing an adapter or fixture.
 
-The latest manual public-service evidence is recorded in
-[`live-smoke-2026-08-04.md`](live-smoke-2026-08-04.md). It is diagnostic
-evidence, not an offline test input or CI gate.
+Dated manual public-service evidence is indexed in
+[the documentation guide](README.md#live-validation-reports). Reports are
+diagnostic evidence, not offline test inputs or CI gates.
 
 The 2026-10-08 additions cover Bitget spot/contract L1 and derivative ticker
 fields, Gate.io public perpetual liquidation batches, and OKX shared-index
@@ -197,8 +197,8 @@ separately verify its acknowledgement when the stream is sparse.
    high-frequency channel; Ctrl-C shutdown returns `Ok(())` without a retry
    loop caused by a control frame. Zero events is not a failure for sparse
    channels (funding, liquidations, one-minute candles in a short window).
-5. **Record.** Write a dated report `docs/live-smoke-<yyyy-mm-dd>.md`
-   following the format of `docs/live-smoke-2026-08-04.md`: a table of
+5. **Record.** Write a dated report `docs/reports/live-smoke-<yyyy-mm-dd>.md`
+   following the format of `docs/reports/live-smoke-2026-08-04.md`: a table of
    exchange/product/symbol, per-channel event counts, result per configuration,
    observations, and regression conclusions. Never include credentials,
    signatures, cookies, or private payloads.
