@@ -1,4 +1,4 @@
 pub mod error;
 pub mod exchange;
-pub mod subscription;
+pub mod model;
 pub mod symbol;

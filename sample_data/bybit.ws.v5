@@ -1,0 +1,18 @@
+wss://stream.bybit.com/v5/public/spot <-> 1672304487.000000
+wss://stream.bybit.com/v5/public/linear <-> 1672304487.010000
+wss://stream.bybit.com/v5/public/inverse <-> 1672304487.020000
+send: {"op":"subscribe","args":["orderbook.1.BTCUSDT","publicTrade.BTCUSDT","orderbook.50.BTCUSDT","kline.1.BTCUSDT"]}
+1672304484.900000: {"topic":"tickers.BTCUSDT","type":"snapshot","ts":1672304484900,"data":{"symbol":"BTCUSDT","lastPrice":"16578.50","highPrice24h":"17000.00","lowPrice24h":"16000.00","volume24h":"1234.5"}}
+1672304484.950000: {"topic":"orderbook.1.BTCUSDT","type":"snapshot","ts":1672304484950,"data":{"s":"BTCUSDT","b":[["16493.50","0.006"]],"a":[["16493.60","0.100"]],"u":18521287,"seq":7961638723}}
+1672304486.868000: {"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1672304486868,"data":[{"T":1672304486865,"s":"BTCUSDT","S":"Buy","v":"0.001","p":"16578.50","i":"20f43950-a","seq":1783284617},{"T":1672304486866,"s":"BTCUSDT","S":"Sell","v":"0.002","p":"16578.40","i":"20f43950-b","seq":1783284617}]}
+1672304484.978000: {"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1672304484978,"data":{"s":"BTCUSDT","b":[["16493.50","0.006"]],"a":[["16493.60","0.100"]],"u":18521288,"seq":7961638724},"cts":1672304484976}
+1687940967.466000: {"topic":"orderbook.50.BTCUSDT","type":"delta","ts":1687940967466,"data":{"s":"BTCUSDT","b":[["16493.50","0"]],"a":[["16493.70","0.892"]],"u":18521289,"seq":7961638725},"cts":1687940967464}
+1687940967.500000: {"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1687940967500,"data":{"s":"BTCUSDT","b":[["16492.00","0.250"]],"a":[["16494.00","0.300"]],"u":1,"seq":7961638726},"cts":1687940967498}
+1672304487.030000: {"topic":"tickers.BTCUSDT","type":"snapshot","ts":1672304487030,"data":[{"symbol":"BTCUSDT","fundingRate":"0.0001","nextFundingTime":"1672304487000","markPrice":"50000","indexPrice":"49950"}]}
+1672304487.040000: {"topic":"allLiquidation.BTCUSDT","type":"snapshot","ts":1672304487040,"data":[{"T":1672304487035,"s":"BTCUSDT","S":"Sell","v":"0.001","p":"49500"}]}
+1672304486.870000: {"topic":"tickers.BTCUSDT","type":"snapshot","ts":1672304486870,"data":{"symbol":"BTCUSDT","bid1Price":"16578.50","ask1Price":"16579.00","openInterest":"1234.5","openInterestValue":"20000000","indexPrice":"16577.00"}}
+1672304484.951000: {"topic":"orderbook.1.BTCUSDT","type":"snapshot","ts":1672304484951,"data":{"s":"BTCUSDT","b":[["16578.50","0.001"]],"a":[["16579.00","0.002"]],"u":123,"seq":456}}
+1672304487.050000: {"topic":"tickers.BTC-30DEC22-18000-C","type":"snapshot","ts":1672304487050,"data":{"symbol":"BTC-30DEC22-18000-C","bidPrice":"0.001","bidSize":"2.5","bidIv":"0.48","askPrice":"0.002","askSize":"3.0","askIv":"0.51","markPriceIv":"0.495"}}
+1672304487.060000: {"topic":"publicTrade.BTC","type":"snapshot","ts":1672304487060,"data":[{"T":1672304487065,"s":"BTC-30JUN26-65000-C","S":"Buy","v":"0.5","p":"0.001","i":"opt-trade-1","mP":"0.0011","iP":"65000","mIv":"0.5","iv":"0.49"}]}
+1736371332.200000: {"topic":"tickers.BTCUSDT","type":"snapshot","ts":1736371332162,"data":{"symbol":"BTCUSDT","bid1Price":"64999","ask1Price":"65000","markPrice":"65000.1","indexPrice":"64999.1","openInterest":"123","openInterestValue":"7995012.3","fundingRate":"0.0001","nextFundingTime":"1736373600000"}}
+1736371332.300000: {"topic":"tickers.BTCUSDT","type":"delta","ts":1736371332262,"data":{"bid1Price":"64998.12345678","openInterestValue":"7996000.12345678"}}

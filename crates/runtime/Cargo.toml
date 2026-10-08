@@ -3,37 +3,115 @@ name = "cryptofeed-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Runtime for normalized cryptocurrency exchange market data"
+documentation = "https://docs.rs/cryptofeed-rs"
 
 [features]
-default = ["ticker", "trade", "orderbook", "candles", "funding", "liquidations"]
+default = ["ticker", "trade", "orderbook", "candles", "funding", "index", "liquidations", "markprice", "openinterest"]
 ticker = ["dep:cryptofeed-ticker"]
 trade = ["dep:cryptofeed-trade"]
 orderbook = ["dep:cryptofeed-orderbook"]
-candles = ["dep:cryptofeed-candles"]
+candles = ["dep:cryptofeed-candles", "dep:chrono"]
 funding = ["dep:cryptofeed-funding"]
 liquidations = ["dep:cryptofeed-liquidations"]
+markprice = ["dep:cryptofeed-markprice"]
+openinterest = ["dep:cryptofeed-openinterest"]
+index = ["dep:cryptofeed-index"]
 
 [dependencies]
-cryptofeed-core = { path = "../core" }
-cryptofeed-candles = { path = "../candles", optional = true }
-cryptofeed-funding = { path = "../funding", optional = true }
-cryptofeed-liquidations = { path = "../liquidations", optional = true }
-cryptofeed-ticker = { path = "../ticker", optional = true }
-cryptofeed-trade = { path = "../trade", optional = true }
-cryptofeed-orderbook = { path = "../orderbook", optional = true }
-async-trait.workspace = true
+cryptofeed-core.workspace = true
+cryptofeed-candles = { path = "../candles", version = "0.1.0", optional = true }
+cryptofeed-funding = { path = "../funding", version = "0.1.0", optional = true }
+cryptofeed-liquidations = { path = "../liquidations", version = "0.1.0", optional = true }
+cryptofeed-markprice = { path = "../markprice", version = "0.1.0", optional = true }
+cryptofeed-openinterest = { path = "../openinterest", version = "0.1.0", optional = true }
+cryptofeed-index = { path = "../index", version = "0.1.0", optional = true }
+cryptofeed-ticker = { path = "../ticker", version = "0.1.0", optional = true }
+cryptofeed-trade = { path = "../trade", version = "0.1.0", optional = true }
+cryptofeed-orderbook = { path = "../orderbook", version = "0.1.0", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
 futures.workspace = true
 reqwest.workspace = true
 rust_decimal.workspace = true
-serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 tokio.workspace = true
-tokio-stream.workspace = true
 tokio-tungstenite.workspace = true
 tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
+
+[[test]]
+name = "public_parity"
+required-features = [
+    "ticker",
+    "trade",
+    "orderbook",
+    "candles",
+    "funding",
+    "index",
+    "liquidations",
+    "markprice",
+    "openinterest",
+]
+
+[[test]]
+name = "feature_boundaries"
+
+[[example]]
+name = "binance_public"
+required-features = ["candles", "funding", "liquidations", "orderbook", "ticker", "trade"]
+
+[[example]]
+name = "bitget_public"
+required-features = ["candles", "orderbook", "ticker", "trade"]
+
+[[example]]
+name = "bybit_public"
+required-features = ["candles", "orderbook", "ticker", "trade"]
+
+[[example]]
+name = "gateio_public"
+required-features = ["candles", "orderbook", "ticker", "trade"]
+
+[[example]]
+name = "okx_public"
+required-features = ["candles", "orderbook", "ticker", "trade"]
+
+[[example]]
+name = "derivatives_public"
+required-features = [
+    "funding",
+    "index",
+    "markprice",
+    "orderbook",
+    "ticker",
+    "trade",
+]
+
+[[example]]
+name = "release_smoke"
+required-features = [
+    "candles",
+    "funding",
+    "index",
+    "liquidations",
+    "markprice",
+    "openinterest",
+    "orderbook",
+    "ticker",
+    "trade",
+]
+
+[[example]]
+name = "channel_completion_smoke"
+required-features = ["orderbook", "funding", "openinterest", "index", "markprice", "liquidations"]
+
+[package.metadata.docs.rs]
+all-features = true

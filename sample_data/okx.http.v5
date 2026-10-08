@@ -1,0 +1,4 @@
+https://www.okx.com/api/v5/public/instruments?instType=SPOT -> 1710000001.100000: {"code":"0","data":[{"instType":"SPOT","instId":"BTC-USDT","baseCcy":"BTC","quoteCcy":"USDT"}]}
+https://www.okx.com/api/v5/public/instruments?instType=SWAP -> 1710000001.200000: {"code":"0","data":[{"instType":"SWAP","instId":"BTC-USDT-SWAP","baseCcy":"BTC","quoteCcy":"USDT"},{"instType":"SWAP","instId":"BTC-USD-SWAP","baseCcy":"BTC","quoteCcy":"USD"}]}
+https://www.okx.com/api/v5/public/instruments?instType=FUTURES -> 1710000001.300000: {"code":"0","data":[{"instType":"FUTURES","instId":"BTC-USDT-240628","baseCcy":"BTC","quoteCcy":"USDT"}]}
+configuration: {"spot":{"l2_book":["BTC-USDT"],"ticker":["BTC-USDT"],"trades":["BTC-USDT"],"candles":["BTC-USDT"]},"swap":{"l2_book":["BTC-USDT-PERP","BTC-USD-PERP"]},"futures":{"l2_book":["BTC-USDT-240628"]}}

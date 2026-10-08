@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cryptofeed-rs 功能实现状态</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2129;
+    --border: #2d333b;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --green-bg: rgba(63, 185, 80, 0.12);
+    --red: #f85149;
+    --red-bg: rgba(248, 81, 73, 0.12);
+    --amber: #d29922;
+    --amber-bg: rgba(210, 153, 34, 0.12);
+    --blue: #58a6ff;
+    --cyan: #39c5cf;
+    --violet: #a371f7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    line-height: 1.55;
+    padding: 32px 20px 64px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* Header */
+  header { margin-bottom: 28px; }
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+  h1 .accent { color: var(--cyan); }
+  .subtitle { color: var(--muted); margin-top: 6px; font-size: 14px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  .badge {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: flex; flex-direction: column;
+    min-width: 110px;
+  }
+  .badge .num { font-size: 22px; font-weight: 700; }
+  .badge .lbl { font-size: 12px; color: var(--muted); }
+  .badge.green .num { color: var(--green); }
+  .badge.amber .num { color: var(--amber); }
+  .badge.blue .num { color: var(--blue); }
+  .badge.violet .num { color: var(--violet); }
+
+  /* Sections */
+  section { margin-top: 36px; }
+  h2 {
+    font-size: 18px; font-weight: 700;
+    display: flex; align-items: center; gap: 10px;
+    padding-bottom: 10px; margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  h2 .step {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; font-size: 12px; padding: 2px 8px;
+    color: var(--muted); font-weight: 600;
+  }
+  .note { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+
+  /* Capability matrix */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { padding: 8px 10px; text-align: center; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+  td.ex { text-align: left; font-weight: 600; white-space: nowrap; }
+  td.products { text-align: left; color: var(--muted); font-size: 12.5px; }
+  .cell {
+    display: inline-block; min-width: 26px; padding: 3px 8px;
+    border-radius: 6px; font-weight: 700; font-size: 12px;
+  }
+  .yes { background: var(--green-bg); color: var(--green); }
+  .no { background: var(--red-bg); color: var(--red); }
+  .na { background: var(--panel-2); color: var(--muted); }
+  .py {
+    margin-left: 3px;
+    min-width: 18px;
+    padding: 2px 5px;
+    font-size: 10.5px;
+    font-weight: 600;
+    vertical-align: 1px;
+  }
+  .py-yes { background: rgba(88, 166, 255, 0.16); color: var(--blue); }
+  .py-no { background: rgba(139, 148, 158, 0.14); color: var(--muted); }
+  tr:hover td { background: rgba(88, 166, 255, 0.03); }
+  .group-row td {
+    text-align: left;
+    background: var(--panel-2);
+    color: var(--cyan);
+    font-weight: 700;
+    font-size: 12.5px;
+    letter-spacing: 0.03em;
+    border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+  }
+
+  /* Smoke chart */
+  .chart { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 18px 10px; }
+  .row { display: grid; grid-template-columns: 190px 1fr 70px; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .row .name { font-size: 13px; font-weight: 600; }
+  .row .name small { display: block; color: var(--muted); font-weight: 400; font-size: 11.5px; }
+  .bars { display: flex; gap: 4px; height: 26px; align-items: stretch; }
+  .seg { border-radius: 4px; min-width: 2px; transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1); }
+  .row .total { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; gap: 16px; padding: 10px 18px 4px; font-size: 12px; color: var(--muted); }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+  /* Progress lists */
+  .progress-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .card h3 { font-size: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .card.done h3 { color: var(--green); }
+  .card.wip h3 { color: var(--amber); }
+  .card.deferred h3 { color: var(--muted); }
+  .card ul { list-style: none; }
+  .card li {
+    padding: 5px 0 5px 22px; position: relative;
+    font-size: 13px; color: var(--text);
+  }
+  .card li::before { position: absolute; left: 2px; top: 5px; font-size: 12px; }
+  .card.done li::before { content: "✓"; color: var(--green); font-weight: 700; }
+  .card.wip li::before { content: "◔"; color: var(--amber); font-weight: 700; }
+  .card.deferred li::before { content: "○"; color: var(--muted); }
+
+  /* Kanban / todo board */
+  .kanban { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .kb-col { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .kb-col h3 { font-size: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .kb-col h3 .cnt { margin-left: auto; font-size: 11px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); border-radius: 20px; padding: 1px 9px; }
+  .kb-col.todo h3 { color: var(--blue); }
+  .kb-col.wip h3 { color: var(--amber); }
+  .kb-col.hold h3 { color: var(--muted); }
+  .kb-item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 10px; }
+  .kb-item:last-child { margin-bottom: 0; }
+  .kb-item .t { font-weight: 600; font-size: 12.5px; line-height: 1.45; }
+  .kb-item .d { color: var(--muted); font-size: 11.5px; margin-top: 4px; line-height: 1.55; }
+  .kb-item .tag { display: inline-block; font-size: 10.5px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 1px 8px; color: var(--cyan); margin: 7px 6px 0 0; }
+  .kb-placeholder { color: var(--muted); font-size: 12.5px; font-style: italic; padding: 6px 2px; }
+
+  /* Typed progress cards */
+  .card.feat h3 { color: var(--blue); }
+  .card.fix h3 { color: var(--amber); }
+  .card.test h3 { color: var(--violet); }
+  .card.docs h3 { color: var(--cyan); }
+  .card h3 .cnt { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 600; }
+  .card.feat li::before { content: "＋"; color: var(--blue); font-weight: 700; }
+  .card.fix li::before { content: "△"; color: var(--amber); font-weight: 700; }
+  .card.test li::before { content: "◉"; color: var(--violet); font-weight: 700; }
+  .card.docs li::before { content: "□"; color: var(--cyan); font-weight: 700; }
+
+  /* Architecture pipeline */
+  .pipeline { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+  .stage {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; flex: 1; min-width: 140px;
+    font-size: 12.5px;
+  }
+  .stage .t { font-weight: 700; font-size: 13px; margin-bottom: 4px; color: var(--blue); }
+  .stage .d { color: var(--muted); font-size: 11.5px; }
+  .arrow { align-self: center; color: var(--muted); font-size: 16px; }
+  .pipeline-note { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+
+  /* Exchange protocol cards */
+  .ex-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .ex-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; }
+  .ex-card h3 { font-size: 14px; margin-bottom: 8px; }
+  .ex-card .tag { display: inline-block; font-size: 11px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; color: var(--muted); margin-left: 8px; vertical-align: 2px; }
+  .ex-card ul { list-style: none; }
+  .ex-card li { font-size: 12.5px; color: var(--muted); padding: 3px 0 3px 16px; position: relative; }
+  .ex-card li::before { content: "›"; position: absolute; left: 2px; color: var(--blue); font-weight: 700; }
+
+  footer { margin-top: 48px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); padding-top: 16px; }
+  footer code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>cryptofeed-rs <span class="accent">功能实现状态</span></h1>
+    <div class="subtitle">
+      纯 Rust 归一化加密货币行情 SDK · 状态截至 2026-10-08 · 数据来源：README / PARITY.md / PROGRESS.md /
+      docs/exchange-protocol-baseline.md / docs/plan-advanced-public-channels.md / docs/live-smoke-2026-08-17.md
+    </div>
+    <div class="badges">
+      <div class="badge green"><span class="num">5</span><span class="lbl">活跃交易所实现</span></div>
+      <div class="badge blue"><span class="num">10</span><span class="lbl">归一化频道类型</span></div>
+      <div class="badge violet"><span class="num">10</span><span class="lbl">历史基线冒烟通过</span></div>
+      <div class="badge amber"><span class="num">1</span><span class="lbl">正式发版待确认</span></div>
+      <div class="badge"><span class="num">6</span><span class="lbl">暂缓范围</span></div>
+    </div>
+  </header>
+
+  <!-- ============ 1. Capability matrix ============ -->
+  <section>
+    <h2><span class="step">1</span> 能力矩阵（按标的类型分组：现货 / 合约 / 期权 / MARGIN）</h2>
+    <p class="note">首版推送前工程复核：字段语义、无损 JSON 精度、产品限定、Bybit delta 状态、周期格式和日历月边界已修正。383 项测试（含 82 parity）、Rust 1.85、全部 feature、文档与 lint 门禁通过；依赖审计零漏洞。10 配置聚合冒烟及 Bybit/Binance/Bitget 最终目标复核干净退出。最终工程门禁已复跑，源代码提交推送已获授权；GitHub 私有漏洞报告已启用并验证，正式发版仍需确认许可证来源。<a href="pre-push-review-2026-10-08.md">完整结论与验证范围</a></p>
+    <p class="note">2026-10-08 增量：Bitget 现货/合约 L1 与合约 Funding/OI/Index/MarkPrice；Gate.io 永续公共强平；OKX 合约指数映射与多合约派发。已增加协议 fixture、离线 parity、runtime 派发及单 feature 测试；本次 Bitget/OKX 高频频道实盘收到数据，Gate.io 强平仅验证订阅成功；Binance OI、Gate.io 交割强平仍未开放。</p>
+    <p class="note">能力预检（capability preflight）是权威门禁：不在矩阵中的组合必须在连接前显式失败，绝不静默订阅空频道。行按标的类型分组展示，同一标的类型下的交易所逐行对比。每格两个标记：<b style="color:var(--green)">绿块=本项目支持</b> / <b style="color:var(--red)">红块=不支持</b>，<b style="color:var(--blue)">蓝块=Python cryptofeed 源码已实现</b> / <b style="color:var(--muted)">灰块=未实现</b>（Python 基线：../cryptofeed 2026-08-07 源码 websocket_channels 映射）。</p>
+    <div style="overflow-x:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align:left">交易所</th>
+          <th style="text-align:left">产品</th>
+          <th>Ticker</th>
+          <th>Trades</th>
+          <th>L2 Book</th>
+          <th>L1 Book</th>
+          <th>1m 蜡烛</th>
+          <th>Funding</th>
+          <th>Liquidations</th>
+          <th>Open Interest</th>
+          <th>Index</th>
+          <th>Mark price</th>
+        </tr>
+      </thead>
+      <tbody>
+<tr class="group-row"><td colspan="12"># 现货</td></tr>
+<tr><td class="ex">Binance</td><td class="products">现货</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Bitget v3</td><td class="products">现货</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Bybit v5</td><td class="products">现货</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">OKX v5</td><td class="products">现货</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Gate.io v4</td><td class="products">现货</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr class="group-row"><td colspan="12"># 合约（永续与交割）</td></tr>
+<tr><td class="ex">Binance</td><td class="products">USD-M / 币本位 永续与交割（永续）</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Binance</td><td class="products">USD-M / 币本位 永续与交割（交割）</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Bitget v3</td><td class="products">USDT·USDC·币本位合约（永续）</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Bitget v3</td><td class="products">USDT·USDC·币本位合约（交割）</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Bybit v5</td><td class="products">线性 / 反向（永续）</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Bybit v5</td><td class="products">线性 / 反向（交割）</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">OKX v5</td><td class="products">永续(SWAP)</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">OKX v5</td><td class="products">交割(FUTURES)</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Gate.io v4</td><td class="products">USDT·BTC 永续</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Gate.io v4</td><td class="products">USDT 交割</td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-yes">✓</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-yes">✓</span></td><td><span class="cell yes">✓</span><span class="cell py py-no">✗</span></td></tr>
+<tr class="group-row"><td colspan="12"># 期权（0.1 暂缓）</td></tr>
+<tr><td class="ex">Binance</td><td class="products">欧式期权（端点待核验）</td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">Bybit v5</td><td class="products">期权（0.1 暂缓）</td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr><td class="ex">OKX v5</td><td class="products">期权（0.1 暂缓）</td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr class="group-row"><td colspan="12"># MARGIN（0.1 暂缓）</td></tr>
+<tr><td class="ex">OKX v5</td><td class="products">MARGIN（0.1 暂缓）</td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td><td><span class="cell no">✗</span><span class="cell py py-no">✗</span></td></tr>
+<tr class="group-row"><td colspan="12"># 非活动运行时</td></tr>
+<tr>
+  <td class="ex" style="color:var(--muted)">Coinbase / Kraken</td>
+  <td class="products">构建器存在，非活动运行时</td>
+  <td colspan="10"><span class="cell na">被能力预检拒绝</span></td>
+</tr>
+</tbody>
+    </table>
+    </div>
+    <p class="note" style="margin-top:12px">0.1 正式范围已收敛为公开现货、永续/Swap 与交割合约；所有交易所期权及 OKX MARGIN 均由 capability preflight 显式拒绝，现有 parser/catalog/fixture 仅作为后续实现参考。2026-08-17 发布加固与 10 配置实盘冒烟继续有效。暂缓：Options、MARGIN、L3、鉴权数据与交易下单。</p>
+    <p class="note" style="margin-top:8px"><b>与 Python cryptofeed 对比（2026-08-07 源码基线）：</b>本表仅把 0.1 正式支持的现货/永续/交割合约标为绿色；Options 与 MARGIN 即使已有解析代码也保持红色。Python Bybit funding 仍使用已下线的 funding.{symbol}，本项目改从 derivative tickers 提取；Python Bybit TICKER 是 24h 统计，本项目使用 orderbook.1 作为 BBO。</p>
+  </section>
+
+  <!-- ============ 2. Live smoke ============ -->
+  <section>
+    <h2><span class="step">2</span> 实盘冒烟结果（2026-08-17 当前候选）</h2>
+    <p class="note">当前候选已完成五个活跃交易所现货与衍生品共 10 个配置的聚合冒烟；精确计数见 docs/live-smoke-2026-08-17.md。下图仍展示历史基线分布。</p>
+    <div class="chart" id="chart"></div>
+    <div class="legend">
+      <span><span class="sw" style="background:#f0b429"></span> Candle</span>
+      <span><span class="sw" style="background:#39c5cf"></span> Ticker</span>
+      <span><span class="sw" style="background:#a371f7"></span> Trade</span>
+      <span><span class="sw" style="background:#3fb950"></span> L2 Book</span>
+      <span style="margin-left:auto">当前候选 10 个现货/衍生品配置 <b style="color:var(--green)">通过</b>；所有 Options、MARGIN 与 Binance WebSocket Open Interest 已关闭，不计入 0.1 支持范围。</span>
+    </div>
+  </section>
+
+  <!-- ============ 3. Runtime features ============ -->
+  <section>
+    <h2><span class="step">3</span> 运行时能力与项目进度</h2>
+
+    <div class="kanban">
+      <div class="kb-col todo">
+        <h3>正式发版待确认<span class="cnt">1 项</span></h3>
+        <div class="kb-item">
+          <div class="t">许可证与发布者身份</div>
+          <div class="d">GitHub 仓库与私有漏洞报告渠道已确认；正式发版前仍需维护者确认许可证来源、署名及 crates.io owner。</div>
+          <span class="tag">Release</span>
+        </div>
+      </div>
+      <div class="kb-col wip">
+        <h3>进行中<span class="cnt">0 项</span></h3>
+        <p class="kb-placeholder">2026-10-08 新增频道已完成离线回归；本次实盘：7 类 exchange/product/channel 组合收到数据，Gate.io 公共强平订阅成功、窗口内 0 事件；详见 <a href="live-smoke-2026-10-08.md">2026-10-08 报告</a>。—— 2026-08-07 批次：订阅-回调不匹配告警、事件级可观测性（计数+事件流）、广播订阅者模式（FeedEvent）、CHANGELOG + 衍生品示例已全部完成。</p>
+      </div>
+      <div class="kb-col hold">
+        <h3>暂缓 / 范围外<span class="cnt">12 项</span></h3>
+        <div class="kb-item">
+          <div class="t">正式发版身份确认</div>
+          <div class="d">GitHub 仓库和 origin 已确认；Rust 作者署名未填写，许可证与实际复用来源待维护者确认。GitHub 私有漏洞报告已启用并验证，安全政策已提供私有报告入口。<a href="pre-push-review-2026-10-08.md">工程审查报告</a></div>
+        </div>
+        <div class="kb-item">
+          <div class="t">Binance 合约 OI（2026-10-08 明确暂缓）</div>
+          <div class="d">未找到官方永续/交割合约 OI WS；当前 OI REST 每合约每次权重 1，多标的高频轮询与重试容易耗尽共享 IP 预算。用户决定暂不实现 REST fallback，能力预检继续拒绝。<a href="binance-open-interest-decision.md">决策与官方接口依据</a></div>
+        </div>
+        <div class="kb-item">
+          <div class="t">crates.io 发布 + repository</div>
+          <div class="d">GitHub repository URL 已确认；crates.io owner 与发布仍属后续步骤。包内容检查不代表已完成注册表发布验收。</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">Options + MARGIN 正式支持</div>
+          <div class="d">0.1 仅发布现货、永续/Swap 与交割合约；现有期权/MARGIN parser 与 fixture 保留，等待独立产品模型和实盘验收计划。</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">历史数据 REST（get_candles/get_trades）</div>
+          <div class="d">5 交易所 × 2 端点，高频需求；需新 REST 客户端模块与 parity fixture</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">离线回放（playback）</div>
+          <div class="d">用 sample_data fixture 离线驱动 FeedHandler，提升用户调试体验</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">性能基准</div>
+          <div class="d">单 feed 事件/秒基准 + README 量级数字</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">私有 / 鉴权数据与下单交易</div>
+          <div class="d">范围外，无实施时间表；进一步扩展需显式计划</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">Coinbase / Kraken 活动运行时</div>
+          <div class="d">构建器存在，但非活动运行时，被能力预检拒绝</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">L3 逐单深度</div>
+          <div class="d">五个活跃交易所均无公开逐单流（2026-08-05 核验）；需新增交易所（如 Deribit / Coinbase）方可重开</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">Gate.io 实盘 bootstrap 捕获验证</div>
+          <div class="d">取证日志就绪，等待偶发实盘失败被动捕获；有界重快照路径已有确定性测试覆盖</div>
+        </div>
+        <div class="kb-item">
+          <div class="t">CI 依赖实盘可用性</div>
+          <div class="d">实盘仅作手动冒烟测试，不纳入 CI 门禁</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="progress-grid">
+      <div class="card feat">
+        <h3>✓ 已完成 · 新增功能<span class="cnt">36 项</span></h3>
+        <ul>
+          <li>稳定的 <code>FeedHandler</code> 入口 + 按交易所的 builder 链式配置</li>
+          <li>产品限定的双向符号目录发现（HTTP 目录预加载）</li>
+          <li>能力预检：未知 / 歧义 / 混合产品 / 不支持组合连接前即失败，不猜报价币</li>
+          <li>现货、永续、带到期日交割合约保持独立身份</li>
+          <li>交易所应用层心跳 + 空闲检测（各交易所独立策略）</li>
+          <li>瞬态断线无限重连 + 抖动指数退避（1→8 秒封顶）；优雅有界关闭（5 秒宽限），Ctrl-C 生效</li>
+          <li>单条 feed 终态失败不取消健康 feed，失败可观测</li>
+          <li>多条目批量消息逐条归一化交付</li>
+          <li>产品感知 L2 快照引导、替换快照重置、陈旧丢弃、序列缺口检测与重同步</li>
+          <li>OKX 全深度 books 校验和验证：CRC-32 前 25 档 bids/asks，保留传输字符串精度；仅 books 频道（顶层频道不比对）</li>
+          <li>未平仓量（Open Interest）：OKX 独立 open-interest 频道（SWAP/FUTURES）+ Bitget / Bybit / Gate.io 衍生品 tickers 流内嵌提取（OKX oiCcy 归一化为 Decimal coin_quantity）；Binance 合约 OI 已明确暂缓：无已验证官方 WS，单标的 REST 轮询在多标的时有共享限流风险</li>
+          <li>指数价格（Index）：OKX index-tickers 频道（现货显式指数 / 合约指数映射）+ Binance markPriceUpdate.i（E 时间；Index 请求与标记价共享 @markPrice@1s）+ Bybit 会话内快照/delta 重建后提取 indexPrice（官方无独立频道）；新模型 crate cryptofeed-index</li>
+          <li>L1 顶层簿（L1Book）：Bybit orderbook.1（与 BBO Ticker 同流双事件）+ OKX bbo-tbt + Binance bookTicker 双事件（现货与衍生品），带档位数量</li>
+          <li>期权实现参考：保留 InstrumentKind::Option、Symbol::option、目录/解析 fixture；0.1 capability matrix 全部关闭</li>
+          <li>Gate.io bootstrap 派发含快照 + 已应用缓冲增量的事件序列（与 Binance 一致）</li>
+          <li>价格/数量全程 Decimal，交易所时间戳与接收时间戳分离</li>
+          <li>多周期蜡烛：<code>.candles_interval(...)</code> 参数化，预检按交易所官方 interval 集合校验并映射 wire 形式（Bybit kline.{1..720,D,W,M}、OKX candle{1m..3M}、Bitget kline arg（1H/4H/6H/12H/1D，拒绝未列明的更长周期）、Gate.io 10s/24h/7d/30d、Binance kline_{1m..1M}），默认仍为 1m</li>
+          <li>L2 深度档位参数化：<code>.l2_book_depth(...)</code>，正式范围覆盖 Binance @depth{5,10,20}@100ms + 同宽快照、Bybit orderbook.{50,200,1000}、OKX books5、Bitget books1/5/50；Gate.io 保持全深度</li>
+          <li>Mark Price 独立频道：新模型 crate cryptofeed-markprice + Channel::MarkPrice；Binance @markPrice（与 Funding 同流双事件，含 next_funding_time；P 是预估结算价，predicted_rate 留空）/ Bybit 衍生品 tickers 流内嵌 markPrice / OKX mark-price 频道（markPx/ts）</li>
+          <li>OKX / Bybit 期权协议与 K 线覆盖信息保留在 baseline 和 fixture 中，但 0.1 运行时预检统一拒绝期权产品</li>
+          <li>OKX MARGIN 产品类别与符号重绑代码保留为实现参考，但 0.1 capability matrix 不开放任何 MARGIN 频道</li>
+          <li>OKX VIP4+ tick-by-tick 深度：books-l2-tbt（400）与 books50-l2-tbt（50），非 VIP 订阅返回 64003 并显式上抛；校验和按传输档位跳过（同 books5 规则）</li>
+          <li>Gate.io 衍生品扩展频道：Funding / Open Interest / Index 内嵌于 futures.tickers 流提取（官方无独立频道；funding 归一化为 rate + mark_price、适用时间留空——与 Python cryptofeed 基线一致，交割 Funding 请求在预检拒绝）；能力矩阵仅对衍生品开放，现货组合仍显式拒绝</li>
+          <li>Bybit 期权目录修复：tickers?category=option 需 baseCoin（否则 PARAMS_ERROR）；发现路径改为 instruments-info?category=option 分页（nextPageCursor），optionsType 与 {C|P} 后缀交叉校验（2026-08-07 实盘核验）</li>
+          <li>Binance L2 更新间隔参数化：<code>.l2_book_interval(...)</code>，现货 100ms/1000ms、USD-M/币本位 100/250/500ms 预检校验 + wire 映射（部分与全深度同宽），默认仍 100ms</li>
+          <li>Gate.io MarkPrice + L1Book：mark_price 内嵌 futures.tickers 流提取（无独立频道）；book_ticker 双事件（Ticker + L1Book，带档位数量，与 Binance bookTicker 同模式），现货与衍生品均开放</li>
+          <li>Gate.io delivery 前缀实盘核验（2026-08-07）：交割 WS 实际服务 futures.* 频道（delivery.* 报 Unknown channel），现有 adapter 前缀正确、无需改动</li>
+          <li>事件流消费模式：<code>FeedHandler::subscribe()</code> 返回有界 broadcast Receiver&lt;FeedEvent&gt;（10 种归一化事件，多消费者、不阻塞 feed 循环），<code>event_count(channel)</code> 暴露各频道交付计数</li>
+          <li>builder 诊断：<code>build()</code> 对已订阅但未注册 handler 的频道给出 warn（此前事件被静默丢弃）</li>
+          <li>L2Book 便捷访问器：symbol()/bids()/asks()/exchange_ts()/received_ts() + CHANGELOG.md + 衍生品扩展示例（derivatives_public，事件流模式实盘验证）</li>
+        </ul>
+      </div>
+      <div class="card fix">
+        <h3>✓ 已完成 · 修复<span class="cnt">8 项</span></h3>
+        <ul>
+          <li>Binance 现货 bookTicker（无 e/E 字段）解析不依赖事件元数据；USD-M 按 /public 与 /market 正确拆分连接</li>
+          <li>Bitget v3 订阅成功响应为控制帧（event: subscribe，无 data），先分类再派发</li>
+          <li>Bybit 现货 BBO Ticker 改由 orderbook.1 提供（24h 统计流无 BBO），Ticker 与 L2 各司其职</li>
+          <li>Gate.io 订阅时间戳秒级新鲜度校验 + quanto_multiplier 非身份字段（允许为 0）</li>
+          <li>Gate.io 非桥接 bootstrap 失败的确定性取证：失败签名、新快照恢复、有界重快照（每 symbol 最多 3 次会话内重拉，缓冲增量保留，超限才整会话重连）</li>
+          <li>Bybit funding 频道协议变化：funding.{symbol} 已下线（2026-08-06 实盘 60018/被拒），funding 改由衍生品 tickers 流内嵌提取（fundingRate/nextFundingTime/markPrice）</li>
+          <li>OKX liquidation-orders 协议变化：改 instType 级订阅（instId 参数被拒，60018），按 feed 产品类型订阅一次</li>
+          <li>OKX books checksum 实测恒为 0（2026-08-06，198/198 条）：0 视为未提供校验跳过，非零仍严格校验</li>
+          <li>Gate.io REST order_book 新版无 id（A/B 灰度）：时间戳锚定 bootstrap（update_ts 覆盖首条缓冲 delta 的 t，锚定 first_update_id-1），兼容旧版 id 桥接；resnapshot 替换已消费 receiver 的 bug（or_insert_with）与跨锚点回放误判 gap（apply_delta）一并修复</li>
+          <li>Binance eapi optionSymbols 无 baseAsset：base 从 underlying 推导（strip quote 后缀）</li>
+          <li>目录 hydration 健壮性：fetch_json 45s 超时 + 1 次重试 + 24h 磁盘缓存（缓存优先；binance exchangeInfo 17.5MB 下载不稳定实测 6–60s+）</li>
+        </ul>
+      </div>
+      <div class="card test">
+        <h3>✓ 已完成 · 测试与验证<span class="cnt">5 项</span></h3>
+        <ul>
+          <li>五个交易所全会话 WebSocket 双端测试替身：订阅帧、控制确认、行情交付、Binance 注入式快照引导、干净关闭</li>
+          <li>离线确定性 parity 断言覆盖全部五个活跃交易所（inline JSON + 断言，无网络依赖）</li>
+          <li>feature-safe 编译验证：--no-default-features 与各单个 feature 组合编译通过</li>
+          <li>新增频道与参数化断言：Binance bookTicker 双事件（Ticker+L1Book）、Index/OI 归一化、Bybit Index 提取、各交易所 interval / 深度档位 wire 映射与预检拒绝</li>
+          <li>Mark Price parity 断言（Binance/Bybit/OKX）；Options/MARGIN parser fixture 保留，但产品预检统一拒绝</li>
+        </ul>
+      </div>
+      <div class="card docs">
+        <h3>✓ 已完成 · 文档与工程<span class="cnt">2 项</span></h3>
+        <ul>
+          <li>仓库许可证材料（LICENSE，XFree86-1.1）与 README 起源 / 许可证 / 成熟度说明</li>
+          <li>发布元数据：per-crate description 字段 + Phase F 一致性检查（示例频道组合均在能力矩阵内，文档能力均有对应确定性断言）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4. Architecture ============ -->
+  <section>
+    <h2><span class="step">4</span> 运行时数据流架构</h2>
+    <div class="pipeline">
+      <div class="stage"><div class="t">FeedHandler</div><div class="d">add_feed(builder.build()) → run()</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="t">符号水合</div><div class="d">HTTP 目录获取 + SymbolRegistry 双向解析，能力预检先行</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="t">按产品连接计划</div><div class="d">Binance Spot/USD-M/CoinM、Bybit spot/linear/inverse、OKX public/business…</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="t">重连督导</div><div class="d">retry_with_backoff_until_shutdown · 3 次 · 1→8s · 感知 shutdown</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="t">Session</div><div class="d">心跳 / 空闲超时 / ping-pong / 干净关闭 / 收帧</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="t">消息处理</div><div class="d">控制帧分类 → L2 路由(book_sync) → 解析 → 派发</div></div>
+      <div class="arrow">→</div>
+      <div class="stage"><div class="t">Handler Trait</div><div class="d">on_ticker / on_trade / on_l2_book / …</div></div>
+    </div>
+    <p class="pipeline-note">
+      共享 shutdown 走 <code>watch::channel</code>（Ctrl-C 置位）；L2 快照经 <code>oneshot</code> 通道后台拉取，途中增量先缓冲，
+      快照到达后桥接回放。每个交易所目录内三个文件各司其职：<b>adapter</b>（URL/计划/订阅消息/解析入口）、
+      <b>parser</b>（纯函数 Value→归一化模型）、<b>book_sync</b>（快照/增量序列桥接与缺口重同步）。
+    </p>
+  </section>
+
+  <!-- ============ 5. Protocol facts ============ -->
+  <section>
+    <h2><span class="step">5</span> 各交易所协议要点（已对 2026-08-04 官方文档核验）</h2>
+    <div class="ex-grid">
+      <div class="ex-card">
+        <h3>Binance<span class="tag">spot · USD-M · COIN-M</span></h3>
+        <ul>
+          <li>现货 bookTicker 无 e/E 字段（u,s,b,B,a,A），解析不依赖事件元数据</li>
+          <li>USD-M 拆双连接：book/depth 走 /public，trade/kline/funding/liquidation 走 /market</li>
+          <li>混合 feed 自动规划多条物理连接，用户侧仍是一个 FeedHandler</li>
+          <li>合约 OI 当前仅确认单标的 REST（权重 1）；多标的轮询限流风险使 REST fallback 也暂缓。期权 OI WS 不代表永续/交割合约支持。</li>
+          <li>Index 从 markPrice.i / E 提取；Index 请求共享 @markPrice@1s，Funding 仅永续。深度流间隔：现货 100ms/1000ms，USD-M/币本位 100/250/500ms（部分与全深度同宽）</li>
+          <li>欧式期权 parser fixture 保留，但 nbstream 端点 404；能力预检当前显式拒绝</li>
+        </ul>
+      </div>
+      <div class="ex-card">
+        <h3>Bitget<span class="tag">v3 官方 API</span></h3>
+        <ul>
+          <li>订阅成功响应为控制帧（event: subscribe，无 data），必须先分类再派发</li>
+          <li>books 用 action + seq/pseq 增量连续性；快照序列须落在首个更新区间内</li>
+          <li>心跳为文本 "ping" 30s / "pong"</li>
+          <li>liquidation 频道按 instType 订阅（无 symbol），1s 聚合推送，逐行解析符号</li>
+          <li>books1 在现货与合约提供 L1 快照；合约 ticker 同时归一化 Funding / OI / Index / MarkPrice，单独订阅任一频道即可使用</li>
+        </ul>
+      </div>
+      <div class="ex-card">
+        <h3>Bybit<span class="tag">v5</span></h3>
+        <ul>
+          <li>现货 tickers 是 24h 统计、无 BBO —— 项目 Ticker 模型取自 orderbook.1</li>
+          <li>orderbook.1 与 level-50 L2 保持独立路由与事件类型</li>
+          <li>任何新快照替换本地状态；u=1 视为服务重启快照</li>
+          <li>衍生品 fundingRate / nextFundingTime 内嵌 tickers.{symbol}；强平使用 allLiquidation.{symbol}（线性/反向端点）；现货不支持 funding/liquidation</li>
+          <li>未平仓量内嵌于衍生品 tickers 流（无独立频道）</li>
+          <li>orderbook.1 同时产出 BBO Ticker 与 L1Book（带数量）事件</li>
+          <li>期权走 publicOption 端点；活跃期权经 instruments-info?category=option 目录分页发现（tickers 目录需 baseCoin，2026-08-07 核验）；成交走 publicTrade.{base} 流（行级符号）；iv 字段归一化</li>
+        </ul>
+      </div>
+      <div class="ex-card">
+        <h3>OKX<span class="tag">v5</span></h3>
+        <ul>
+          <li>instType（SPOT/SWAP/FUTURES）贯穿发现、路由、解析全程</li>
+          <li>蜡烛频道走 /ws/v5/business，其余走 /ws/v5/public，按 URL 拆分</li>
+          <li>文本 ping/pong；快照替换 + 序列校验 + 全深度 CRC-32 校验和（仅 books）</li>
+          <li>五家交易所 Funding 均仅永续/Swap（交割 Funding 预检拒绝）；OKX 使用 funding-rate；liquidation-orders 覆盖 SWAP/FUTURES</li>
+          <li>open-interest 频道 3s 推送（oi/oiCcy/oiUsd），覆盖 SWAP/FUTURES</li>
+          <li>index-tickers 推送指数（idxPx/24h 高低开）；现货可显式指定指数，合约从原生 base/quote 映射并向同指数合约分别派发</li>
+          <li>bbo-tbt 为 L1 顶层簿频道（不走 L2 同步路径）；期权（OPTION）经 instruments 目录发现</li>
+        </ul>
+      </div>
+      <div class="ex-card">
+        <h3>Gate.io<span class="tag">v4</span></h3>
+        <ul>
+          <li>订阅时间戳为秒级且必须新鲜；订阅确认是控制消息</li>
+          <li>quanto_multiplier 非身份字段，允许为 0（含真实 BTC 逆合约记录）</li>
+          <li>永续按 USDT/BTC 结算分目录；交割过期日与 underlying 需相互印证</li>
+          <li>衍生品 funding/mark/OI/index 内嵌 futures.tickers 流（无独立频道）；funding 无适用时间字段</li>
+          <li>永续公共强平 futures.public_liquidates 无需鉴权；有符号的 size 归一化为方向与绝对合约数量，批次逐行匹配；交割强平仍关闭</li>
+          <li>book_ticker 双事件（BBO Ticker + L1Book 带数量）；交割端点实测服务 futures.* 频道（delivery.* 未知，2026-08-07）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    来源：README.md · PARITY.md · PROGRESS.md · docs/exchange-protocol-baseline.md · docs/live-smoke-2026-08-04.md ·
+    docs/current-exchanges-implementation-plan.md · AGENTS.md。生成于 <span id="gen-date"></span>。
+    验证基线：<code>cargo fmt --all --check</code> · <code>cargo clippy --workspace --all-features --all-targets -- -D warnings</code> ·
+    <code>cargo test --workspace</code> · <code>cargo check --workspace --no-default-features</code>。
+  </footer>
+</div>
+
+<script>
+  // ---------- 实盘冒烟分组柱状图 ----------
+  const smoke = [
+    { name: "Binance 现货", sub: "BTC-USDT", c: 8,  t: 427, tr: 26,  l2: 151 },
+    { name: "Binance USD-M 永续", sub: "BTC-USDT-PERP", c: 29, t: 769, tr: 43, l2: 207 },
+    { name: "Bitget v3 现货", sub: "BTC-USDT", c: 500, t: 3,   tr: 50,  l2: 10 },
+    { name: "Bitget v3 USDT 合约", sub: "BTC-USDT-PERP", c: 510, t: 63, tr: 150, l2: 265 },
+    { name: "Bybit v5 现货", sub: "BTC-USDT", c: 10, t: 319, tr: 124, l2: 366 },
+    { name: "Bybit v5 线性", sub: "BTC-USDT-PERP", c: 8,  t: 24,  tr: 139, l2: 237 },
+    { name: "Gate.io v4 现货", sub: "BTC-USDT", c: 5,  t: 488, tr: 8,   l2: 190 },
+    { name: "Gate.io v4 USDT 永续", sub: "BTC-USDT-PERP", c: 4, t: 100, tr: 62, l2: 65 },
+    { name: "OKX v5 现货", sub: "BTC-USDT", c: 8,  t: 74,  tr: 19,  l2: 109 },
+    { name: "OKX v5 永续", sub: "BTC-USDT-PERP", c: 14, t: 92,  tr: 215, l2: 142 },
+  ];
+  const colors = { c: "#f0b429", t: "#39c5cf", tr: "#a371f7", l2: "#3fb950" };
+  const labels = { c: "candle", t: "ticker", tr: "trade", l2: "L2" };
+
+  const chart = document.getElementById("chart");
+  const maxTotal = Math.max(...smoke.map(r => r.c + r.t + r.tr + r.l2));
+  smoke.forEach((row, i) => {
+    const total = row.c + row.t + row.tr + row.l2;
+    const div = document.createElement("div");
+    div.className = "row";
+    div.innerHTML = `<div class="name">${row.name}<small>${row.sub}</small></div>
+      <div class="bars"></div>
+      <div class="total">${total.toLocaleString()}</div>`;
+    const bars = div.querySelector(".bars");
+    [["c", row.c], ["t", row.t], ["tr", row.tr], ["l2", row.l2]].forEach(([key, val]) => {
+      const seg = document.createElement("div");
+      seg.className = "seg";
+      seg.style.background = colors[key];
+      seg.title = `${labels[key]}: ${val}`;
+      seg.dataset.w = (val / maxTotal) * 100;
+      bars.appendChild(seg);
+    });
+    chart.appendChild(div);
+  });
+
+  // 入场动画：宽度从 0 展开
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      document.querySelectorAll(".seg").forEach(s => { s.style.width = s.dataset.w + "%"; });
+    }, 50);
+  });
+
+  document.getElementById("gen-date").textContent = new Date().toISOString().slice(0, 10);
+</script>
+</body>
+</html>

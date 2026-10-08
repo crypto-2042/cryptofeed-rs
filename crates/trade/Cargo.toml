@@ -3,13 +3,22 @@ name = "cryptofeed-trade"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Normalized public trade model and handler trait"
+documentation = "https://docs.rs/cryptofeed-trade"
 
 [dependencies]
-cryptofeed-core = { path = "../core" }
+cryptofeed-core.workspace = true
 async-trait.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

@@ -2,13 +2,9 @@ use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Side {
-    Buy,
-    Sell,
-}
+pub use cryptofeed_core::model::Side;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Trade {
     pub exchange: ExchangeId,
     pub symbol: Symbol,
@@ -18,6 +14,9 @@ pub struct Trade {
     pub exchange_ts: f64,
     pub received_ts: f64,
     pub id: Option<String>,
+    /// Implied volatility carried by option trades (e.g. Bybit `iv`);
+    /// `None` for non-option trades.
+    pub implied_volatility: Option<Decimal>,
 }
 
 #[cfg(test)]
@@ -38,6 +37,7 @@ mod tests {
             exchange_ts: 1.0,
             received_ts: 2.0,
             id: Some("1".to_owned()),
+            implied_volatility: None,
         };
 
         assert_eq!(trade.symbol.as_str(), "BTC-USDT");
@@ -54,6 +54,7 @@ mod tests {
             exchange_ts: 1710000001.0,
             received_ts: 1710000001.2,
             id: Some("trade-id-1".to_owned()),
+            implied_volatility: None,
         };
 
         let json = serde_json::to_string(&trade).unwrap();

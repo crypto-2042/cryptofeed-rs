@@ -6,6 +6,13 @@ use cryptofeed_rs::prelude::*;
 struct PrintHandler;
 
 #[async_trait]
+impl CandleHandler for PrintHandler {
+    async fn on_candle(&self, candle: Candle) {
+        println!("candle {candle:?}");
+    }
+}
+
+#[async_trait]
 impl TickerHandler for PrintHandler {
     async fn on_ticker(&self, ticker: Ticker) {
         println!("ticker {ticker:?}");
@@ -33,9 +40,11 @@ async fn main() -> cryptofeed_core::error::Result<()> {
 
     feed_handler.add_feed(
         Bitget::new()
+            .candles()
             .ticker()
             .trade()
             .l2_book()
+            .candle_handler(handler.clone())
             .ticker_handler(handler.clone())
             .trade_handler(handler.clone())
             .orderbook_handler(handler)

@@ -2,7 +2,7 @@ pub use crate::exchange::{
     ExchangeFeed, ExchangeFeedBuilder, binance::Binance, bitget::Bitget, bybit::Bybit,
     coinbase::Coinbase, gateio::Gateio, kraken::Kraken, okx::Okx,
 };
-pub use crate::feed::FeedHandler;
+pub use crate::feed::{EventCounters, FeedEvent, FeedHandler, FeedStatus};
 
 #[cfg(feature = "candles")]
 pub use cryptofeed_candles::{Candle, CandleHandler};
@@ -15,8 +15,17 @@ pub use cryptofeed_liquidations::{Liquidation, LiquidationHandler, LiquidationSt
 
 #[cfg(feature = "orderbook")]
 pub use cryptofeed_orderbook::{
-    BookSide, L2Book, L2BookDelta, L2BookSnapshot, L2BookState, OrderBookHandler, PriceLevel,
+    BookSide, L1Book, L2Book, L2BookDelta, L2BookSnapshot, L2BookState, OrderBookHandler,
+    PriceLevel,
 };
+
+#[cfg(feature = "openinterest")]
+pub use cryptofeed_openinterest::{OpenInterest, OpenInterestHandler};
+
+#[cfg(feature = "index")]
+pub use cryptofeed_index::{IndexPrice, IndexPriceHandler};
+#[cfg(feature = "markprice")]
+pub use cryptofeed_markprice::{MarkPrice, MarkPriceHandler};
 
 #[cfg(feature = "ticker")]
 pub use cryptofeed_ticker::{Ticker, TickerHandler};

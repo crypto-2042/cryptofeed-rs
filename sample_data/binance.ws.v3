@@ -1,0 +1,13 @@
+wss://stream.binance.com:9443/stream?streams=btcusdt@bookTicker/btcusdt@aggTrade/btcusdt@depth@100ms/btcusdt@kline_1m <-> 1710000001.500000
+wss://fstream.binance.com/public/stream?streams=btcusdt@bookTicker/btcusdt@depth@100ms <-> 1710000001.540000
+wss://fstream.binance.com/market/stream?streams=btcusdt@aggTrade/btcusdt@kline_1m/btcusdt@markPrice/btcusdt@forceOrder <-> 1710000001.550000
+wss://dstream.binance.com/stream?streams=btcusd_perp@bookTicker/btcusd_perp@aggTrade/btcusd_perp@depth@100ms/btcusd_perp@kline_1m/btcusd_perp@markPrice/btcusd_perp@forceOrder <-> 1710000001.600000
+1710000001.700000: {"stream":"btcusdt@bookTicker","data":{"u":400900217,"s":"BTCUSDT","b":"64999.10","B":"1.25","a":"65000.20","A":"0.75"}}
+1710000001.710000: {"stream":"btcusdt@aggTrade","data":{"e":"aggTrade","s":"BTCUSDT","a":12345,"p":"65000.50","q":"0.01000000","T":1710000000123,"m":false}}
+1710000001.720000: {"stream":"btcusd_perp@depth@100ms","data":{"e":"depthUpdate","s":"BTCUSD_PERP","E":1710000000456,"U":101,"u":102,"b":[["64999.10","1.25"]],"a":[["65000.20","0.75"]]}}
+1710000001.730000: {"stream":"ethbtc@aggTrade","data":{"e":"aggTrade","s":"ETHBTC","a":12346,"p":"0.03410","q":"1.25000000","T":1710000000124,"m":false}}
+1710000001.740000: {"stream":"btcusd_240628@depth@100ms","data":{"e":"depthUpdate","s":"BTCUSD_240628","E":1710000000457,"U":201,"u":202,"b":[["65000.00","2"]],"a":[["65001.00","1"]]}}
+1710000001.240000: {"e":"24hrTicker","E":1710000000456,"s":"BTC-250627-100000-C","bidOpenPrice":"0.001","askOpenPrice":"0.002","volatility":"0.5"}
+1710000001.241000: {"e":"trade","E":1710000000456,"s":"BTC-250627-100000-C","tradeId":"100","price":"0.0015","quantity":"1","side":-1,"tradeTime":1710000000123}
+1710000001.750000: {"id":1,"result":null}
+1562305381.000000: {"e":"markPriceUpdate","E":1562305380000,"s":"BTCUSDT","p":"11794.15000000","i":"11784.62659091","P":"11784.25641265","r":"0.00038167","T":1562306400000}

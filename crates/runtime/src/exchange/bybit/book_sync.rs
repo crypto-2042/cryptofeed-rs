@@ -1,6 +1,6 @@
 use cryptofeed_core::error::{Error, Result};
 use cryptofeed_core::symbol::Symbol;
-use cryptofeed_orderbook::{L2Book, L2BookState};
+use cryptofeed_orderbook::{L2Book, L2BookSnapshot, L2BookState};
 
 #[derive(Clone, Debug)]
 pub enum BybitBookAction {
@@ -35,10 +35,11 @@ impl BybitBookSync {
     pub fn apply(&mut self, update: BybitDepthUpdate) -> Result<Option<L2Book>> {
         match update.action {
             BybitBookAction::Snapshot => {
+                let book = as_snapshot(update.book);
                 self.update_id = Some(update.update_id);
                 self.seq = update.seq;
-                self.state.apply(update.book.clone());
-                Ok(Some(update.book))
+                self.state.apply(book.clone());
+                Ok(Some(book))
             }
             BybitBookAction::Delta => {
                 let current = self
@@ -63,6 +64,20 @@ impl BybitBookSync {
 
     pub fn update_id(&self) -> Option<u64> {
         self.update_id
+    }
+}
+
+fn as_snapshot(book: L2Book) -> L2Book {
+    match book {
+        snapshot @ L2Book::Snapshot(_) => snapshot,
+        L2Book::Delta(delta) => L2Book::Snapshot(L2BookSnapshot {
+            exchange: delta.exchange,
+            symbol: delta.symbol,
+            bids: delta.bids,
+            asks: delta.asks,
+            exchange_ts: delta.exchange_ts,
+            received_ts: delta.received_ts,
+        }),
     }
 }
 
@@ -116,5 +131,20 @@ mod tests {
 
         assert_eq!(sync.update_id(), Some(101));
         assert_eq!(sync.state().bids().len(), 0);
+    }
+
+    #[test]
+    fn replacement_snapshot_clears_stale_levels() {
+        let mut sync = BybitBookSync::new(Symbol::spot("btc", "usdt"));
+        sync.apply(update(BybitBookAction::Snapshot, 100, "1.25"))
+            .expect("first snapshot");
+        let mut replacement = update(BybitBookAction::Snapshot, 1, "2.0");
+        if let L2Book::Delta(delta) = &mut replacement.book {
+            delta.bids[0].price = Decimal::from_str_exact("64998.00").unwrap();
+        }
+        sync.apply(replacement).expect("replacement snapshot");
+
+        assert_eq!(sync.state().bids().len(), 1);
+        assert_eq!(sync.state().bids()[0].price.to_string(), "64998.00");
     }
 }

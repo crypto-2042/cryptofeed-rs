@@ -2,19 +2,26 @@ use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Candle {
     pub exchange: ExchangeId,
     pub symbol: Symbol,
+    /// Bar open time (seconds since epoch).
     pub start: f64,
+    /// Bar close time (seconds since epoch); derived from the interval where
+    /// the exchange does not transmit it.
     pub end: f64,
+    /// Normalized interval (`1m`..`1M`); each adapter maps it to its own
+    /// wire form.
     pub interval: String,
+    /// Trade count inside the bar, where the exchange transmits it.
     pub trades: Option<u64>,
     pub open: Decimal,
     pub close: Decimal,
     pub high: Decimal,
     pub low: Decimal,
     pub volume: Decimal,
+    /// Whether the bar is final; `None` where the exchange does not say.
     pub closed: Option<bool>,
     pub exchange_ts: f64,
     pub received_ts: f64,

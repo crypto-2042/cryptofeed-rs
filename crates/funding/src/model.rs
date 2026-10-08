@@ -2,12 +2,17 @@ use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Funding {
     pub exchange: ExchangeId,
     pub symbol: Symbol,
+    /// Mark price carried by the same payload where the exchange sends it
+    /// (Binance `markPriceUpdate`, Bybit `tickers.`).
     pub mark_price: Option<Decimal>,
+    /// Funding rate, where transmitted. Runtime funding subscriptions are
+    /// perpetual/swap-only; dated payload helpers remain parser references.
     pub rate: Option<Decimal>,
+    /// Next funding settlement time (seconds since epoch), where transmitted.
     pub next_funding_time: Option<f64>,
     pub predicted_rate: Option<Decimal>,
     pub exchange_ts: f64,

@@ -1,0 +1,18 @@
+wss://ws.okx.com:8443/ws/v5/public <-> 1710000001.500000
+send: {"op":"subscribe","args":[{"channel":"tickers","instId":"BTC-USDT"},{"channel":"trades","instId":"BTC-USDT"},{"channel":"books","instId":"BTC-USDT"},{"channel":"candle1m","instId":"BTC-USDT"}]}
+send: {"op":"subscribe","args":[{"channel":"books","instId":"BTC-USDT-SWAP"},{"channel":"books","instId":"BTC-USDT-240628"}]}
+1710000001.700000: {"arg":{"channel":"books","instId":"BTC-USDT-SWAP"},"action":"snapshot","data":[{"bids":[["64999.10","1.25","0","1"]],"asks":[["65000.20","0.75","0","1"]],"seqId":100,"prevSeqId":99,"ts":"1710000000456"}]}
+1710000001.710000: {"arg":{"channel":"books","instId":"BTC-USDT-SWAP"},"action":"update","data":[{"bids":[["64999.10","0","0","0"]],"asks":[["65000.30","0.50","0","1"]],"seqId":101,"prevSeqId":100,"ts":"1710000000556"}]}
+1710000001.720000: {"arg":{"channel":"trades","instId":"ETH-BTC"},"data":[{"tradeId":"1","px":"0.03410","sz":"1.2500","side":"buy","ts":"1710000000123"},{"tradeId":"2","px":"0.03420","sz":"0.7500","side":"sell","ts":"1710000000124"}]}
+1710000001.234000: {"arg":{"channel":"funding-rate","instId":"BTC-USDT-SWAP"},"data":[{"instId":"BTC-USDT-SWAP","fundingRate":"0.0001","fundingTime":"1710000000123","nextFundingRate":"0.0002","nextFundingTime":"1710003600123"}]}
+1710000001.235000: {"arg":{"channel":"liquidation-orders","instId":"BTC-USDT-SWAP"},"data":[{"instId":"BTC-USDT-SWAP","px":"64000","sz":"1.5","side":"sell","ts":"1710000000123","ordId":"123456"}]}
+1710000001.236000: {"arg":{"channel":"open-interest","instId":"BTC-USDT-SWAP"},"data":[{"instType":"SWAP","instId":"BTC-USDT-SWAP","oi":"12345.6","oiCcy":"123.4567890123456789","oiUsd":"800000000","ts":"1710000000123"}]}
+1710000001.237000: {"arg":{"channel":"index-tickers","instId":"BTC-USD"},"data":[{"instId":"BTC-USD","idxPx":"65000.5","open24h":"64000","high24h":"65500","low24h":"63500","ts":"1710000000123"}]}
+1710000001.238000: {"arg":{"channel":"bbo-tbt","instId":"BTC-USDT"},"data":[{"bids":[["64999.10","1.25","0","1"]],"asks":[["65000.20","0.75","0","1"]],"ts":"1710000000456"}]}
+1710000001.239000: {"arg":{"channel":"tickers","instId":"BTC-USD-250627-100000-C"},"data":[{"bidPx":"0.001","askPx":"0.002","ts":"1710000000456"}]}
+1710000001.240000: {"event":"error","code":"60018","msg":"instId doesn't exist","connId":"a1b2c3"}
+1710000000.200000: {"arg":{"channel":"index-tickers","instId":"BTC-USD"},"data":[{"instId":"BTC-USD","idxPx":"65000.12345678","high24h":"66000","low24h":"64000","open24h":"64500","ts":"1710000000123"}]}
+1709222400.000000: {"arg":{"channel":"candle1M","instId":"BTC-USDT"},"data":[["1706716800000","100","101","99","100.5","1","1","100.5","1"]]}
+1717171200.000000: {"arg":{"channel":"candle1M","instId":"BTC-USDT"},"data":[["1714492800000","100","101","99","100.5","1","1","100.5","1"]]}
+1711900800.000000: {"arg":{"channel":"candle3M","instId":"BTC-USDT"},"data":[["1704038400000","100","101","99","100.5","1","1","100.5","1"]]}
+1743041250.500000: {"arg":{"channel":"open-interest","instId":"BTC-USDT-SWAP"},"data":[{"instType":"SWAP","instId":"BTC-USDT-SWAP","oi":"2216113.01000000309","oiCcy":"22161.1301000000309","oiUsd":"1939251795.54769270396321","ts":"1743041250440"}]}

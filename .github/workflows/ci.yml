@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - run: cmp AGENTS.md CLAUDE.md
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace --all-features
+      - run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+      - run: cargo doc --workspace --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --workspace --no-default-features
+      - name: Check every runtime feature independently
+        run: |
+          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
+            cargo check -p cryptofeed-rs --lib --no-default-features --features "$feature"
+          done
+      - name: Test every runtime feature independently
+        run: |
+          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
+            cargo test -p cryptofeed-rs --test feature_boundaries --no-default-features --features "$feature"
+          done
+      - run: cargo test -p cryptofeed-rs --no-default-features --no-run
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85
+      - run: cargo check --workspace --all-features
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify crate contents
+        run: |
+          for package in cryptofeed-core cryptofeed-ticker cryptofeed-trade cryptofeed-orderbook cryptofeed-candles cryptofeed-funding cryptofeed-index cryptofeed-liquidations cryptofeed-markprice cryptofeed-openinterest cryptofeed-rs; do
+            files="$(cargo package --list -p "$package")"
+            grep -qx LICENSE <<<"$files"
+            grep -qx README.md <<<"$files"
+          done
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo generate-lockfile
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit

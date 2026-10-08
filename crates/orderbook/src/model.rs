@@ -3,19 +3,20 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum BookSide {
     Bid,
     Ask,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PriceLevel {
     pub price: Decimal,
     pub amount: Decimal,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct L2BookSnapshot {
     pub exchange: ExchangeId,
     pub symbol: Symbol,
@@ -25,7 +26,7 @@ pub struct L2BookSnapshot {
     pub received_ts: f64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct L2BookDelta {
     pub exchange: ExchangeId,
     pub symbol: Symbol,
@@ -35,13 +36,62 @@ pub struct L2BookDelta {
     pub received_ts: f64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum L2Book {
     Snapshot(L2BookSnapshot),
     Delta(L2BookDelta),
 }
 
-#[derive(Clone, Debug)]
+impl L2Book {
+    pub fn symbol(&self) -> &Symbol {
+        match self {
+            L2Book::Snapshot(snapshot) => &snapshot.symbol,
+            L2Book::Delta(delta) => &delta.symbol,
+        }
+    }
+
+    pub fn bids(&self) -> &[PriceLevel] {
+        match self {
+            L2Book::Snapshot(snapshot) => &snapshot.bids,
+            L2Book::Delta(delta) => &delta.bids,
+        }
+    }
+
+    pub fn asks(&self) -> &[PriceLevel] {
+        match self {
+            L2Book::Snapshot(snapshot) => &snapshot.asks,
+            L2Book::Delta(delta) => &delta.asks,
+        }
+    }
+
+    pub fn exchange_ts(&self) -> f64 {
+        match self {
+            L2Book::Snapshot(snapshot) => snapshot.exchange_ts,
+            L2Book::Delta(delta) => delta.exchange_ts,
+        }
+    }
+
+    pub fn received_ts(&self) -> f64 {
+        match self {
+            L2Book::Snapshot(snapshot) => snapshot.received_ts,
+            L2Book::Delta(delta) => delta.received_ts,
+        }
+    }
+}
+
+/// Top-of-book (L1) snapshot: the best bid and ask including sizes.
+/// Distinct from the Ticker model, which carries prices without sizes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct L1Book {
+    pub exchange: ExchangeId,
+    pub symbol: Symbol,
+    pub bid: PriceLevel,
+    pub ask: PriceLevel,
+    pub exchange_ts: f64,
+    pub received_ts: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct L2BookState {
     symbol: Symbol,
     bids: BTreeMap<Decimal, Decimal>,
@@ -154,6 +204,38 @@ mod tests {
 
         assert_eq!(state.bids().len(), 1);
         assert_eq!(state.asks().len(), 1);
+    }
+
+    #[test]
+    fn l2_book_exposes_symbol_and_timestamps() {
+        let snapshot = L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Binance,
+            symbol: Symbol::spot("btc", "usdt"),
+            bids: vec![PriceLevel {
+                price: Decimal::from_str_exact("64999.10").unwrap(),
+                amount: Decimal::from_str_exact("1.25").unwrap(),
+            }],
+            asks: Vec::new(),
+            exchange_ts: 1.5,
+            received_ts: 2.5,
+        });
+        assert_eq!(snapshot.symbol().as_str(), "BTC-USDT");
+        assert_eq!(snapshot.bids().len(), 1);
+        assert!(snapshot.asks().is_empty());
+        assert_eq!(snapshot.exchange_ts(), 1.5);
+        assert_eq!(snapshot.received_ts(), 2.5);
+
+        let delta = L2Book::Delta(L2BookDelta {
+            exchange: ExchangeId::Binance,
+            symbol: Symbol::perpetual("btc", "usdt"),
+            bids: Vec::new(),
+            asks: Vec::new(),
+            exchange_ts: 3.5,
+            received_ts: 4.5,
+        });
+        assert_eq!(delta.symbol().as_str(), "BTC-USDT-PERP");
+        assert_eq!(delta.exchange_ts(), 3.5);
+        assert_eq!(delta.received_ts(), 4.5);
     }
 
     #[test]

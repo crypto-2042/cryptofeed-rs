@@ -3,9 +3,21 @@ name = "cryptofeed-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Shared abstractions for normalized cryptocurrency exchange market data"
+documentation = "https://docs.rs/cryptofeed-core"
 
 [dependencies]
 rust_decimal.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

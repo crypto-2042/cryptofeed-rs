@@ -1,0 +1,1 @@
+1736371332.162000: {"arg":{"instType":"usdt-futures","topic":"liquidation"},"data":[{"symbol":"BTCUSDT","side":"buy","price":"64000","amount":"37.722858","ts":"1736371332162"}],"action":"update","ts":1736371332162}

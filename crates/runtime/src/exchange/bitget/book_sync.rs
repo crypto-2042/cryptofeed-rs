@@ -20,6 +20,7 @@ pub struct BitgetDepthUpdate {
 pub struct BitgetBookSync {
     state: L2BookState,
     seq: Option<u64>,
+    awaiting_first_update: bool,
 }
 
 impl BitgetBookSync {
@@ -27,6 +28,7 @@ impl BitgetBookSync {
         Self {
             state: L2BookState::new(symbol),
             seq: None,
+            awaiting_first_update: false,
         }
     }
 
@@ -34,6 +36,7 @@ impl BitgetBookSync {
         match update.action {
             BitgetBookAction::Snapshot => {
                 self.seq = Some(update.seq);
+                self.awaiting_first_update = true;
                 self.state.apply(update.book.clone());
                 Ok(Some(update.book))
             }
@@ -42,11 +45,17 @@ impl BitgetBookSync {
                     .seq
                     .ok_or_else(|| Error::Parse("bitget book sync not initialized".to_owned()))?;
 
-                if update.pseq != current {
+                let continuous = if self.awaiting_first_update {
+                    update.pseq <= current && current <= update.seq
+                } else {
+                    update.pseq == current
+                };
+                if !continuous {
                     return Err(Error::Parse("bitget book sequence gap detected".to_owned()));
                 }
 
                 self.seq = Some(update.seq);
+                self.awaiting_first_update = false;
                 self.state.apply(update.book.clone());
                 Ok(Some(update.book))
             }
@@ -115,6 +124,20 @@ mod tests {
 
         assert!(applied.is_some());
         assert_eq!(sync.seq(), Some(101));
+    }
+
+    #[test]
+    fn first_update_may_bridge_snapshot_sequence() {
+        let mut sync = BitgetBookSync::new(Symbol::spot("btc", "usdt"));
+        sync.apply(delta(100, 0, BitgetBookAction::Snapshot))
+            .expect("snapshot");
+
+        let applied = sync
+            .apply(delta(105, 95, BitgetBookAction::Update))
+            .expect("first update bridges snapshot sequence");
+
+        assert!(applied.is_some());
+        assert_eq!(sync.seq(), Some(105));
     }
 
     #[test]

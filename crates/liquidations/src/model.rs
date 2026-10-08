@@ -1,20 +1,29 @@
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+use cryptofeed_core::{exchange::ExchangeId, model::Side, symbol::Symbol};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum LiquidationStatus {
+    /// The liquidation order executed in full.
     Filled,
+    /// The liquidation order was not filled (exchange-reported status only).
     Unfilled,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Liquidation {
     pub exchange: ExchangeId,
     pub symbol: Symbol,
-    pub side: String,
+    /// Aggressor side of the liquidation.
+    pub side: Side,
+    /// Liquidated exchange-native quantity. Bitget quote-denominated amounts
+    /// are converted to base quantity; Gate.io retains contract units.
     pub quantity: Decimal,
+    /// Execution price.
     pub price: Decimal,
+    /// Exchange order id, where transmitted (Binance `forceOrder.o.i`);
+    /// `None` for streams without one (Bitget, Bybit, OKX).
     pub id: Option<String>,
     pub status: LiquidationStatus,
     pub exchange_ts: f64,
@@ -24,7 +33,7 @@ pub struct Liquidation {
 #[cfg(test)]
 mod tests {
     use super::{Liquidation, LiquidationStatus};
-    use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+    use cryptofeed_core::{exchange::ExchangeId, model::Side, symbol::Symbol};
     use rust_decimal::Decimal;
 
     #[test]
@@ -32,7 +41,7 @@ mod tests {
         let liquidation = Liquidation {
             exchange: ExchangeId::Binance,
             symbol: Symbol::spot("btc", "usdt"),
-            side: "sell".to_owned(),
+            side: Side::Sell,
             quantity: Decimal::from_str_exact("0.014").unwrap(),
             price: Decimal::from_str_exact("9910").unwrap(),
             id: None,
@@ -43,6 +52,7 @@ mod tests {
 
         assert_eq!(liquidation.symbol.as_str(), "BTC-USDT");
         assert_eq!(liquidation.status, LiquidationStatus::Filled);
+        assert_eq!(liquidation.side, Side::Sell);
     }
 
     #[test]
@@ -50,7 +60,7 @@ mod tests {
         let liquidation = Liquidation {
             exchange: ExchangeId::Binance,
             symbol: Symbol::spot("btc", "usdt"),
-            side: "buy".to_owned(),
+            side: Side::Buy,
             quantity: Decimal::from_str_exact("0.25").unwrap(),
             price: Decimal::from_str_exact("64050").unwrap(),
             id: Some("liq-1".to_owned()),
@@ -63,7 +73,7 @@ mod tests {
         let decoded: Liquidation = serde_json::from_str(&json).unwrap();
 
         assert_eq!(decoded.symbol.as_str(), "BTC-USDT");
-        assert_eq!(decoded.side, "buy");
+        assert_eq!(decoded.side, Side::Buy);
         assert_eq!(decoded.id.as_deref(), Some("liq-1"));
         assert_eq!(decoded.status, LiquidationStatus::Unfilled);
     }

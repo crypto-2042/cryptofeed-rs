@@ -1,0 +1,24 @@
+wss://api.gateio.ws/ws/v4/ <-> 1710000001.500000
+send: {"time":1710000001,"channel":"spot.book_ticker","event":"subscribe","payload":["ETH_BTC"]}
+send: {"time":1710000001,"channel":"spot.trades","event":"subscribe","payload":["GT_USDT"]}
+send: {"time":1710000001,"channel":"spot.order_book_update","event":"subscribe","payload":["BTC_USDT","100ms"]}
+send: {"time":1710000001,"channel":"spot.candlesticks","event":"subscribe","payload":["1m","BTC_USDT"]}
+1606292218.231000: {"time":1606292218,"time_ms":1606292218231,"channel":"spot.trades","event":"update","result":{"id":309143071,"id_market":2390902,"create_time":1606292218,"create_time_ms":"1606292218213.4578","side":"sell","currency_pair":"GT_USDT","amount":"16.4700000000","price":"0.4705000000","range":"2390902-2390902"}}
+1606293275.723000: {"time":1606293275,"time_ms":1606293275723,"channel":"spot.book_ticker","event":"update","result":{"t":1606293275123,"u":48733182,"s":"ETH_BTC","b":"0.03400","B":"1.25","a":"0.03410","A":"0.75"}}
+1606294781.236000: {"time":1606294781,"time_ms":1606294781236,"channel":"spot.order_book_update","event":"update","result":{"t":1606294781123,"e":"depthUpdate","E":1606294781,"s":"BTC_USDT","U":48776301,"u":48776306,"b":[["19137.74","0.0001"],["19088.37","0"]],"a":[["19137.75","0.6135"]]}}
+wss://fx-ws.gateio.ws/v4/ws/usdt <-> 1710000002.000000
+send: {"time":1710000002,"channel":"futures.order_book_update","event":"subscribe","payload":["BTC_USDT","100ms","100"]}
+1615366381.123000: {"time":1615366381,"time_ms":1615366381123,"channel":"futures.order_book_update","event":"update","result":{"t":1615366381417,"s":"BTC_USDT","U":201,"u":202,"b":[{"p":"64999.10","s":0},{"p":"64998.50","s":4}],"a":[{"p":"65000.20","s":0},{"p":"65000.50","s":5}]}}
+wss://fx-ws.gateio.ws/v4/ws/btc <-> 1710000002.100000
+send: {"time":1710000002,"channel":"futures.order_book_update","event":"subscribe","payload":["BTC_USD","100ms","100"]}
+1615366381.223000: {"time":1615366381,"time_ms":1615366381223,"channel":"futures.order_book_update","event":"update","result":{"t":1615366381517,"s":"BTC_USD","U":251,"u":252,"b":[{"p":"64998.00","s":0},{"p":"64997.50","s":6}],"a":[{"p":"65001.00","s":0},{"p":"65001.50","s":7}]}}
+wss://fx-ws.gateio.ws/v4/ws/delivery/usdt <-> 1710000002.200000
+send: {"time":1710000002,"channel":"futures.order_book_update","event":"subscribe","payload":["BTC_USDT_20260925","100ms","100"]}
+1615366381.323000: {"time":1615366381,"time_ms":1615366381323,"channel":"futures.order_book_update","event":"update","error":null,"result":{"t":1615366381617,"s":"BTC_USDT_20260925","U":301,"u":302,"b":[{"p":"65010.00","s":0},{"p":"65009.50","s":8}],"a":[{"p":"65020.00","s":0},{"p":"65020.50","s":9}]}}
+wss://fx-ws.gateio.ws/v4/ws/usdt <-> 1710000003.000000
+send: {"time":1710000003,"channel":"futures.tickers","event":"subscribe","payload":["BTC_USDT"]}
+1710000000.500000: {"time":1710000000,"time_ms":1710000000000,"channel":"futures.tickers","event":"update","result":[{"contract":"BTC_USDT","last":"65102.1","change_percentage":"0.21","total_size":"2334747.0","low_24h":"63321.3","high_24h":"65557.9","mark_price":"65103.4","funding_rate":"0.000061","funding_rate_indicative":"0.000061","index_price":"65103.1","quanto_multiplier":"0.0001","last_size":"1977","volume_24h":"45478740629.5","volume_24h_base":"20979140","volume_24h_quote":"45478740629.5","volume_24h_settle":"123527018.6","time":1710000000000}]}
+1710000000.600000: {"time":1710000000,"time_ms":1710000000600,"channel":"futures.book_ticker","event":"update","result":{"t":1710000000123,"u":48733182,"s":"BTC_USDT","b":"64999.10","B":"1.25","a":"65000.20","A":"0.75"}}
+1541486601.200000: {"channel":"futures.public_liquidates","event":"update","time_ms":1541505434123,"result":[{"price":215.1,"size":"-124.5","time_ms":1541486601123,"contract":"BTC_USD"},{"price":"3000.12345678","size":"0.01234567","time_ms":1541486601124,"contract":"ETH_USDT"}]}
+1791444122.760000: {"time":1791444122,"time_ms":1791444122760,"channel":"futures.public_liquidates","event":"subscribe","payload":["BTC_USDT"],"result":{"status":"success"}}
+1736371332.200000: {"channel":"futures.public_liquidates","event":"update","result":[{"contract":"BTC_USDT","price":65000.12345678901234567890,"size":-0.12345678901234567890,"time_ms":1736371332162}]}

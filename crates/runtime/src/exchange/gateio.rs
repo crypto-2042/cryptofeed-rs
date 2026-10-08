@@ -1,5 +1,9 @@
+#[doc(hidden)]
 pub mod adapter;
+#[cfg(feature = "orderbook")]
+#[doc(hidden)]
 pub mod book_sync;
+#[doc(hidden)]
 pub mod parser;
 
 use cryptofeed_core::exchange::ExchangeId;
