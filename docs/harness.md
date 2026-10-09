@@ -252,3 +252,13 @@ declaring the live case resolved.
   regression assertion before declaring the issue fixed.
 
 Keep this section aligned with `PARITY.md` as those capabilities are added.
+
+## Per-channel subscription regression target
+
+`cargo test -p cryptofeed-rs --test subscriptions` checks canonical groups,
+configuration rejection, typed/native identity, and concrete subscription
+planning across the five active exchanges. Runtime unit tests cover exact
+callback/broadcast/counter/book-state filtering after hydration. The
+`feature_boundaries` target verifies mapped channel preflight under each feature.
+These tests reuse current adapter protocol paths; grouping is not a new wire
+format or a promise of optimal connection packing.

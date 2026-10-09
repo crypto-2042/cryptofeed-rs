@@ -274,6 +274,38 @@ Notes:
   are recorded in the [protocol baseline](docs/exchange-protocol-baseline.md#api-currency-review--2026-10-09).
 - Authenticated data and trading are out of scope.
 
+## Per-channel symbol subscriptions
+
+Use `.subscription(channel, symbols)` when channels need different symbols:
+
+```rust
+use cryptofeed_rs::prelude::*;
+
+let feed = Binance::new()
+    .subscription(Channel::Trade, ["BTC-USDT", "ETH-USDT"])
+    .subscription(Channel::L2Book, ["BTC-USDT"])
+    .build();
+```
+
+Pass this feed to `FeedHandler::add_feed` as usual. Repeated entries for a
+channel merge and deduplicate symbols. `.subscription_instruments(channel,
+selected_symbols)` accepts typed instruments returned by a catalog.
+
+This mode cannot be mixed with `.trade()` / `.ticker()` / other channel
+shortcuts or shared `.symbol()` / `.symbols()` / `.instrument()` methods.
+Each channel needs at least one symbol, all symbols must share a product kind,
+and every requested channel must pass capability/feature preflight. Handler
+and interval/depth settings are unchanged. Explicit `.exchange_symbol(...)`
+entries correspond to the first-seen deduplicated union in `feed.symbols`.
+
+The runtime resolves this union once, then groups channels with identical
+symbol sets before handing concrete feeds to existing adapters. Different sets
+may open additional connections; capacity-based sharding and optimized packing
+remain pending. `feed_count()` counts logical feeds before startup; status
+notifications still identify exchanges, not individual subscription groups.
+Low-level adapter callers must plan each `feed.connection_feeds()?` group;
+passing the logical union directly to an adapter does not compile the map.
+
 ## Symbol discovery and service shutdown
 
 Load a product-qualified catalog, then select explicit normalized symbols:
@@ -310,7 +342,7 @@ sharding is not implemented. Existing capability preflight still applies.
 For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
 repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 `run_with_shutdown` uses your watch signal and installs no signal handler.
-Runtime add/remove/replace and per-channel symbol maps are planned in the
+Runtime add/remove/replace and connection sizing remain planned in the
 [Python usage alignment plan](docs/python-usage-alignment.md).
 
 ## Development

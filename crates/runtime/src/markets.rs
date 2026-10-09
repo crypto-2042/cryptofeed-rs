@@ -253,6 +253,7 @@ pub fn capability_matrix() -> &'static [Capability] {
 }
 
 pub fn validate_feed(feed: &ExchangeFeed) -> Result<InstrumentKind> {
+    feed.validate_subscription_configuration()?;
     if feed.channels.is_empty() {
         return Err(Error::InvalidConfiguration(
             "a feed must contain at least one channel".to_owned(),

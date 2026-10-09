@@ -6,6 +6,7 @@ pub mod gateio;
 pub mod kraken;
 pub mod okx;
 
+use std::collections::{HashMap, HashSet};
 #[cfg(any(
     feature = "ticker",
     feature = "trade",
@@ -19,7 +20,7 @@ pub mod okx;
 ))]
 use std::sync::Arc;
 #[cfg(feature = "orderbook")]
-use std::{collections::HashMap, sync::Mutex};
+use std::sync::Mutex;
 
 #[cfg(feature = "orderbook")]
 use crate::exchange::binance::book_sync::BinanceBookSync;
@@ -61,6 +62,8 @@ pub struct ExchangeFeed {
     pub channels: Vec<Channel>,
     pub symbols: Vec<Symbol>,
     pub exchange_symbols: Vec<String>,
+    pub(crate) channel_subscriptions: Vec<(Channel, Vec<Symbol>)>,
+    pub(crate) subscription_mode_conflict: bool,
     /// Normalized candle interval (default `"1m"`); each adapter maps it to
     /// its own wire form. `Channel::Candles` uses a single interval per feed.
     pub candle_interval: String,
@@ -110,6 +113,75 @@ pub struct ExchangeFeed {
 }
 
 impl ExchangeFeed {
+    /// Whether this feed requests the exact normalized channel/symbol pair.
+    pub fn subscribes(&self, channel: Channel, symbol: &Symbol) -> bool {
+        self.channels.contains(&channel)
+            && self.symbols.contains(symbol)
+            && (self.channel_subscriptions.is_empty()
+                || self
+                    .channel_subscriptions
+                    .iter()
+                    .any(|(entry, symbols)| *entry == channel && symbols.contains(symbol)))
+    }
+
+    pub(crate) fn validate_subscription_configuration(&self) -> Result<()> {
+        if self.subscription_mode_conflict {
+            return Err(Error::InvalidConfiguration(
+                "use per-channel subscriptions or shared channels/symbols, not both".to_owned(),
+            ));
+        }
+        if self
+            .channel_subscriptions
+            .iter()
+            .any(|(_, symbols)| symbols.is_empty())
+        {
+            return Err(Error::InvalidConfiguration(
+                "each channel subscription must contain at least one symbol".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Compiles per-channel subscriptions into concrete feeds for adapter
+    /// planning. Channels with identical symbol sets share a group. Different
+    /// sets may use separate connections; this is not capacity-based sharding.
+    /// Explicit native names map to the first-seen union in `self.symbols`.
+    pub fn connection_feeds(&self) -> Result<Vec<Self>> {
+        self.validate_subscription_configuration()?;
+        if self.channel_subscriptions.is_empty() {
+            return Ok(vec![self.clone()]);
+        }
+        self.product_kind()?;
+        if !self.exchange_symbols.is_empty() {
+            self.ensure_symbol_mapping_is_complete()?;
+        }
+        let native: HashMap<_, _> = self.symbols.iter().zip(&self.exchange_symbols).collect();
+        let mut groups: Vec<Self> = Vec::new();
+        for (channel, symbols) in &self.channel_subscriptions {
+            let mut symbols = symbols.clone();
+            symbols.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+            if let Some(group) = groups.iter_mut().find(|group| group.symbols == symbols) {
+                group.channels.push(*channel);
+                continue;
+            }
+            let mut group = self.clone();
+            group.channels = vec![*channel];
+            group.exchange_symbols = if self.exchange_symbols.is_empty() {
+                Vec::new()
+            } else {
+                symbols
+                    .iter()
+                    .map(|symbol| native[symbol].clone())
+                    .collect()
+            };
+            group.symbols = symbols;
+            group.channel_subscriptions.clear();
+            group.subscription_mode_conflict = false;
+            groups.push(group);
+        }
+        Ok(groups)
+    }
+
     /// Publishes a normalized event to the `FeedHandler` event stream (when
     /// subscribed) and bumps the per-channel counter. Drop failures are
     /// expected: the broadcast channel is bounded and lagging subscribers
@@ -283,6 +355,7 @@ pub struct ExchangeFeedBuilder {
     channels: Vec<Channel>,
     symbols: Vec<Symbol>,
     exchange_symbols: Vec<String>,
+    channel_subscriptions: Vec<(Channel, Vec<Symbol>)>,
     candle_interval: String,
     l2_book_depth: Option<u16>,
     l2_book_interval: Option<String>,
@@ -325,6 +398,7 @@ impl ExchangeFeedBuilder {
             channels: Vec::new(),
             symbols: Vec::new(),
             exchange_symbols: Vec::new(),
+            channel_subscriptions: Vec::new(),
             candle_interval: "1m".to_owned(),
             l2_book_depth: None,
             l2_book_interval: None,
@@ -489,6 +563,40 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Adds normalized symbols for one channel. Repeated entries merge.
+    /// Cannot be mixed with the channel shortcuts or shared symbol methods.
+    pub fn subscription<I, S>(self, channel: Channel, symbols: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.subscription_instruments(
+            channel,
+            symbols
+                .into_iter()
+                .map(|symbol| Symbol::from_input(symbol.as_ref())),
+        )
+    }
+
+    /// Adds typed instruments for one channel, preserving product identity.
+    pub fn subscription_instruments(
+        mut self,
+        channel: Channel,
+        symbols: impl IntoIterator<Item = Symbol>,
+    ) -> Self {
+        if let Some((_, existing)) = self
+            .channel_subscriptions
+            .iter_mut()
+            .find(|(entry, _)| *entry == channel)
+        {
+            existing.extend(symbols);
+        } else {
+            self.channel_subscriptions
+                .push((channel, symbols.into_iter().collect()));
+        }
+        self
+    }
+
     pub fn symbol(mut self, symbol: &str) -> Self {
         self.symbols.push(Symbol::from_input(symbol));
         self
@@ -525,7 +633,24 @@ impl ExchangeFeedBuilder {
         self
     }
 
-    pub fn build(self) -> ExchangeFeed {
+    pub fn build(mut self) -> ExchangeFeed {
+        let subscription_mode_conflict = !self.channel_subscriptions.is_empty()
+            && (!self.channels.is_empty() || !self.symbols.is_empty());
+        if !self.channel_subscriptions.is_empty() {
+            let mut all_symbols: HashSet<Symbol> = self.symbols.iter().cloned().collect();
+            for (channel, symbols) in &mut self.channel_subscriptions {
+                let mut seen = HashSet::new();
+                symbols.retain(|symbol| seen.insert(symbol.clone()));
+                if !self.channels.contains(channel) {
+                    self.channels.push(*channel);
+                }
+                for symbol in symbols {
+                    if all_symbols.insert(symbol.clone()) {
+                        self.symbols.push(symbol.clone());
+                    }
+                }
+            }
+        }
         let channels = &self.channels;
         let handler_names: Vec<&'static str> = channels
             .iter()
@@ -543,6 +668,8 @@ impl ExchangeFeedBuilder {
             channels: self.channels,
             symbols: self.symbols,
             exchange_symbols: self.exchange_symbols,
+            channel_subscriptions: self.channel_subscriptions,
+            subscription_mode_conflict,
             candle_interval: self.candle_interval,
             l2_book_depth: self.l2_book_depth,
             l2_book_interval: self.l2_book_interval,

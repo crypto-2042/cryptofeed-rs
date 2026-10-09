@@ -305,3 +305,12 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   cancellation recovery, and unsupported-product preflight.
 - No new live-service verification is claimed. Subscription hot updates,
   connection sizing and snapshot concurrency budgets remain pending.
+
+## Per-channel subscription alignment — 2026-10-10
+
+- Channel-specific symbol sets compile into concrete groups before adapter
+  planning; unchanged protocol paths retain product/endpoint behavior.
+- Offline regressions verify all five exchange planners, global native identity,
+  mode/empty-set/product validation, feature boundaries and exact dispatch to
+  callbacks, broadcast counters and L2 state.
+- No exchange/channel capability expansion or new live-service evidence.

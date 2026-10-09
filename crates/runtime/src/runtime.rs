@@ -133,19 +133,21 @@ pub async fn run_with_shutdown(
 }
 
 async fn hydrate_feed_symbols(feeds: Vec<ExchangeFeed>) -> Result<Vec<ExchangeFeed>> {
-    // Catalogs are fetched concurrently: with several feeds (e.g. the
-    // multi-megabyte Binance exchangeInfo plus Bybit pages), resolving
-    // sequentially would stall every feed on the slowest endpoint. All
-    // feeds still fail together if any resolution fails.
-    let mut hydrated: Vec<Result<ExchangeFeed>> =
+    // Reject invalid logical configurations before starting any catalog fetch.
+    for feed in &feeds {
+        markets::validate_feed(feed)?;
+    }
+    // Resolve the union once, preserving global native-mapping validation,
+    // then partition exact channel/symbol sets for existing session paths.
+    let hydrated: Vec<Result<Vec<ExchangeFeed>>> =
         futures::future::join_all(feeds.into_iter().map(|mut feed| async move {
             feed.exchange_symbols = markets::resolve_feed_symbols(&feed).await?;
-            Ok(feed)
+            feed.connection_feeds()
         }))
         .await;
-    let mut result = Vec::with_capacity(hydrated.len());
-    for feed in hydrated.drain(..) {
-        result.push(feed?);
+    let mut result = Vec::new();
+    for feed in hydrated {
+        result.extend(feed?);
     }
     Ok(result)
 }
@@ -1114,7 +1116,7 @@ fn subscribed_to(
     channel: Channel,
     symbol: &cryptofeed_core::symbol::Symbol,
 ) -> bool {
-    feed.channels.contains(&channel) && feed.symbols.iter().any(|candidate| candidate == symbol)
+    feed.subscribes(channel, symbol)
 }
 
 async fn await_handler<F>(channel: &'static str, future: F)
@@ -2774,6 +2776,72 @@ mod tests {
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
         assert_eq!(*ticker_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn channel_subscriptions_hydrate_and_filter_handlers_events_and_books() {
+        use cryptofeed_core::exchange::Channel;
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        let counters = handler.event_counters();
+        handler.add_feed(
+            Binance::new()
+                .subscription(Channel::Trade, ["BTC-USDT", "ETH-USDT"])
+                .subscription(Channel::L2Book, ["BTC-USDT"])
+                .exchange_symbol("BTCUSDT")
+                .exchange_symbol("ETHUSDT")
+                .trade_handler(Arc::new(TestTradeHandler {
+                    seen: trade_seen.clone(),
+                }))
+                .orderbook_handler(Arc::new(TestOrderBookHandler {
+                    seen: book_seen.clone(),
+                }))
+                .build(),
+        );
+        assert_eq!(handler.feed_count(), 1);
+        let groups = super::hydrate_feed_symbols(handler.into_feeds())
+            .await
+            .unwrap();
+        assert_eq!(groups.len(), 2);
+        let trade = serde_json::json!({"e":"aggTrade","s":"ETHUSDT","a":1,"p":"100","q":"2","m":false,"T":1710000000123u64});
+        for feed in &groups {
+            super::process_binance_text_message(feed, &trade.to_string(), 1.0)
+                .await
+                .unwrap();
+            for base in ["BTC", "ETH"] {
+                super::dispatch_l2_book(
+                    feed,
+                    cryptofeed_orderbook::L2Book::Snapshot(cryptofeed_orderbook::L2BookSnapshot {
+                        exchange: ExchangeId::Binance,
+                        symbol: cryptofeed_core::symbol::Symbol::spot(base, "USDT"),
+                        bids: vec![],
+                        asks: vec![],
+                        exchange_ts: 1.0,
+                        received_ts: 2.0,
+                    }),
+                )
+                .await;
+            }
+        }
+        assert_eq!(*trade_seen.lock().unwrap(), 1);
+        assert_eq!(*book_seen.lock().unwrap(), 1);
+        assert_eq!(counters.count(Channel::Trade), 1);
+        assert_eq!(counters.count(Channel::L2Book), 1);
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::feed::FeedEvent::Trade(_)
+        ));
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::feed::FeedEvent::L2Book(_)
+        ));
+        assert!(events.try_recv().is_err());
+        let states = groups[1].orderbook_states.lock().unwrap();
+        assert!(states.contains_key("BTC-USDT"));
+        assert!(!states.contains_key("ETH-USDT"));
     }
 
     #[cfg(all(feature = "ticker", feature = "orderbook"))]

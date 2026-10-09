@@ -300,3 +300,22 @@ feature boundaries.
 - Verification: 398 workspace tests, strict all-target Clippy, rustdoc, all nine
   single-feature checks/tests, no-default catalog tests, Rust 1.85 and formatting
   passed. No endpoint/schema changes or new live-service evidence are claimed.
+
+## Usage alignment: per-channel symbols — 2026-10-10
+
+- Added channel-specific normalized and typed symbol configuration; repeated
+  channels merge and deduplicate symbols. Shared configuration cannot be mixed
+  with mapped configuration. Empty sets, unsupported channel/features and
+  mixed products fail before catalog hydration.
+- Resolve the logical symbol union once, preserving global explicit-native
+  ambiguity checks, then group channels with identical symbol sets for existing
+  exchange sessions. Exact pair filtering applies to callbacks/events/counters
+  and L2 state. Existing feed_count remains a count of logical configurations.
+- Distinct sets may open more sockets. Connection packing, capacity-based
+  sharding, snapshot concurrency budgets and runtime hot updates remain pending.
+- Offline tests cover concrete plans across all five active exchanges and
+  runtime dispatch/state behavior; no endpoint/payload changes or new live
+  service verification are claimed.
+- Verification: 407 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation,
+  formatting and local documentation links passed.

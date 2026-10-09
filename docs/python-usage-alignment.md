@@ -1,8 +1,8 @@
 # Python usage alignment
 
-Status: active improvement plan, reviewed 2026-10-09 against the sibling Python
-checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing are implemented; remaining
-phase 2–5 items below are planned, not supported APIs. Exchange count and instrument-type coverage are
+Status: active improvement plan, updated 2026-10-10 against the sibling Python
+checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing and per-channel subscriptions
+are implemented; connection sizing and phases 3–5 remain planned. Exchange count and instrument-type coverage are
 excluded. Authenticated feeds and trading remain outside the 0.1 scope.
 
 ## Goal and compatibility
@@ -23,7 +23,7 @@ local checkout, not claims about every upstream version.
 | Symbol discovery | `exchange.py`: `symbols`, `info`, `symbol_mapping(refresh=...)` | `MarketCatalog::load` exposes sorted symbols; `refresh` bypasses cached responses, including pagination. Public market metadata remains pending. |
 | Pattern selection | `feed.py` resolves each supplied name by exact mapping; no general glob expansion found | Phase 1 adds explicit catalog `select` with `*` and `?` as a convenience extension, not Python parity. |
 | Batch configuration | `feed.py`: `symbols` plus `channels` | Multi-symbol feeds already work; phase 1 adds bulk `.symbols` and typed `.instruments`. |
-| Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Rust currently uses one symbol set for every channel in a feed. Multiple feeds are a workaround; phase 2 adds a subscription map. |
+| Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Implemented `.subscription` / `.subscription_instruments`; equal symbol sets share a concrete group. Distinct sets may use more connections until packing is optimized. |
 | Connection sizing | `feed.py`: `connect` / `limit_sub`, endpoint-specific limits | Product/endpoint splitting exists, but generic subscription-limit sharding and paced subscribe batches do not. Phase 2. |
 | Embedding and shutdown | `feedhandler.py`: `run(start_loop=False, install_signal_handlers=False)`, `stop_async` | Existing `runtime::run_with_shutdown` supports a caller-owned watch signal. Phase 1 adds a `FeedHandler` facade; it installs no Ctrl-C handler. |
 | Runtime additions | `feedhandler.py`: `add_feed` starts a new feed when running; `examples/demo_loop.py` | Rust consumes a fixed feed list at startup. Phase 3 adds a runtime control handle. |
@@ -76,15 +76,30 @@ No exchange wire parser or endpoint changes are part of this phase.
    retry. This is per-response caching, not an atomic transaction across all
    pages or full parsed instrument validation; existing snapshots/subscriptions
    are unchanged. Snapshot request concurrency limits remain pending.
-2. Add mutually exclusive channel-symbol-map and existing channels-plus-symbols
-   configuration. Validate every selected pair and route only requested pairs;
-   use a canonical subscription set for planning and dispatch.
+2. **Implemented: per-channel symbol sets.**
+   `.subscription(channel, names)` / `.subscription_instruments(channel, symbols)`
+   are mutually exclusive with shared channel/symbol shortcuts. Repeated channel
+   entries merge; duplicates are removed. Empty sets, unsupported channels or
+   features, and mixed products fail preflight. The runtime resolves the
+   first-seen union once (including global native-mapping ambiguity checks),
+   then groups channels by identical normalized symbol sets and uses existing
+   adapter/session paths. Dispatch checks exact channel/symbol membership.
+   Explicit native names follow the union's order, then are rebound per group.
+   This prioritizes correctness over minimizing sockets: distinct sets can open
+   additional connections, and existing status reports identify only exchanges.
+   Low-level adapter users must call `connection_feeds` and plan each group;
+   this compilation is automatic through FeedHandler.
 3. Add exchange-specific connection/subscription sizing from current official
    documentation. Count native topics after shared-stream deduplication; enforce
    connection limits and paced subscription batches. Large patterns must not
    blindly create an oversized socket or an unbounded REST bootstrap burst.
 
-Acceptance: offline doubles verify heterogeneous channel-symbol routing,
+Completed subscription tests cover five-exchange concrete planning, native
+mapping preservation/ambiguity, mode conflicts, typed symbols, and exact
+handler/broadcast/counter/book filtering after runtime hydration. Feature
+preflight is tested in every isolated build. No exchange wire shape changed.
+
+Remaining acceptance: offline doubles verify connection sizing,
 unsupported pairs, topic deduplication, exact limit boundaries, and refresh
 failures. Each exchange protocol change requires sourced fixtures and official
 verification; limits must not be inferred from old Python constants.

@@ -270,3 +270,16 @@ Project-specific memory for `rust/cryptofeed-rs`.
   are per response, not transactional across pages or parsed registry validation.
 - Catalog discovery reuses its HTTP client. Snapshot clients/concurrency and
   subscription sizing are separate pending work; do not claim they are solved.
+
+## Per-channel subscriptions
+
+- `.subscription` / `.subscription_instruments` are exclusive with legacy
+  shared channel/symbol configuration; handler and interval/depth settings can
+  be reused. Repeated channels merge; symbols deduplicate in first-seen order.
+- Hydrate the logical union before partitioning so native mapping ambiguity
+  cannot escape across channel groups. Explicit native lists follow that union.
+- Identical normalized symbol sets group together, otherwise use independent
+  concrete feeds through unchanged adapters. Low-level callers must compile
+  `connection_feeds` before adapter planning; FeedHandler does so automatically.
+- This does not implement capacity sharding or connection minimization; group
+  status still has exchange-only identity until the lifecycle phase.

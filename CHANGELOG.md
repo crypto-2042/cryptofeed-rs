@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Per-channel symbol configuration via `.subscription` and
+  `.subscription_instruments`. Identical symbol sets share a concrete feed
+  group; runtime hydration preserves global native mapping checks and dispatch
+  filters exact channel/symbol pairs. Existing shared-symbol builders remain
+  supported; capacity-based sharding and optimized packing remain pending.
+
 - `MarketCatalog::refresh` bypasses cached instrument responses, including
   paginated discovery. Concurrent same-URL requests share in-flight results;
   discovery reuses an HTTP client and failed fetches preserve cached responses.

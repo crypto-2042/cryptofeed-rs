@@ -85,9 +85,11 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
    instrument catalog over HTTP. Unknown/ambiguous/mixed-product/unsupported
    combinations fail before connecting; the runtime never guesses quote
    currencies. Explicit native pairs are caller-asserted and bypass catalog
-   existence checks.
+   existence checks. Per-channel subscriptions resolve their normalized union
+   once, then compile channels with identical symbol sets into concrete feeds;
+   explicit native mapping ambiguity is validated before this partition.
 2. **Per-feed task fan-out** — `run_feeds_until_shutdown` spawns one task per
-   feed with a shared `watch::channel` shutdown signal (Ctrl-C sets it).
+   concrete subscription group (one group for a legacy shared-symbol feed) with a shared `watch::channel` shutdown signal (Ctrl-C sets it).
    Terminal failure of one feed is recorded and reported without cancelling
    healthy feeds.
 3. **Per-exchange consumers** (`consume_*_feed`) — build connection plans
@@ -132,8 +134,12 @@ the HTTP catalog fetchers per exchange.
 
 ## Key Invariants
 
-- A single `ExchangeFeed` is product-homogeneous: spot, perpetual, and dated
-  futures must not mix.
+- A single logical `ExchangeFeed` is product-homogeneous: spot, perpetual, and
+  dated futures must not mix, including across per-channel subscriptions.
+- Per-channel subscription mode and shared channels/symbols are exclusive.
+  The runtime compiles `connection_feeds` before adapter/session planning;
+  direct low-level adapter callers must do the same. Different symbol sets
+  can use extra connections; capacity-based sharding is separate work.
 - Only capability-matrix combinations may open a connection — absent
   combinations must fail explicitly, never silently subscribe to nothing.
 - Explicit normalized parsing over opaque dynamic conversion; batch messages
