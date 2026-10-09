@@ -110,9 +110,28 @@ pub struct ExchangeFeed {
     pub(crate) status_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedStatus>>,
     /// Per-channel counters injected by `FeedHandler::add_feed`.
     pub(crate) event_counts: Option<std::sync::Arc<crate::feed::EventCounters>>,
+    pub(crate) identity: Option<crate::feed::FeedIdentity>,
+    pub(crate) managed: bool,
+    pub(crate) envelope_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedEnvelope>>,
 }
 
 impl ExchangeFeed {
+    pub fn identity(&self) -> Option<crate::feed::FeedIdentity> {
+        self.identity
+    }
+
+    pub(crate) fn fresh_runtime_state(&mut self) {
+        #[cfg(feature = "orderbook")]
+        {
+            self.orderbook_states = Default::default();
+            self.binance_book_syncs = Default::default();
+            self.bitget_book_syncs = Default::default();
+            self.bybit_book_syncs = Default::default();
+            self.gateio_book_syncs = Default::default();
+            self.okx_book_syncs = Default::default();
+        }
+    }
+
     /// Whether this feed requests the exact normalized channel/symbol pair.
     pub fn subscribes(&self, channel: Channel, symbol: &Symbol) -> bool {
         self.channels.contains(&channel)
@@ -192,11 +211,15 @@ impl ExchangeFeed {
     /// expected: the broadcast channel is bounded and lagging subscribers
     /// lose the oldest events by design.
     pub(crate) fn publish_event(&self, event: crate::feed::FeedEvent) {
+        let channel = event.channel();
         if let Some(sender) = &self.event_sender {
             let _ = sender.send(event.clone());
         }
+        if let (Some(sender), Some(identity)) = (&self.envelope_sender, self.identity) {
+            let _ = sender.send(crate::feed::FeedEnvelope { identity, event });
+        }
         if let Some(counts) = &self.event_counts {
-            counts.bump(event.channel());
+            counts.bump(channel);
         }
     }
 
@@ -711,6 +734,9 @@ impl ExchangeFeedBuilder {
             event_sender: None,
             status_sender: None,
             event_counts: None,
+            identity: None,
+            managed: false,
+            envelope_sender: None,
         }
     }
 }

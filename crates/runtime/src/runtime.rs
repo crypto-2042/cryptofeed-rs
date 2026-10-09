@@ -1,5 +1,6 @@
 mod budget;
 pub mod connection;
+mod control;
 pub(crate) mod planning;
 #[cfg(feature = "orderbook")]
 mod snapshot;
@@ -88,11 +89,15 @@ const MAX_SNAPSHOT_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// Runs the feeds until Ctrl-C triggers a clean shutdown.
 pub async fn run(handler: FeedHandler) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        let _ = shutdown_tx.send(true);
-    });
-    run_with_shutdown(handler, shutdown_rx).await
+    let runtime = run_with_shutdown(handler, shutdown_rx);
+    tokio::pin!(runtime);
+    tokio::select! {
+        result = &mut runtime => result,
+        _ = tokio::signal::ctrl_c() => {
+            let _ = shutdown_tx.send(true);
+            runtime.await
+        }
+    }
 }
 
 /// Runs the feeds until `shutdown` is set, or a feed fails terminally.
@@ -104,6 +109,9 @@ pub async fn run_with_shutdown(
 ) -> Result<()> {
     if *shutdown.borrow() {
         return Ok(());
+    }
+    if handler.has_control() {
+        return control::run(handler, shutdown).await;
     }
     let hydration = hydrate_feed_symbols(handler.into_feeds());
     tokio::pin!(hydration);
@@ -119,21 +127,21 @@ pub async fn run_with_shutdown(
             result = &mut hydration => break result?,
         }
     };
-    run_feeds_until_shutdown(feeds, shutdown, |feed, shutdown| async move {
-        match feed.exchange {
-            ExchangeId::Binance => consume_binance_feed(feed, shutdown).await,
-            ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
-            ExchangeId::Bybit => consume_bybit_feed(feed, shutdown).await,
-            ExchangeId::Okx => consume_okx_feed(feed, shutdown).await,
-            ExchangeId::Gateio => consume_gateio_feed(feed, shutdown).await,
-            // Builders that exist without a live runtime (Coinbase/Kraken)
-            // and any future exchange are rejected by capability validation
-            // before a feed reaches this point.
-            _ => Ok(()),
-        }
-    })
-    .await?;
-    Ok(())
+    run_feeds_until_shutdown(feeds, shutdown, consume_feed).await
+}
+
+async fn consume_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+    match feed.exchange {
+        ExchangeId::Binance => consume_binance_feed(feed, shutdown).await,
+        ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
+        ExchangeId::Bybit => consume_bybit_feed(feed, shutdown).await,
+        ExchangeId::Okx => consume_okx_feed(feed, shutdown).await,
+        ExchangeId::Gateio => consume_gateio_feed(feed, shutdown).await,
+        // Builders that exist without a live runtime (Coinbase/Kraken)
+        // and any future exchange are rejected by capability validation
+        // before a feed reaches this point.
+        _ => Ok(()),
+    }
 }
 
 async fn hydrate_feed_symbols(feeds: Vec<ExchangeFeed>) -> Result<Vec<ExchangeFeed>> {
@@ -183,88 +191,121 @@ fn planned_url(feed: &ExchangeFeed) -> String {
 
 async fn run_feeds_until_shutdown<F, Fut>(
     feeds: Vec<ExchangeFeed>,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
     consume: F,
 ) -> Result<()>
 where
     F: Fn(ExchangeFeed, watch::Receiver<bool>) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Result<()>> + Send + 'static,
 {
+    run_feeds_until_shutdown_tracked(feeds, shutdown, consume, None).await
+}
+
+type FeedTaskRoutes =
+    std::collections::HashMap<tokio::task::Id, (Option<crate::feed::FeedIdentity>, ExchangeId)>;
+type FeedTaskResult = std::result::Result<
+    (Option<crate::feed::FeedIdentity>, ExchangeId, Result<()>),
+    tokio::task::JoinError,
+>;
+
+async fn run_feeds_until_shutdown_tracked<F, Fut>(
+    feeds: Vec<ExchangeFeed>,
+    mut shutdown: watch::Receiver<bool>,
+    consume: F,
+    forced: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<()>
+where
+    F: Fn(ExchangeFeed, watch::Receiver<bool>) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Result<()>> + Send + 'static,
+{
+    if *shutdown.borrow() {
+        return Ok(());
+    }
     let status_sender = feeds.iter().find_map(|feed| feed.status_sender.clone());
     let mut tasks = JoinSet::new();
+    let mut routes = FeedTaskRoutes::new();
     let mut terminal_errors = Vec::new();
-
     for feed in feeds {
         let consume = consume.clone();
         let exchange = feed.exchange;
+        let identity = if feed.managed { feed.identity } else { None };
         let feed_shutdown = shutdown.clone();
-        tasks.spawn(async move { (exchange, consume(feed, feed_shutdown).await) });
+        let task =
+            tasks.spawn(async move { (identity, exchange, consume(feed, feed_shutdown).await) });
+        routes.insert(task.id(), (identity, exchange));
     }
-
     while !tasks.is_empty() {
         tokio::select! {
+            biased;
             changed = shutdown.changed() => {
-                match changed {
-                    Ok(()) if *shutdown.borrow() => {
-                        let drain = async {
-                            while let Some(result) = tasks.join_next().await {
-                                record_feed_result(result, &mut terminal_errors, status_sender.as_ref());
-                            }
-                        };
-                        if tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, drain).await.is_err() {
-                            tasks.abort_all();
-                        }
-                        return terminal_result(terminal_errors);
+                if changed.is_ok() && !*shutdown.borrow() { continue; }
+                let drain = async {
+                    while let Some(result) = tasks.join_next().await {
+                        record_feed_result(result, &mut terminal_errors, status_sender.as_ref(), &routes);
                     }
-                    Ok(()) => {}
-                    Err(_) => {
-                        let drain = async {
-                            while let Some(result) = tasks.join_next().await {
-                                record_feed_result(result, &mut terminal_errors, status_sender.as_ref());
-                            }
-                        };
-                        if tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, drain).await.is_err() {
-                            tasks.abort_all();
-                        }
-                        return terminal_result(terminal_errors);
+                };
+                if tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, drain).await.is_err() {
+                    if let Some(forced) = &forced { forced.store(true, std::sync::atomic::Ordering::Relaxed); }
+                    tasks.abort_all();
+                    // A stop acknowledgement must follow child cancellation,
+                    // not just dropping a JoinSet whose tasks may still run.
+                    while let Some(result) = tasks.join_next().await {
+                        if result.as_ref().is_err_and(|error| error.is_cancelled()) { continue; }
+                        record_feed_result(result, &mut terminal_errors, status_sender.as_ref(), &routes);
                     }
                 }
+                return terminal_result(terminal_errors);
             }
             result = tasks.join_next() => {
-                if let Some(result) = result {
-                    record_feed_result(result, &mut terminal_errors, status_sender.as_ref());
-                }
+                if let Some(result) = result { record_feed_result(result, &mut terminal_errors, status_sender.as_ref(), &routes); }
             }
         }
     }
-
     terminal_result(terminal_errors)
 }
 
 fn record_feed_result(
-    result: std::result::Result<(ExchangeId, Result<()>), tokio::task::JoinError>,
+    result: FeedTaskResult,
     terminal_errors: &mut Vec<String>,
     status_sender: Option<&tokio::sync::broadcast::Sender<crate::feed::FeedStatus>>,
+    routes: &FeedTaskRoutes,
 ) {
     match result {
-        Ok((_, Ok(()))) => {}
-        Ok((exchange, Err(error))) => {
-            let message = format!("{exchange:?}: {error}");
-            tracing::error!(exchange = ?exchange, error = %error, "feed terminated after retry exhaustion");
+        Ok((_, _, Ok(()))) => {}
+        Ok((identity, exchange, Err(error))) => {
+            tracing::error!(?exchange, %error, "feed terminated after retry exhaustion");
             if let Some(sender) = status_sender {
                 let _ = sender.send(crate::feed::FeedStatus::Terminated {
                     exchange,
                     error: error.to_string(),
                 });
+                if let Some(identity) = identity {
+                    let _ = sender.send(crate::feed::FeedStatus::Lifecycle {
+                        identity,
+                        exchange,
+                        state: crate::feed::FeedState::Degraded {
+                            error: error.to_string(),
+                        },
+                    });
+                }
             }
-            terminal_errors.push(message);
+            terminal_errors.push(format!("{exchange:?}: {error}"));
         }
         Err(error) => {
-            tracing::error!(error = %error, "feed task terminated unexpectedly");
+            tracing::error!(%error, "feed task terminated unexpectedly");
             if let Some(sender) = status_sender {
                 let _ = sender.send(crate::feed::FeedStatus::TaskPanicked {
                     error: error.to_string(),
                 });
+                if let Some((Some(identity), exchange)) = routes.get(&error.id()) {
+                    let _ = sender.send(crate::feed::FeedStatus::Lifecycle {
+                        identity: *identity,
+                        exchange: *exchange,
+                        state: crate::feed::FeedState::Degraded {
+                            error: error.to_string(),
+                        },
+                    });
+                }
             }
             terminal_errors.push(format!("feed task: {error}"));
         }

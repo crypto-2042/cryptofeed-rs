@@ -300,3 +300,23 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - With paced Gate subscription queues, initial REST bootstrap must wait until
   that symbol's first depth delta is buffered. Do not prefetch all Gate books
   at connection start; full pushes need no REST bootstrap.
+
+## Managed runtime control
+
+- Enabling control_handle opts into independent initial startup and a retained
+  controller. Existing add_feed returns (), add_feed_with_id retains initial
+  identity, and raw event/callback APIs remain compatible.
+- Configuration generations distinguish replacement attempts (including failed
+  or cancelled attempts); reconnect retains the same configuration generation.
+  Use FeedEnvelope identity to reject stale queued events; models are unchanged.
+- Validate/hydrate/admit before stopping old tasks. Once committed, replacement
+  completes even if its reply receiver disappears. Preparing cancellation must
+  leave the old generation running. Remove acknowledges async child termination.
+- Fresh SDK book/ticker state must not mutate an older clone. Caller-owned
+  handler state is not reset. Per-handler admission reserves max(old,new) for
+  same-exchange replacement and both exchanges during a provider change.
+- Started means task launch, not remote-ready. Registry entries are not health
+  snapshots. Runtime/shutdown aggregate historical terminal failures; command
+  validation errors alone do not poison a healthy runtime's final result.
+- Readiness, periodic catalog reconciliation and remaining alignment phases
+  remain active work; see docs/runtime-control.md and the alignment plan.

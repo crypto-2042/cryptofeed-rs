@@ -274,3 +274,12 @@ verify capacity, start spacing, failure and cancellation; they do not simulate
 external IP traffic or certify live throughput. See
 [the budget guide](connection-planning.md) for the official sources and SDK
 policy distinctions.
+
+## Managed runtime regression targets
+
+`cargo test -p cryptofeed-rs --test runtime_control` verifies the public control
+surface without live feeds. `cargo test -p cryptofeed-rs runtime::control::tests`
+drives private preparation/consumption boundaries to verify replacement,
+cancellation, busy/invalid commands, source generations, state reset, independent
+startup, admission and child drop before acknowledgement. Live evidence belongs
+in dated reports; mock sessions are not relabeled as service observations.

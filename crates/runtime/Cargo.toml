@@ -113,5 +113,9 @@ required-features = [
 name = "channel_completion_smoke"
 required-features = ["orderbook", "funding", "openinterest", "index", "markprice", "liquidations"]
 
+[[example]]
+name = "managed_public"
+required-features = ["trade"]
+
 [package.metadata.docs.rs]
 all-features = true

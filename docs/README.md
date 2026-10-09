@@ -21,6 +21,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Connection planning and budgets](connection-planning.md): native subscription
   limits, paced sending/handshakes, snapshot admission, and cancellation.
 
+- [Managed runtime control](runtime-control.md): command results, feed identity,
+  configuration generations, cancellation, startup policy and lifecycle scope.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are
@@ -28,6 +31,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-10 managed runtime](reports/live-smoke-managed-2026-10-10.md):
+  public OKX add, replacement, removal and clean shutdown with event identity.
 - [2026-10-09 OKX endpoint migration](reports/live-smoke-2026-10-09.md):
   default TLS 443, recommended REST domain, and preopen catalog regression.
 - [2026-10-08 final candidate checks](reports/live-smoke-pre-push-2026-10-08.md):

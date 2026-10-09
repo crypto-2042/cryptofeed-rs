@@ -324,3 +324,13 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   Session doubles verify paced subscriptions coexist with reads, shutdown and
   fresh Gate timestamps. Snapshot admission tests cover pacing/concurrency and
   cancelled active/waiting work. No new live service/load claim is made.
+
+## Managed lifecycle alignment — 2026-10-10
+
+- Opt-in core runtime commands and source identity use existing exchange session
+  paths. Actor/public-API tests cover lifecycle, cancellation, invalid candidate
+  preservation, independent startup, fresh state, admission and scoped failure.
+- Raw model parity and feature gates remain intact. Public OKX smoke evidence
+  covers one add/replace/remove/close sequence, not the full exchange matrix.
+- Remote-ready state, automatic listing reconciliation and consumer/ecosystem
+  alignment remain unfinished under the full objective.

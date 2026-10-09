@@ -341,3 +341,26 @@ feature boundaries.
 - Gate bootstrap now defers initial REST until its first requested depth delta
   is buffered. This prevents paced subscription queues from prefetching before
   a symbol begins streaming; full book pushes still establish state directly.
+
+## Usage alignment: managed runtime commands — 2026-10-10
+
+- Added retained RuntimeControl with bounded command queues, add/remove/replace,
+  registry queries and shutdown. Core commands validate/hydrate candidates
+  without stopping old generations; admitted replacement drains old tasks first.
+- Added process-local FeedId, per-attempt configuration generations and tagged
+  broadcast envelopes. SDK state resets on new generations; old queue entries
+  remain identifiable. Scoped lifecycle includes concrete-group degradation.
+- Controlled initial feeds start independently; legacy strict startup remains
+  the default. Connection admission reserves old/new capacity during transitions.
+- Offline tests cover lifecycle/cancellation, invalid/busy operations, state and
+  source identity, confirmed forced child cancellation and panic recovery.
+- Manual OKX BTC-to-ETH replacement observed one stable ID and two generations,
+  zero registered feeds after removal, and exit 0; see
+  `docs/reports/live-smoke-managed-2026-10-10.md`.
+- Readiness/status snapshots, periodic listing reconciliation and phases 4–5
+  remain incomplete. This is not completion of the overall alignment goal.
+- Final verification: 444 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation and
+  formatting passed. The deletion registry/ack ordering also has a multi-thread
+  regression. The overall goal remains active with readiness/discovery and
+  consumer/ecosystem requirements still unimplemented.

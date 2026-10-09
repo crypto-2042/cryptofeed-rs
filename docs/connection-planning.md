@@ -84,6 +84,10 @@ refresh and snapshot admission. Existing full-session doubles remain enabled.
 No new live load test or all-market throughput certification is claimed.
 
 Per-channel sets with different membership can still open extra sockets.
-Optimized packing, configurable policies, weighted REST budgets, per-feed
-readiness/generation status, runtime controls, and user-facing recovery APIs
+Optimized packing, configurable policies, weighted REST budgets, remote readiness/status snapshots and user-facing recovery APIs
 remain in the [usage alignment plan](python-usage-alignment.md).
+
+Managed updates now reserve per-handler capacity before committing candidates:
+same-exchange replacement reserves the larger old/new plan; provider changes
+reserve both until old tasks stop. Core runtime controls and configuration-
+generation event identity are described in [the control guide](runtime-control.md).

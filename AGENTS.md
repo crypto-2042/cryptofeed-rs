@@ -93,7 +93,10 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
 2. **Per-feed task fan-out** — `run_feeds_until_shutdown` spawns one task per
    concrete subscription group (one group for a legacy shared-symbol feed) with a shared `watch::channel` shutdown signal (Ctrl-C sets it).
    Terminal failure of one feed is recorded and reported without cancelling
-   healthy feeds.
+   healthy feeds. Opt-in managed control owns logical feed workers and retained
+   IDs/configuration generations; candidates hydrate before old tasks stop.
+   Started acknowledges launch, not remote-ready state. Default startup remains
+   strict; controlled initial startup isolates failures.
 3. **Per-exchange consumers** (`consume_*_feed`) — build connection plans
    (URL per product when an exchange splits by product, e.g. Binance
    Spot/USD-M/CoinM, Bybit spot/linear/inverse), then run each plan through
@@ -189,6 +192,7 @@ the HTTP catalog fetchers per exchange.
 - `MEMORY.md` — durable project constraints/lessons.
 - `docs/README.md` — public documentation index.
 - `docs/harness.md` — fixture formats and parity behavior.
+- `docs/runtime-control.md` — command results, cancellation and identity scope.
 - `docs/reports/` — dated, sanitized live-validation evidence.
 - `docs/ai-coding.md` — the AI-assisted workflow agreement.
 - `docs/exchange-protocol-baseline.md` — current official protocol facts.

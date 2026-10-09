@@ -31,3 +31,7 @@ pub mod runtime;
 pub use catalog::MarketCatalog;
 pub use exchange::*;
 pub use feed::{EventCounters, FeedHandler, FeedStatus};
+
+pub use crate::feed::control::{
+    FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedState, RuntimeControl,
+};

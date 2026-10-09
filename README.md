@@ -308,6 +308,27 @@ notifications still identify exchanges, not individual subscription groups.
 Low-level adapter callers must plan each `feed.connection_feeds()?` group;
 passing the logical union directly to an adapter does not compile the map.
 
+## Managed runtime updates
+
+Enable `handler.control_handle()` before starting the handler to retain a
+cloneable runtime controller. It supports `add_feed`, `replace_feed`,
+`remove_feed`, `feeds` and `shutdown`. `add_feed_with_id` exposes IDs for initial
+feeds; existing `add_feed` and the default strict startup remain compatible.
+Control mode starts initial logical feeds independently.
+
+`subscribe_identified()` emits `FeedEnvelope { identity, event }`. Replacement
+keeps the feed ID and advances its configuration generation; stale queued events
+remain identifiable. Candidate validation failure leaves the old feed running.
+A successful command acknowledges validated task launch, not remote readiness.
+
+See [managed runtime control](docs/runtime-control.md) for cancellation, command
+queues, graceful/forced removal, lifecycle states, event lag and remaining scope.
+Run the public add/replace/remove example with:
+
+```bash
+cargo run -p cryptofeed-rs --example managed_public
+```
+
 ## Symbol discovery and service shutdown
 
 Load a product-qualified catalog, then select explicit normalized symbols:
@@ -346,7 +367,8 @@ account for other clients sharing your IP.
 For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
 repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 `run_with_shutdown` uses your watch signal and installs no signal handler.
-Runtime add/remove/replace and remaining policy work are tracked in the
+Managed add/remove/replace is available through a retained control handle.
+Readiness, listing reconciliation and remaining policy work are tracked in the
 [Python usage alignment plan](docs/python-usage-alignment.md).
 
 ## Development

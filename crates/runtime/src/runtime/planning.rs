@@ -47,17 +47,21 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
     }
 }
 
+pub(crate) fn physical_connection_count(feed: &ExchangeFeed) -> Result<usize> {
+    Ok(match feed.exchange {
+        ExchangeId::Binance => BinanceAdapter::connection_plans(feed)?.len(),
+        ExchangeId::Bybit => BybitAdapter::subscription_urls(feed).len(),
+        ExchangeId::Okx => OkxAdapter::subscription_urls(feed).len(),
+        ExchangeId::Gateio => GateioAdapter::connection_plans(feed)?.len(),
+        ExchangeId::Bitget => 1,
+        _ => return Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
+    })
+}
+
 pub(crate) fn validate_connection_counts(feeds: &[ExchangeFeed]) -> Result<()> {
     let mut counts = std::collections::HashMap::new();
     for feed in feeds {
-        let connections = match feed.exchange {
-            ExchangeId::Binance => BinanceAdapter::connection_plans(feed)?.len(),
-            ExchangeId::Bybit => BybitAdapter::subscription_urls(feed).len(),
-            ExchangeId::Okx => OkxAdapter::subscription_urls(feed).len(),
-            ExchangeId::Gateio => GateioAdapter::connection_plans(feed)?.len(),
-            ExchangeId::Bitget => 1,
-            _ => return Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
-        };
+        let connections = physical_connection_count(feed)?;
         let count = counts.entry(feed.exchange).or_insert(0);
         *count += connections;
         if *count > super::budget::MAX_CONNECTIONS_PER_EXCHANGE {

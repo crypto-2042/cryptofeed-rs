@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in managed runtime control for add/remove/replace/list/shutdown, stable
+  logical feed IDs and configuration generations, identified event envelopes,
+  independent initial startup and scoped lifecycle/failure states. Invalid
+  candidates preserve old feeds; removals drain/cancel asynchronous children.
+- Subscription receivers can be created after initial feed registration.
+- Public `managed_public` example exercises OKX add/replace/remove and shutdown.
+
 - Native-topic/message-budget connection sharding, Bybit ten-arg spot request
   batches, paced session-owned subscription queues and process-local connection
   admission. Market reads/heartbeats/shutdown continue during queued sends.
