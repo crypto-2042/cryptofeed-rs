@@ -287,6 +287,15 @@ impl FeedHandler {
         self.feeds
     }
 
+    /// Runs without installing a Ctrl-C handler. Setting the watch value to
+    /// true or dropping every sender requests shutdown, including hydration.
+    pub async fn run_with_shutdown(
+        self,
+        shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> cryptofeed_core::error::Result<()> {
+        crate::runtime::run_with_shutdown(self, shutdown).await
+    }
+
     pub async fn run(self) -> cryptofeed_core::error::Result<()> {
         crate::runtime::run(self).await
     }

@@ -253,3 +253,19 @@ feature boundaries.
 - `(unreleased)` `fix: current bybit liquidation/option ticker contracts and liquidation side/unit normalization`
 - `(unreleased)` `fix: gateio fresh reconnect timestamps, rejected subscribe detection, and anchored id-less snapshots`
 - `(unreleased)` `ci: add all-target lint, single-feature, MSRV, package-content, and security gates`
+
+## Python usage alignment — 2026-10-09
+
+- Added a source-backed workflow gap inventory and phased improvement plan in
+  `docs/python-usage-alignment.md`, excluding exchange/product expansion.
+- Implemented product-qualified `MarketCatalog` discovery, sorted/deduplicated
+  explicit pattern selection (`*`/`?`), and bulk builder symbols/instruments.
+- Added `FeedHandler::run_with_shutdown` as a facade for the existing runtime
+  watch-signal shutdown; this is not a new dynamic subscription mechanism.
+- Force refresh, per-channel symbol maps, connection sizing, and runtime
+  add/remove/replace remain planned. Catalogs retain the 24-hour cache policy;
+  patterns do not automatically follow listings.
+- Verification: 390 workspace tests passed; strict all-target Clippy, rustdoc,
+  Rust 1.85, no-default catalog tests, all nine feature checks/tests, formatting,
+  README example compilation, and local documentation links passed. No new
+  live-service evidence or exchange wire changes are claimed.

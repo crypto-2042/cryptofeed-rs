@@ -421,6 +421,12 @@ pub struct SymbolRegistry {
 }
 
 impl SymbolRegistry {
+    pub(crate) fn into_symbols(self) -> Vec<Symbol> {
+        let mut symbols: Vec<_> = self.normalized_to_exchange.into_keys().collect();
+        symbols.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        symbols
+    }
+
     pub fn insert(&mut self, symbol: Symbol, exchange_symbol: &str) -> Result<()> {
         let exchange_symbol = exchange_symbol.to_ascii_uppercase();
         if exchange_symbol.is_empty() {
@@ -512,7 +518,7 @@ pub async fn resolve_feed_symbols(feed: &ExchangeFeed) -> Result<Vec<String>> {
         .collect()
 }
 
-async fn fetch_symbol_registry(
+pub(crate) async fn fetch_symbol_registry(
     exchange: ExchangeId,
     product: InstrumentKind,
 ) -> Result<SymbolRegistry> {

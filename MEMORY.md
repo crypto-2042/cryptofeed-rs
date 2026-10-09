@@ -235,3 +235,15 @@ Project-specific memory for `rust/cryptofeed-rs`.
   exhaust the shared IP budget, so do not add a polling fallback or guessed
   WS topic. Options OI WS is separate. Reopening requires an explicit
   user-approved plan; see `docs/binance-open-interest-decision.md`.
+
+## Python usage alignment
+
+- The sibling Python checkout does not provide general automatic glob expansion
+  in its feed constructor. Its catalog refresh and runtime `add_feed` are
+  distinct from in-place subscription updates and auto-following listings.
+- `runtime::run_with_shutdown` already existed; the FeedHandler facade now
+  exposes it. Do not claim service-controlled shutdown was previously absent.
+- Public `MarketCatalog` uses current catalog fetchers/cache. Selection is an
+  explicit, product-qualified startup snapshot; unmatched patterns fail, and
+  connection sharding and dynamic discovery remain planned in
+  `docs/python-usage-alignment.md`.

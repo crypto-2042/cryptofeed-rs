@@ -271,6 +271,42 @@ Notes:
   deferred (see [the protocol baseline](docs/exchange-protocol-baseline.md#l3-order-book-scope)).
 - Authenticated data and trading are out of scope.
 
+## Symbol discovery and service shutdown
+
+Load a product-qualified catalog, then select explicit normalized symbols:
+
+```rust
+use cryptofeed_rs::prelude::*;
+
+async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    let catalog = MarketCatalog::load(ExchangeId::Binance, InstrumentKind::Spot).await?;
+    let selected = catalog.select(&["BTC-*", "ETH-USDT"])?;
+    let feed = Binance::new().trade().instruments(selected).build();
+    let mut handler = FeedHandler::new();
+    handler.add_feed(feed);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let running = tokio::spawn(handler.run_with_shutdown(shutdown_rx));
+    // Keep shutdown_tx while the application runs; at service shutdown:
+    shutdown_tx.send(true)?;
+    running.await??;
+    Ok(())
+}
+```
+
+`MarketCatalog::symbols()` lists normalized instruments. `select` supports `*`
+and `?`, ignores ASCII case, sorts and deduplicates matches, and rejects empty
+input or any unmatched pattern. It uses the existing 24-hour catalog cache;
+there is no forced refresh or automatic listing discovery yet. Patterns are
+expanded explicitly before building a feed, not by `.symbol("*-USDT")`.
+Broad matches may exceed exchange subscription limits; automatic connection
+sharding is not implemented. Existing capability preflight still applies.
+
+For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
+repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
+`run_with_shutdown` uses your watch signal and installs no signal handler.
+Runtime add/remove/replace and per-channel symbol maps are planned in the
+[Python usage alignment plan](docs/python-usage-alignment.md).
+
 ## Development
 
 ```bash

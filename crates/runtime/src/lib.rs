@@ -19,6 +19,7 @@
     )
 )]
 
+pub mod catalog;
 pub mod exchange;
 pub mod feed;
 pub mod handler;
@@ -27,5 +28,6 @@ pub mod markets;
 pub mod prelude;
 pub mod runtime;
 
+pub use catalog::MarketCatalog;
 pub use exchange::*;
 pub use feed::{EventCounters, FeedHandler, FeedStatus};

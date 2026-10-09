@@ -15,6 +15,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Feature status](feature-status.html): Chinese visual support report; download
   and open the HTML locally to view it.
 
+- [Python usage alignment](python-usage-alignment.md): source-backed gap inventory,
+  implementation phases, and supported discovery/lifecycle conveniences.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are

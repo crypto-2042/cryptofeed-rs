@@ -1,8 +1,13 @@
+pub use crate::catalog::MarketCatalog;
 pub use crate::exchange::{
     ExchangeFeed, ExchangeFeedBuilder, binance::Binance, bitget::Bitget, bybit::Bybit,
     coinbase::Coinbase, gateio::Gateio, kraken::Kraken, okx::Okx,
 };
 pub use crate::feed::{EventCounters, FeedEvent, FeedHandler, FeedStatus};
+pub use cryptofeed_core::{
+    exchange::{Channel, ExchangeId},
+    symbol::{InstrumentKind, Symbol},
+};
 
 #[cfg(feature = "candles")]
 pub use cryptofeed_candles::{Candle, CandleHandler};

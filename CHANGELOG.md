@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Product-qualified `MarketCatalog` discovery and explicit normalized-symbol
+  pattern selection (`*`/`?`), bulk `.symbols` / `.instruments` builders, and
+  a `FeedHandler::run_with_shutdown` facade for service-owned shutdown.
+- Source-backed Python usage gap inventory and a phased improvement plan.
+
 - Bitget v3 spot/contract L1 and derivative ticker Funding/OpenInterest/Index/
   MarkPrice; Gate.io public perpetual liquidations; OKX contract index mapping
   and shared-index fan-out. Sourced fixtures, per-feature regressions, and a

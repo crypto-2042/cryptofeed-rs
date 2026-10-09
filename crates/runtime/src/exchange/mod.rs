@@ -494,6 +494,26 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends normalized symbol names, just like repeated `symbol` calls.
+    pub fn symbols<I, S>(mut self, symbols: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.symbols.extend(
+            symbols
+                .into_iter()
+                .map(|symbol| Symbol::from_input(symbol.as_ref())),
+        );
+        self
+    }
+
+    /// Appends typed instruments, preserving product identity from a catalog.
+    pub fn instruments(mut self, symbols: impl IntoIterator<Item = Symbol>) -> Self {
+        self.symbols.extend(symbols);
+        self
+    }
+
     pub fn instrument(mut self, symbol: Symbol) -> Self {
         self.symbols.push(symbol);
         self

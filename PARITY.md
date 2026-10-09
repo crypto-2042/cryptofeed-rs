@@ -31,6 +31,15 @@ exchange documentation and sourced fixtures define protocol correctness.
 - [x] Back normalization assertions with sanitized, sourced official protocol
   references.
 
+## Usage alignment
+
+Phase 1 exposes product-qualified catalog discovery, explicit `*`/`?` selection,
+bulk symbol configuration, and the existing watch-signal shutdown via
+`FeedHandler`. Deterministic catalog tests cover ordering, overlaps, unmatched
+patterns, unsupported products, and typed configuration. Exchange/channel
+capabilities are unchanged. Remaining workflow gaps and acceptance criteria are
+tracked in [the usage alignment plan](docs/python-usage-alignment.md).
+
 ## Capability Matrix
 
 | Exchange | Products | Ticker | Trades | L2 | L1 | 1m candles | Funding | Liquidations | Open interest | Index | Mark price |
