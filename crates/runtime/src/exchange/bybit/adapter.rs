@@ -188,6 +188,31 @@ impl BybitAdapter {
         }
     }
 
+    /// Spot accepts at most ten args per subscription request. The connection
+    /// character budget is enforced separately by connection feed planning.
+    pub fn subscription_messages(feed: &ExchangeFeed) -> Result<Vec<String>> {
+        let mut payload: Value = serde_json::from_str(&Self::subscription_message(feed))
+            .map_err(|error| Error::Parse(error.to_string()))?;
+        let args = payload["args"]
+            .as_array()
+            .ok_or_else(|| {
+                Error::InvalidConfiguration("Bybit subscription args must be an array".to_owned())
+            })?
+            .clone();
+        let size = if feed.product_kind()? == InstrumentKind::Spot {
+            10
+        } else {
+            args.len().max(1)
+        };
+        Ok(args
+            .chunks(size)
+            .map(|chunk| {
+                payload["args"] = Value::Array(chunk.to_vec());
+                payload.to_string()
+            })
+            .collect())
+    }
+
     pub fn subscription_message(feed: &ExchangeFeed) -> String {
         let symbols: Vec<String> = if feed.exchange_symbols.is_empty() {
             feed.symbols

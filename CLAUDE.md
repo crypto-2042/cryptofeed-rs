@@ -88,6 +88,8 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
    existence checks. Per-channel subscriptions resolve their normalized union
    once, then compile channels with identical symbol sets into concrete feeds;
    explicit native mapping ambiguity is validated before this partition.
+   Native subscription budgets then split the concrete groups into bounded
+   connection feeds.
 2. **Per-feed task fan-out** — `run_feeds_until_shutdown` spawns one task per
    concrete subscription group (one group for a legacy shared-symbol feed) with a shared `watch::channel` shutdown signal (Ctrl-C sets it).
    Terminal failure of one feed is recorded and reported without cancelling
@@ -100,7 +102,9 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
 4. **Sessions** — `connection::WsConnection`/`Session`
    (`crates/runtime/src/runtime/connection.rs`) owns heartbeat (per-exchange
    `HeartbeatPolicy` — payloads, intervals, idle timeouts), idle detection,
-   ping/pong handling, and clean-close on shutdown. Normal remote close is
+   ping/pong handling, paced subscription queues, and clean-close on shutdown.
+   Connection slots and handshake-start pacing are process-local; snapshot
+   request admission shares a cancellable budget across Binance/Gate feeds. Normal remote close is
    reconnectable; explicit shutdown is clean.
 5. **Message processing** — each `process_*_text_message` classifies control
    frames (subscribe acks, errors, pongs), routes orderbook messages to book
@@ -139,7 +143,8 @@ the HTTP catalog fetchers per exchange.
 - Per-channel subscription mode and shared channels/symbols are exclusive.
   The runtime compiles `connection_feeds` before adapter/session planning;
   direct low-level adapter callers must do the same. Different symbol sets
-  can use extra connections; capacity-based sharding is separate work.
+  can use extra connections. Concrete groups are also sharded by native topic
+  budgets; preserve per-request batching versus per-connection limits.
 - Only capability-matrix combinations may open a connection — absent
   combinations must fail explicitly, never silently subscribe to nothing.
 - Explicit normalized parsing over opaque dynamic conversion; batch messages

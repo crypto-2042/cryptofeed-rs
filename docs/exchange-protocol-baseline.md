@@ -539,3 +539,13 @@ liquidations, funding, or a one-minute candle during a short window. A live
 failure is actionable when the exchange returns a protocol error, the parser
 rejects a documented message, the connection uses a wrong endpoint, or an
 active high-frequency channel remains silent while raw traffic is present.
+
+## Connection/resource verification — 2026-10-10
+
+Current official connection documents were rechecked for native-stream counts,
+Bybit's distinct per-request/per-connection args limits, Bitget recommendations,
+and OKX subscription length. [The connection guide](connection-planning.md)
+records the exact sources and separates service limits from SDK conservative
+policies; no undocumented Gate limit is invented. Current wire shapes remain
+unchanged; Bybit spot can send multiple ten-arg subscribe frames and Gate queued
+requests refresh their time at send. Topic aliases are counted after deduplication.

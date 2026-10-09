@@ -300,8 +300,10 @@ entries correspond to the first-seen deduplicated union in `feed.symbols`.
 
 The runtime resolves this union once, then groups channels with identical
 symbol sets before handing concrete feeds to existing adapters. Different sets
-may open additional connections; capacity-based sharding and optimized packing
-remain pending. `feed_count()` counts logical feeds before startup; status
+may open additional connections. Groups are automatically sharded by native
+subscription budgets; optimized packing of unequal sets remains pending.
+[Connection planning and budgets](docs/connection-planning.md) documents limits,
+queued sends, process-local connection admission and REST snapshot pacing. `feed_count()` counts logical feeds before startup; status
 notifications still identify exchanges, not individual subscription groups.
 Low-level adapter callers must plan each `feed.connection_feeds()?` group;
 passing the logical union directly to an adapter does not compile the map.
@@ -336,13 +338,15 @@ including paginated catalogs. Concurrent requests for the same URL share
 in-flight work. Refresh does not change existing catalog snapshots or running
 subscriptions, and automatic listing discovery is not implemented. Patterns
 are expanded explicitly before building a feed, not by `.symbol("*-USDT")`.
-Broad matches may exceed exchange subscription limits; automatic connection
-sharding is not implemented. Existing capability preflight still applies.
+Broad matches are split by native subscription budgets; configurations exceeding
+100 planned physical connections per exchange are rejected before WS startup.
+Existing capability preflight still applies. These process-local limits do not
+account for other clients sharing your IP.
 
 For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
 repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 `run_with_shutdown` uses your watch signal and installs no signal handler.
-Runtime add/remove/replace and connection sizing remain planned in the
+Runtime add/remove/replace and remaining policy work are tracked in the
 [Python usage alignment plan](docs/python-usage-alignment.md).
 
 ## Development

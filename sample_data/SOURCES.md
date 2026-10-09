@@ -85,3 +85,18 @@ Additional pre-push regressions cover:
   alongside a valid live BTC-USDT row. Its timestamp is substituted. The
   corresponding markets unit test verifies non-live filtering and rejects an
   additional synthetic malformed-live row rather than guessing its identity.
+
+## 2026-10-10 subscription batching
+
+The appended two Bybit spot subscribe frames are synthetic request references
+from [the current connection guide](https://bybit-exchange.github.io/docs/v5/ws/connect):
+ten args in the first request, one in the second. S0..S10 are substituted native
+names, not listed-instrument or live-connect claims. The public parity test
+asserts both request sizes and the complete ordered topic union. Connection
+capacity sources and conservative SDK budgets are recorded in
+[the planning guide](../docs/connection-planning.md).
+
+The appended two Gate spot depth references use the official v4 delta shape
+with substituted IDs/prices/timestamps. The runtime regression buffers IDs
+101 and 102, starts one deferred REST job after the first, and preserves both.
+It does not claim a newly recorded live bootstrap failure or relax bridging.

@@ -128,12 +128,17 @@ impl HeartbeatPolicy {
 pub struct WsConnection {
     pub url: Url,
     heartbeat: HeartbeatPolicy,
+    exchange: ExchangeId,
 }
 
 impl WsConnection {
     pub fn new(url: Url, exchange: ExchangeId) -> Self {
         let heartbeat = HeartbeatPolicy::for_exchange(exchange, &url);
-        Self { url, heartbeat }
+        Self {
+            url,
+            heartbeat,
+            exchange,
+        }
     }
 
     /// WebSocket handshake timeout: a blackholed endpoint must fail the
@@ -143,6 +148,7 @@ impl WsConnection {
     const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
     pub async fn connect(&self) -> Result<Session<WebSocketStream<MaybeTlsStream<TcpStream>>>> {
+        let slot = super::budget::acquire(self.exchange).await?;
         let config = WebSocketConfig {
             max_write_buffer_size: 1024 * 1024,
             max_message_size: Some(Self::MAX_MESSAGE_BYTES),
@@ -156,7 +162,9 @@ impl WsConnection {
         .await
         .map_err(|_| Error::Transport(format!("websocket connect timed out: {}", self.url)))?
         .map_err(|error| Error::Transport(error.to_string()))?;
-        Ok(Session::new(stream, self.heartbeat))
+        let mut session = Session::new(stream, self.heartbeat);
+        session._connection_slot = Some(slot);
+        Ok(session)
     }
 }
 
@@ -165,9 +173,18 @@ pub struct Session<S> {
     heartbeat: HeartbeatPolicy,
     last_received: Instant,
     next_heartbeat: Option<Instant>,
+    pending_subscriptions: std::collections::VecDeque<String>,
+    _connection_slot: Option<tokio::sync::OwnedSemaphorePermit>,
+    next_subscription: Instant,
 }
 
 impl<S> Session<S> {
+    /// Queues paced subscriptions without blocking market reads or heartbeat.
+    /// The caller must bound the batch using the connection planner first.
+    pub fn queue_subscriptions(&mut self, messages: impl IntoIterator<Item = String>) {
+        self.pending_subscriptions.extend(messages);
+    }
+
     pub fn new(stream: S, heartbeat: HeartbeatPolicy) -> Self {
         let now = Instant::now();
         let next_heartbeat = heartbeat
@@ -179,6 +196,9 @@ impl<S> Session<S> {
             heartbeat,
             last_received: now,
             next_heartbeat,
+            pending_subscriptions: std::collections::VecDeque::new(),
+            _connection_slot: None,
+            next_subscription: now,
         }
     }
 }
@@ -243,6 +263,18 @@ where
                     }
                     self.next_heartbeat = Some(Instant::now() + self.heartbeat.interval);
                 }
+                _ = tokio::time::sleep_until(self.next_subscription), if !self.pending_subscriptions.is_empty() => {
+                    let mut message = self.pending_subscriptions.pop_front().expect("pending subscription");
+                    if matches!(self.heartbeat.kind, HeartbeatKind::Gate(_)) {
+                        let mut payload: serde_json::Value = serde_json::from_str(&message)
+                            .map_err(|error| Error::Parse(error.to_string()))?;
+                        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |duration| duration.as_secs());
+                        payload["time"] = serde_json::json!(now);
+                        message = payload.to_string();
+                    }
+                    self.send_text(&message).await?;
+                    self.next_subscription = Instant::now() + Duration::from_millis(250);
+                }
                 message = self.stream.next() => {
                     match message {
                         Some(Ok(Message::Text(text))) => {
@@ -297,6 +329,118 @@ mod tests {
         let client = WebSocketStream::from_raw_socket(client, Role::Client, None);
         let server = WebSocketStream::from_raw_socket(server, Role::Server, None);
         tokio::join!(client, server)
+    }
+
+    #[tokio::test]
+    async fn subscription_queue_is_paced_and_market_reads_continue() {
+        let (client, mut server) = websocket_pair().await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(None, Duration::from_secs(30), Duration::from_secs(5)),
+        );
+        session.queue_subscriptions(["first".to_owned(), "second".to_owned()]);
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            assert_eq!(
+                session
+                    .next_text_or_shutdown(&mut shutdown_rx)
+                    .await
+                    .unwrap(),
+                Some("market data".to_owned())
+            );
+            seen_tx.send(()).unwrap();
+            assert!(
+                session
+                    .next_text_or_shutdown(&mut shutdown_rx)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        });
+        assert!(
+            matches!(server.next().await.unwrap().unwrap(), Message::Text(text) if text == "first")
+        );
+        let first_at = tokio::time::Instant::now();
+        server
+            .send(Message::Text("market data".into()))
+            .await
+            .unwrap();
+        seen_rx.await.unwrap();
+        assert!(
+            matches!(server.next().await.unwrap().unwrap(), Message::Text(text) if text == "second")
+        );
+        assert!(first_at.elapsed() >= Duration::from_millis(200));
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn queued_subscriptions_do_not_delay_heartbeat() {
+        let (client, mut server) = websocket_pair().await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(
+                Some("ping"),
+                Duration::from_millis(10),
+                Duration::from_secs(5),
+            ),
+        );
+        session.queue_subscriptions(["later subscription".to_owned()]);
+        session.next_subscription = tokio::time::Instant::now() + Duration::from_secs(60);
+        let (_tx, mut rx) = watch::channel(false);
+        let task = tokio::spawn(async move { session.next_text_or_shutdown(&mut rx).await });
+        assert!(
+            matches!(server.next().await.unwrap().unwrap(), Message::Text(text) if text == "ping")
+        );
+        server.send(Message::Text("market".into())).await.unwrap();
+        assert_eq!(task.await.unwrap().unwrap(), Some("market".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn shutdown_discards_queued_subscriptions_before_sending() {
+        let (client, mut server) = websocket_pair().await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(None, Duration::from_secs(30), Duration::from_secs(5)),
+        );
+        session.queue_subscriptions(["subscribe".to_owned()]);
+        let (_tx, mut rx) = watch::channel(true);
+        assert!(
+            session
+                .next_text_or_shutdown(&mut rx)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(
+            server.next().await.unwrap().unwrap(),
+            Message::Close(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn queued_gate_subscription_regenerates_timestamp_when_sent() {
+        let (client, mut server) = websocket_pair().await;
+        let url = Url::parse("wss://api.gateio.ws/ws/v4/").unwrap();
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_exchange(ExchangeId::Gateio, &url),
+        );
+        session.queue_subscriptions([
+            r#"{"time":0,"channel":"spot.trades","event":"subscribe","payload":["BTC_USDT"]}"#
+                .to_owned(),
+        ]);
+        let (tx, mut rx) = watch::channel(false);
+        let task = tokio::spawn(async move { session.next_text_or_shutdown(&mut rx).await });
+        let Message::Text(text) = server.next().await.unwrap().unwrap() else {
+            panic!("subscription expected");
+        };
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(value["time"].as_u64().unwrap() > 0);
+        assert_eq!(value["payload"], serde_json::json!(["BTC_USDT"]));
+        tx.send(true).unwrap();
+        assert!(task.await.unwrap().unwrap().is_none());
     }
 
     #[test]

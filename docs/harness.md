@@ -262,3 +262,15 @@ callback/broadcast/counter/book-state filtering after hydration. The
 `feature_boundaries` target verifies mapped channel preflight under each feature.
 These tests reuse current adapter protocol paths; grouping is not a new wire
 format or a promise of optimal connection packing.
+
+## Connection and request budgets
+
+Runtime planning tests verify generated topic/byte boundaries and aligned
+symbol/native partitions, including aliases that share a topic. The Bybit
+public parity assertion and its sanitized send reference verify ten-arg spot
+request batching. Session doubles exercise paced queues while market reads and
+shutdown continue. Snapshot/connection admission tests use local futures to
+verify capacity, start spacing, failure and cancellation; they do not simulate
+external IP traffic or certify live throughput. See
+[the budget guide](connection-planning.md) for the official sources and SDK
+policy distinctions.

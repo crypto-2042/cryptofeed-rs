@@ -283,3 +283,20 @@ Project-specific memory for `rust/cryptofeed-rs`.
   `connection_feeds` before adapter planning; FeedHandler does so automatically.
 - This does not implement capacity sharding or connection minimization; group
   status still has exchange-only identity until the lifecycle phase.
+
+## Connection and snapshot budgets
+
+- Connection feed compilation now also shards concrete sets using adapter-
+  generated native topics/messages. Deduplicated shared price topics count once.
+- Bybit spot's ten-arg constraint is per request, not per connection. Its
+  connection character budget is separate; do not replace one with the other.
+- Session-owned subscription queues retain reads and heartbeat during pacing.
+  Gate time is generated at actual send, not once for an entire long queue.
+- Handshake and snapshot budgets are process-local SDK policies, not a promise
+  to account for other clients' IP usage. Keep official limits distinct from
+  SDK ceilings and recommendations in `docs/connection-planning.md`.
+- Snapshot limits do not relax sequence bridges. Cancellation must release
+  queued/active slots; HTTP timeout begins after snapshot admission.
+- With paced Gate subscription queues, initial REST bootstrap must wait until
+  that symbol's first depth delta is buffered. Do not prefetch all Gate books
+  at connection start; full pushes need no REST bootstrap.

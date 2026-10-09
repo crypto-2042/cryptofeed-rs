@@ -144,12 +144,13 @@ impl ExchangeFeed {
 
     /// Compiles per-channel subscriptions into concrete feeds for adapter
     /// planning. Channels with identical symbol sets share a group. Different
-    /// sets may use separate connections; this is not capacity-based sharding.
+    /// sets may use separate connections. Groups are then split by native
+    /// subscription budgets, retaining normalized/native symbol alignment.
     /// Explicit native names map to the first-seen union in `self.symbols`.
     pub fn connection_feeds(&self) -> Result<Vec<Self>> {
         self.validate_subscription_configuration()?;
         if self.channel_subscriptions.is_empty() {
-            return Ok(vec![self.clone()]);
+            return crate::runtime::planning::shard(self);
         }
         self.product_kind()?;
         if !self.exchange_symbols.is_empty() {
@@ -179,7 +180,11 @@ impl ExchangeFeed {
             group.subscription_mode_conflict = false;
             groups.push(group);
         }
-        Ok(groups)
+        let mut planned = Vec::new();
+        for group in groups {
+            planned.extend(crate::runtime::planning::shard(&group)?);
+        }
+        Ok(planned)
     }
 
     /// Publishes a normalized event to the `FeedHandler` event stream (when

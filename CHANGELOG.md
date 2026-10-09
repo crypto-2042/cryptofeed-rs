@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Native-topic/message-budget connection sharding, Bybit ten-arg spot request
+  batches, paced session-owned subscription queues and process-local connection
+  admission. Market reads/heartbeats/shutdown continue during queued sends.
+- Shared, cancellable Binance/Gate snapshot HTTP admission with four concurrent
+  requests and paced starts; clients are reused and existing sequence rules stay
+  intact. Official limits and SDK conservative policies are documented separately.
+
 - Per-channel symbol configuration via `.subscription` and
   `.subscription_instruments`. Identical symbol sets share a concrete feed
   group; runtime hydration preserves global native mapping checks and dispatch

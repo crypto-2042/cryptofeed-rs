@@ -314,3 +314,13 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   mode/empty-set/product validation, feature boundaries and exact dispatch to
   callbacks, broadcast counters and L2 state.
 - No exchange/channel capability expansion or new live-service evidence.
+
+## Connection/resource alignment — 2026-10-10
+
+- Native subscription budgets split concrete feeds after grouping and preserve
+  aligned mappings. Offline tests cover exact limits, overflow, topic aliases,
+  oversized instruments and aggregate connection counts.
+- Bybit spot request batching has inline parity plus sanitized send references.
+  Session doubles verify paced subscriptions coexist with reads, shutdown and
+  fresh Gate timestamps. Snapshot admission tests cover pacing/concurrency and
+  cancelled active/waiting work. No new live service/load claim is made.

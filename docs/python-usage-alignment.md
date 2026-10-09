@@ -2,7 +2,8 @@
 
 Status: active improvement plan, updated 2026-10-10 against the sibling Python
 checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing and per-channel subscriptions
-are implemented; connection sizing and phases 3–5 remain planned. Exchange count and instrument-type coverage are
+are implemented; conservative connection sizing and paced sends are now implemented.
+Phases 3–5 and the remaining design work below remain planned. Exchange count and instrument-type coverage are
 excluded. Authenticated feeds and trading remain outside the 0.1 scope.
 
 ## Goal and compatibility
@@ -24,7 +25,7 @@ local checkout, not claims about every upstream version.
 | Pattern selection | `feed.py` resolves each supplied name by exact mapping; no general glob expansion found | Phase 1 adds explicit catalog `select` with `*` and `?` as a convenience extension, not Python parity. |
 | Batch configuration | `feed.py`: `symbols` plus `channels` | Multi-symbol feeds already work; phase 1 adds bulk `.symbols` and typed `.instruments`. |
 | Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Implemented `.subscription` / `.subscription_instruments`; equal symbol sets share a concrete group. Distinct sets may use more connections until packing is optimized. |
-| Connection sizing | `feed.py`: `connect` / `limit_sub`, endpoint-specific limits | Product/endpoint splitting exists, but generic subscription-limit sharding and paced subscribe batches do not. Phase 2. |
+| Connection sizing | `feed.py`: `connect` / `limit_sub`, endpoint-specific limits | Implemented native-topic/message budget sharding, per-request Bybit batches, paced sends, connection budgets and snapshot admission. Optimal packing and configurable/weighted policies remain pending. |
 | Embedding and shutdown | `feedhandler.py`: `run(start_loop=False, install_signal_handlers=False)`, `stop_async` | Existing `runtime::run_with_shutdown` supports a caller-owned watch signal. Phase 1 adds a `FeedHandler` facade; it installs no Ctrl-C handler. |
 | Runtime additions | `feedhandler.py`: `add_feed` starts a new feed when running; `examples/demo_loop.py` | Rust consumes a fixed feed list at startup. Phase 3 adds a runtime control handle. |
 | Updating an existing subscription | No general public update/unsubscribe API found in the inspected Python core | Rust also has none. Phase 3 offers controlled feed replacement; in-place exchange WS updates are a separate optimization. |
@@ -75,7 +76,7 @@ No exchange wire parser or endpoint changes are part of this phase.
    cached response. Cancellation releases the request gate and later calls can
    retry. This is per-response caching, not an atomic transaction across all
    pages or full parsed instrument validation; existing snapshots/subscriptions
-   are unchanged. Snapshot request concurrency limits remain pending.
+   are unchanged. Snapshot requests now share a separately paced four-slot budget.
 2. **Implemented: per-channel symbol sets.**
    `.subscription(channel, names)` / `.subscription_instruments(channel, symbols)`
    are mutually exclusive with shared channel/symbol shortcuts. Repeated channel
@@ -89,19 +90,25 @@ No exchange wire parser or endpoint changes are part of this phase.
    additional connections, and existing status reports identify only exchanges.
    Low-level adapter users must call `connection_feeds` and plan each group;
    this compilation is automatic through FeedHandler.
-3. Add exchange-specific connection/subscription sizing from current official
-   documentation. Count native topics after shared-stream deduplication; enforce
-   connection limits and paced subscription batches. Large patterns must not
-   blindly create an oversized socket or an unbounded REST bootstrap burst.
+3. **Implemented: conservative connection sizing and paced admission.**
+   Concrete groups split by actual native topic/message budgets after adapter
+   deduplication. Bybit spot args batch at ten per request; a session-owned queue
+   paces sends while retaining reads/heartbeats/shutdown. Process-local connection
+   slots/start pacing and shared snapshot concurrency/start pacing bound bursts.
+   [Connection planning](connection-planning.md) separates official limits from
+   SDK choices and records cancellation and scope. Optimal packing of unequal
+   channel sets, configurable budgets and distributed/weighted quotas remain
+   separate improvements, not implied guarantees.
 
 Completed subscription tests cover five-exchange concrete planning, native
 mapping preservation/ambiguity, mode conflicts, typed symbols, and exact
 handler/broadcast/counter/book filtering after runtime hydration. Feature
 preflight is tested in every isolated build. No exchange wire shape changed.
 
-Remaining acceptance: offline doubles verify connection sizing,
-unsupported pairs, topic deduplication, exact limit boundaries, and refresh
-failures. Each exchange protocol change requires sourced fixtures and official
+Connection/resource tests cover exact/overflow boundaries, topic deduplication,
+Bybit request batches, native-name preservation, cancellation and live socket
+reads during queued sends. Full-session doubles still cover all five exchanges.
+Future policy changes must retain these checks and refresh-failure regressions. Each exchange protocol change requires sourced fixtures and official
 verification; limits must not be inferred from old Python constants.
 
 ## Phase 3 — runtime control and symbol updates

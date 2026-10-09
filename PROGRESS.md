@@ -319,3 +319,25 @@ feature boundaries.
 - Verification: 407 workspace tests, strict all-target Clippy, rustdoc,
   Rust 1.85, all nine feature checks/tests, no-default test compilation,
   formatting and local documentation links passed.
+
+## Usage alignment: connection and snapshot resource planning — 2026-10-10
+
+- Added native subscription-budget sharding after symbol-set grouping, retaining
+  explicit native mappings and counting shared topics only once. Oversized
+  singleton subscriptions and over-budget connection plans fail explicitly.
+- Bybit spot subscribe frames batch at ten args; session queues pace control
+  sends while keeping reads/heartbeats/shutdown active. Gate timestamps refresh
+  at send. Current public APIs remain unchanged except the new batch helper.
+- Handshake slots and start pacing are process-local; Binance/Gate snapshots
+  share a reused HTTP client with four concurrent admissions and paced starts.
+- Official limits, SDK choices and remaining weighted/global-IP/optimal-packing
+  boundaries are recorded in `docs/connection-planning.md`. No new live load
+  verification or exchange/channel capability expansion is claimed.
+- Runtime controls, readiness/generation identity, consumer recovery and
+  ecosystem features remain incomplete under the full alignment objective.
+- Verification: 428 workspace tests, strict all-target Clippy, rustdoc, Rust 1.85,
+  all nine feature checks/tests, no-default test compilation, formatting and
+  local documentation links passed. Whole alignment remains in progress.
+- Gate bootstrap now defers initial REST until its first requested depth delta
+  is buffered. This prevents paced subscription queues from prefetching before
+  a symbol begins streaming; full book pushes still establish state directly.

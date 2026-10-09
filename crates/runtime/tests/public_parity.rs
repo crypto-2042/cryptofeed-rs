@@ -2395,3 +2395,36 @@ fn okx_uses_current_tls_endpoints_for_public_and_business_channels() {
         ]
     );
 }
+
+#[test]
+fn bybit_spot_subscription_batches_respect_per_request_arg_limit() {
+    use cryptofeed_rs::{
+        bybit::{Bybit, adapter::BybitAdapter},
+        exchange::ExchangeFeedBuilder,
+    };
+    let mut builder: ExchangeFeedBuilder = Bybit::new().trade();
+    for i in 0..11 {
+        builder = builder.symbol(&format!("S{i}-USDT"));
+    }
+    let messages = BybitAdapter::subscription_messages(&builder.build()).unwrap();
+    let args: Vec<Vec<String>> = messages
+        .iter()
+        .map(|message| {
+            let payload: serde_json::Value = serde_json::from_str(message).unwrap();
+            assert_eq!(payload["op"], "subscribe");
+            payload["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap().to_owned())
+                .collect()
+        })
+        .collect();
+    assert_eq!(args.iter().map(Vec::len).collect::<Vec<_>>(), [10, 1]);
+    assert_eq!(
+        args.into_iter().flatten().collect::<Vec<_>>(),
+        (0..11)
+            .map(|i| format!("publicTrade.S{i}USDT"))
+            .collect::<Vec<_>>()
+    );
+}

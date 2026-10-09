@@ -1,4 +1,8 @@
+mod budget;
 pub mod connection;
+pub(crate) mod planning;
+#[cfg(feature = "orderbook")]
+mod snapshot;
 pub mod supervisor;
 
 #[cfg(all(feature = "orderbook", test))]
@@ -149,6 +153,7 @@ async fn hydrate_feed_symbols(feeds: Vec<ExchangeFeed>) -> Result<Vec<ExchangeFe
     for feed in hydrated {
         result.extend(feed?);
     }
+    planning::validate_connection_counts(&result)?;
     Ok(result)
 }
 
@@ -581,8 +586,7 @@ where
     S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
     E: Display,
 {
-    let subscribe = BitgetAdapter::subscription_message(&feed);
-    session.send_text(&subscribe).await?;
+    session.queue_subscriptions([BitgetAdapter::subscription_message(&feed)]);
 
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
         process_bitget_text_message(&feed, &text, current_timestamp()).await?;
@@ -611,8 +615,7 @@ where
     S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
     E: Display,
 {
-    let subscribe = BybitAdapter::subscription_message(&feed);
-    session.send_text(&subscribe).await?;
+    session.queue_subscriptions(BybitAdapter::subscription_messages(&feed)?);
 
     // Ticker deltas carry only changed fields. State is per connection, so a
     // reconnect cannot reuse values from a previous session.
@@ -648,8 +651,7 @@ where
     S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
     E: Display,
 {
-    let subscribe = OkxAdapter::subscription_message(&feed);
-    session.send_text(&subscribe).await?;
+    session.queue_subscriptions([OkxAdapter::subscription_message(&feed)]);
 
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
         process_okx_text_message(&feed, &text, current_timestamp()).await?;
@@ -667,7 +669,7 @@ async fn consume_gateio_session(
     let connection = connection::WsConnection::new(url, feed.exchange);
     let mut session = connection.connect().await?;
     #[cfg(feature = "orderbook")]
-    let snapshot_receivers = spawn_gateio_snapshot_fetches_for_plan(&plan)?;
+    let snapshot_receivers = std::collections::HashMap::new();
     #[cfg(feature = "orderbook")]
     let pending_deltas: std::collections::HashMap<String, Vec<GateioDepthDelta>> =
         std::collections::HashMap::new();
@@ -699,9 +701,7 @@ where
     S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
     E: Display,
 {
-    for subscribe in &plan.subscription_messages {
-        session.send_text(subscribe).await?;
-    }
+    session.queue_subscriptions(plan.subscription_messages.clone());
 
     #[cfg(feature = "orderbook")]
     let mut resnapshot_attempts = std::collections::HashMap::new();
@@ -1173,16 +1173,7 @@ async fn fetch_binance_l2_snapshot(
     // Partial-depth streams must be bootstrapped from a snapshot of the same
     // width; the full-depth default uses the 1000-level snapshot.
     let url = BinanceAdapter::snapshot_url(&instrument, limit);
-    let client = reqwest::Client::builder()
-        .timeout(SNAPSHOT_HTTP_TIMEOUT)
-        .build()
-        .map_err(|e| Error::Transport(e.to_string()))?;
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| Error::Transport(e.to_string()))?;
-    let payload = read_bounded_snapshot_json(response, &url).await?;
+    let payload = snapshot::fetch_json(&url).await?;
     binance_parser::parse_l2_book_snapshot_for_instrument(
         &payload,
         &instrument,
@@ -1503,32 +1494,6 @@ fn schedule_binance_resync(
 }
 
 #[cfg(feature = "orderbook")]
-fn spawn_gateio_snapshot_fetches_for_plan(
-    plan: &GateioConnectionPlan,
-) -> Result<GateioSnapshotReceivers> {
-    if plan.snapshot_urls.is_empty() {
-        return Ok(std::collections::HashMap::new());
-    }
-    if plan.instruments.len() != plan.snapshot_urls.len() {
-        return Err(Error::InvalidConfiguration(
-            "gateio instruments and snapshot URL counts differ".to_owned(),
-        ));
-    }
-    Ok(plan
-        .instruments
-        .iter()
-        .cloned()
-        .zip(plan.snapshot_urls.iter().cloned())
-        .map(|(instrument, url)| {
-            (
-                instrument.symbol.as_str().to_owned(),
-                spawn_gateio_snapshot_fetch_for_instrument(instrument, url),
-            )
-        })
-        .collect())
-}
-
-#[cfg(feature = "orderbook")]
 fn spawn_gateio_snapshot_fetch_for_instrument(
     instrument: GateioInstrument,
     snapshot_url: String,
@@ -1551,16 +1516,7 @@ async fn fetch_gateio_l2_snapshot_for_instrument(
     instrument: GateioInstrument,
     snapshot_url: String,
 ) -> Result<crate::exchange::gateio::book_sync::GateioBookSnapshot> {
-    let client = reqwest::Client::builder()
-        .timeout(SNAPSHOT_HTTP_TIMEOUT)
-        .build()
-        .map_err(|error| Error::Transport(error.to_string()))?;
-    let response = client
-        .get(&snapshot_url)
-        .send()
-        .await
-        .map_err(|error| Error::Transport(error.to_string()))?;
-    let payload = read_bounded_snapshot_json(response, &snapshot_url).await?;
+    let payload = snapshot::fetch_json(&snapshot_url).await?;
     gateio_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, current_timestamp())
         .ok_or_else(|| Error::Parse("failed to parse gateio l2 snapshot".to_owned()))
 }
@@ -1809,6 +1765,9 @@ async fn process_gateio_orderbook_message_for_plan(
     }
     let instrument = GateioAdapter::instrument_for_message(&message, &plan.instruments)
         .ok_or_else(|| Error::Parse("gateio message instrument is not in the plan".to_owned()))?;
+    if !subscribed_to(feed, Channel::L2Book, &instrument.symbol) {
+        return Ok(true);
+    }
     let parsed =
         gateio_parser::parse_l2_book_update_for_instrument(&message, received_ts, instrument)
             .ok_or_else(|| Error::Parse("failed to parse gateio depth update".to_owned()))?;
@@ -1851,8 +1810,20 @@ async fn process_gateio_orderbook_message_for_plan(
             }
             Err(error) => return Err(error),
         }
-    } else {
+    } else if receivers.contains_key(&symbol_key) {
         buffer_gateio_delta(pending, &symbol_key, update);
+    } else {
+        // Start REST only after this symbol's WS delta is buffered. Paced
+        // subscription queues must not fetch a snapshot before subscribing.
+        schedule_gateio_resync_for_plan(
+            feed,
+            plan,
+            instrument,
+            &symbol_key,
+            update,
+            receivers,
+            pending,
+        )?;
     }
     Ok(true)
 }
@@ -4117,6 +4088,63 @@ mod tests {
         assert!(matches!(books[0], L2Book::Snapshot(_)));
         let states = feed.orderbook_states.lock().expect("lock");
         assert_eq!(states.get("BTC-USDT").expect("state").bids().len(), 1);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn gateio_initial_delta_starts_one_snapshot_after_buffering() {
+        let feed = Gateio::new().l2_book().symbol("BTC-USDT").build();
+        let mut plan = super::GateioAdapter::connection_plans(&feed)
+            .unwrap()
+            .remove(0);
+        plan.snapshot_urls[0] = "test://snapshot-after-delta".to_owned();
+        let mut receivers = std::collections::HashMap::new();
+        let mut pending = std::collections::HashMap::new();
+        for id in [101u64, 102] {
+            let text = serde_json::json!({"channel":"spot.order_book_update","event":"update", "result":{"t":1710000000123u64,"s":"BTC_USDT","U":id,"u":id,"b":[["100","1"]],"a":[]}}).to_string();
+            super::process_gateio_orderbook_message_for_plan(
+                &feed,
+                &plan,
+                &text,
+                1.0,
+                &mut receivers,
+                &mut pending,
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(receivers.len(), 1);
+        assert_eq!(
+            pending["BTC-USDT"]
+                .iter()
+                .map(|delta| delta.last_update_id)
+                .collect::<Vec<_>>(),
+            [101, 102]
+        );
+    }
+
+    #[cfg(all(feature = "orderbook", feature = "trade"))]
+    #[tokio::test]
+    async fn gateio_unrequested_book_does_not_start_snapshot_or_buffer() {
+        let feed = Gateio::new().trade().symbol("BTC-USDT").build();
+        let plan = super::GateioAdapter::connection_plans(&feed)
+            .unwrap()
+            .remove(0);
+        let mut receivers = std::collections::HashMap::new();
+        let mut pending = std::collections::HashMap::new();
+        let text = serde_json::json!({"channel":"spot.order_book_update","event":"update", "result":{"t":1710000000123u64,"s":"BTC_USDT","U":101,"u":101,"b":[["100","1"]],"a":[]}}).to_string();
+        super::process_gateio_orderbook_message_for_plan(
+            &feed,
+            &plan,
+            &text,
+            1.0,
+            &mut receivers,
+            &mut pending,
+        )
+        .await
+        .unwrap();
+        assert!(receivers.is_empty());
+        assert!(pending.is_empty());
     }
 
     #[cfg(feature = "orderbook")]
