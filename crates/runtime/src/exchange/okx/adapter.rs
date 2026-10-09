@@ -66,7 +66,7 @@ pub enum OkxEvent {
 impl OkxAdapter {
     pub const IDLE_TIMEOUT_SECS: u64 = 30;
     pub fn websocket_url() -> &'static str {
-        "wss://ws.okx.com:8443/ws/v5/public"
+        "wss://ws.okx.com/ws/v5/public"
     }
 
     pub fn subscription_url(feed: &ExchangeFeed) -> String {
@@ -76,7 +76,7 @@ impl OkxAdapter {
                 .iter()
                 .all(|channel| matches!(channel, Channel::Candles))
         {
-            "wss://ws.okx.com:8443/ws/v5/business".to_owned()
+            "wss://ws.okx.com/ws/v5/business".to_owned()
         } else {
             Self::websocket_url().to_owned()
         }
@@ -93,7 +93,7 @@ impl OkxAdapter {
             urls.push(Self::websocket_url().to_owned());
         }
         if has_candles {
-            urls.push("wss://ws.okx.com:8443/ws/v5/business".to_owned());
+            urls.push("wss://ws.okx.com/ws/v5/business".to_owned());
         }
         urls
     }
@@ -542,7 +542,7 @@ mod tests {
         let feed = Okx::new().ticker().symbol("BTC-USDT").build();
         assert_eq!(
             OkxAdapter::subscription_url(&feed),
-            "wss://ws.okx.com:8443/ws/v5/public"
+            "wss://ws.okx.com/ws/v5/public"
         );
     }
 
@@ -551,7 +551,7 @@ mod tests {
         let feed = Okx::new().candles().symbol("BTC-USDT-SWAP").build();
         assert_eq!(
             OkxAdapter::subscription_url(&feed),
-            "wss://ws.okx.com:8443/ws/v5/business"
+            "wss://ws.okx.com/ws/v5/business"
         );
         assert_eq!(
             OkxAdapter::product_for_exchange_symbol("BTC-USDT-SWAP"),

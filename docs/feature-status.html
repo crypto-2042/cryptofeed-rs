@@ -205,6 +205,7 @@
   <section>
     <h2><span class="step">1</span> 能力矩阵（按标的类型分组：现货 / 合约 / 期权 / MARGIN）</h2>
     <p class="note">首版推送前工程复核：字段语义、无损 JSON 精度、产品限定、Bybit delta 状态、周期格式和日历月边界已修正。383 项测试（含 82 parity）、Rust 1.85、全部 feature、文档与 lint 门禁通过；依赖审计零漏洞。10 配置聚合冒烟及 Bybit/Binance/Bitget 最终目标复核干净退出。最终工程门禁已复跑，源代码已推送 GitHub；GitHub 私有漏洞报告已启用并验证，正式发版仍需确认许可证来源。<a href="reports/live-smoke-pre-push-2026-10-08.md">实盘验证范围</a></p>
+    <p class="note">2026-10-09 API 复核：五家已启用 API 主版本与关键订阅按当前官方文档核对；发现并修正 OKX 即将停用的 8443 端口（改默认 443），REST 使用推荐 openapi 域名，现货目录跳过非 live 记录并防止空币种断言。未扩大频道范围，未沿用 Python 旧端点。393 项测试及工程门禁通过；修正后的 OKX 现货 35 秒实盘收到 Ticker/Trade/L2/Candles 并干净退出。<a href="exchange-protocol-baseline.md">协议依据与复核边界</a></p>
     <p class="note">2026-10-09 使用体验对齐：已新增 MarketCatalog 产品限定目录、显式 * / ? 筛选、批量标的 builder 和 FeedHandler 主动关闭入口。目录仍使用 24 小时缓存，不自动发现新币；强制刷新、逐频道标的、连接分片和运行中增删订阅尚未实施。本批 390 项工作区测试、严格 Clippy、文档、Rust 1.85 及 feature 门禁通过；未新增实盘验收。<a href="python-usage-alignment.md">差异清单与分阶段方案</a></p>
     <p class="note">2026-10-08 增量：Bitget 现货/合约 L1 与合约 Funding/OI/Index/MarkPrice；Gate.io 永续公共强平；OKX 合约指数映射与多合约派发。已增加协议 fixture、离线 parity、runtime 派发及单 feature 测试；本次 Bitget/OKX 高频频道实盘收到数据，Gate.io 强平仅验证订阅成功；Binance OI、Gate.io 交割强平仍未开放。</p>
     <p class="note">能力预检（capability preflight）是权威门禁：不在矩阵中的组合必须在连接前显式失败，绝不静默订阅空频道。行按标的类型分组展示，同一标的类型下的交易所逐行对比。每格两个标记：<b style="color:var(--green)">绿块=本项目支持</b> / <b style="color:var(--red)">红块=不支持</b>，<b style="color:var(--blue)">蓝块=Python cryptofeed 源码已实现</b> / <b style="color:var(--muted)">灰块=未实现</b>（Python 基线：../cryptofeed 2026-08-07 源码 websocket_channels 映射）。</p>

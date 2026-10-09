@@ -71,3 +71,17 @@ Additional pre-push regressions cover:
   from the appended mark-price payload, also tested with substituted native
   COIN-M perpetual and dated identifiers. Legacy standalone index references
   are not the active subscription source.
+
+## 2026-10-09 OKX endpoint and catalog refresh
+
+- [OKX port discontinuation announcement](https://www.okx.com/en-us/help/okx-websocket-port-8443-discontinuation-announcement)
+  and [Global API changelog](https://www.okx.com/docs-v5/log_en/) are the sources
+  for default WS port 443 and the recommended `openapi.okx.com` REST domain.
+- `okx.ws.v5` endpoint labels use default TLS and separate the candle business
+  subscription from public channels. Existing synthetic timestamps/payloads
+  were retained; endpoint-label updates are not new live recordings.
+- `okx.http.v5` includes a minimal regression reference derived from the public
+  SPOT directory observed on 2026-10-09: a preopen row with empty base/quote,
+  alongside a valid live BTC-USDT row. Its timestamp is substituted. The
+  corresponding markets unit test verifies non-live filtering and rejects an
+  additional synthetic malformed-live row rather than guessing its identity.

@@ -269,6 +269,9 @@ Notes:
   Other trade and book quantities preserve the exchange-native unit.
 - L3 order books have no public stream across the active exchanges and are
   deferred (see [the protocol baseline](docs/exchange-protocol-baseline.md#l3-order-book-scope)).
+- OKX v5 uses default WebSocket TLS port 443 and the recommended
+  `openapi.okx.com` REST domain. Dated API verification and migration details
+  are recorded in the [protocol baseline](docs/exchange-protocol-baseline.md#api-currency-review--2026-10-09).
 - Authenticated data and trading are out of scope.
 
 ## Symbol discovery and service shutdown

@@ -656,17 +656,11 @@ pub(crate) async fn fetch_symbol_registry(
                     )));
                 }
             };
-            let url = format!("https://www.okx.com/api/v5/public/instruments?instType={inst_type}");
+            let url =
+                format!("https://openapi.okx.com/api/v5/public/instruments?instType={inst_type}");
             let payload = fetch_json(&url).await?;
             if product == InstrumentKind::Spot {
-                for item in array_at(&payload, &["data"])? {
-                    add_spot_market(
-                        &mut registry,
-                        str_at(item, &["instId"]),
-                        str_at(item, &["baseCcy"]),
-                        str_at(item, &["quoteCcy"]),
-                    )?;
-                }
+                add_okx_spot_markets(&mut registry, &payload)?;
             } else {
                 add_okx_markets(&mut registry, &payload, product)?;
             }
@@ -963,6 +957,21 @@ fn record_bybit_cursor(seen: &mut HashSet<String>, cursor: &str) -> Result<()> {
     Ok(())
 }
 
+fn add_okx_spot_markets(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
+    for item in array_at(payload, &["data"])? {
+        if str_at(item, &["state"]).is_some_and(|state| state != "live") {
+            continue;
+        }
+        add_spot_market(
+            registry,
+            str_at(item, &["instId"]),
+            str_at(item, &["baseCcy"]),
+            str_at(item, &["quoteCcy"]),
+        )?;
+    }
+    Ok(())
+}
+
 fn add_okx_markets(
     registry: &mut SymbolRegistry,
     payload: &Value,
@@ -1219,6 +1228,11 @@ fn add_spot_market(
             "instrument is missing its native symbol, base, or quote".to_owned(),
         ));
     };
+    if exchange_symbol.is_empty() || base.is_empty() || quote.is_empty() {
+        return Err(Error::MalformedData(
+            "instrument has an empty native symbol, base, or quote".to_owned(),
+        ));
+    }
     registry.insert(Symbol::spot(base, quote), exchange_symbol)
 }
 
@@ -1388,6 +1402,40 @@ mod tests {
         symbol::{InstrumentKind, Symbol},
     };
     use serde_json::json;
+
+    #[test]
+    fn okx_spot_catalog_skips_preopen_identity_without_guessing() {
+        let mut registry = super::SymbolRegistry::default();
+        super::add_okx_spot_markets(&mut registry, &json!({"data": [
+            {"instId":"XBB-USDT","instType":"SPOT","state":"preopen","baseCcy":"","quoteCcy":""},
+            {"instId":"BTC-USDT","instType":"SPOT","state":"live","baseCcy":"BTC","quoteCcy":"USDT"}
+        ]})).unwrap();
+        assert_eq!(registry.into_symbols(), [Symbol::spot("BTC", "USDT")]);
+        assert!(
+            super::add_okx_spot_markets(
+                &mut super::SymbolRegistry::default(),
+                &json!({"data":[
+                    {"instId":"BTC-USDT","state":"live","baseCcy":"","quoteCcy":"USDT"}
+                ]})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn empty_spot_catalog_identity_returns_an_error() {
+        let mut registry = super::SymbolRegistry::default();
+        for (native, base, quote) in [
+            ("BTC-USDT", "", "USDT"),
+            ("BTC-USDT", "BTC", ""),
+            ("", "BTC", "USDT"),
+        ] {
+            assert!(matches!(
+                super::add_spot_market(&mut registry, Some(native), Some(base), Some(quote)),
+                Err(Error::MalformedData(_))
+            ));
+        }
+    }
 
     #[test]
     fn catalog_error_envelopes_are_rejected_before_caching() {

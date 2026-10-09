@@ -16,6 +16,48 @@ L1 and derivative ticker fields, Gate.io public perpetual liquidations, and
 OKX contract-to-index subscription mapping. Earlier live observations retain
 their original dates; documentation verification is not a live smoke result.
 
+## API currency review — 2026-10-09
+
+The enabled REST/JSON WebSocket surfaces were compared with current official
+references. API version numbers are product-specific: Binance `/fapi/v1` and
+`/dapi/v1` are not obsolete merely because Spot uses `/api/v3`. New optional
+SBE/RPI services do not invalidate supported stable JSON channels. This review
+covers selected enabled endpoints and subscription contracts, not every optional
+field or all products offered by each exchange. No Python protocol constants
+were introduced by the usage-alignment work; MarketCatalog reuses Rust's catalog
+fetchers.
+
+| Exchange | Enabled API selection | Official references / result |
+| --- | --- | --- |
+| Binance | Spot REST v3/combined streams; USD-M fapi plus public/market split; COIN-M dapi/dstream | [Spot streams](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/ws-streams/~), [USD-M public](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/public), [USD-M market](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/market), [COIN-M connection guide](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/websocket-market-streams/Connect). Existing product routes remain documented; no guessed OI stream or polling fallback. |
+| Bitget | REST `/api/v3/market/instruments`; `/v3/ws/public`; v3 `instType/topic/symbol` envelopes | [Guide](https://www.bitget.com/docs/uta/quick-start), [instruments](https://www.bitget.com/docs/catalog/market-market-data/market-instruments), [depth](https://www.bitget.com/docs/uta/websocket/public/Order-Book-Channel), [ticker](https://www.bitget.com/docs/uta/websocket/public/Tickers-Channel), [candles](https://www.bitget.com/docs/uta/websocket/public/Candlesticks-Channel). Current v3 surfaces, not v1/v2 subscriptions. |
+| Bybit | REST v5 instruments; v5 spot/linear/inverse WS; allLiquidation and derivative tickers | [Connect](https://bybit-exchange.github.io/docs/v5/ws/connect), [instruments](https://bybit-exchange.github.io/docs/v5/market/instrument), [all liquidation](https://bybit-exchange.github.io/docs/v5/websocket/public/all-liquidation), [ticker](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker). Retired funding topics remain parser references only. |
+| OKX | REST v5 instruments; WS v5 public/business | [Changelog](https://www.okx.com/docs-v5/log_en/): use recommended `openapi.okx.com` REST domain and default WS TLS port 443; migration details below. |
+| Gate.io | REST v4; spot/perpetual/delivery WS v4; public liquidation topic | [Spot REST](https://www.gate.com/docs/developers/apiv4/en/spot/), [spot WS](https://www.gate.com/docs/developers/apiv4/ws/), [futures WS](https://www.gate.com/docs/developers/futures/ws/), [delivery WS](https://www.gate.com/docs/developers/delivery/ws/en/). Current v4 service paths; public liquidations are distinct from private liquidates. |
+
+### OKX endpoint migration and catalog boundary
+
+- The 2026-09-30 [official port announcement](https://www.okx.com/en-us/help/okx-websocket-port-8443-discontinuation-announcement)
+  says port 8443 stops accepting WS connections on 2026-10-31. Port 443 already
+  works. Rust public/business URLs now omit `:8443`; host and v5 paths are
+  unchanged. An offline parity regression covers both mixed-feed connections.
+- The 2026-05-20 official changelog recommends `https://openapi.okx.com` for
+  Global REST. `www.okx.com` remains supported and is explicitly not deprecated.
+  Rust instrument discovery now uses the recommended domain; this is a host
+  migration, not a new REST protocol version.
+- A current SPOT directory response contained eight `state: preopen` rows with
+  empty base/quote fields. This is a dated service observation, not a claim that
+  all preopen records omit identity. Rust now filters non-live OKX spot rows as
+  it already did for derivatives. Any remaining empty spot identity fails with
+  MalformedData before constructing Symbol, instead of panicking or guessing
+  currencies from instId. Inline unit regressions and the sanitized REST
+  reference preserve both the preopen and malformed-live cases.
+
+Older option endpoints and legacy standalone funding/index parser references
+are not enabled subscriptions. Capability preflight remains authoritative;
+Coinbase/Kraken builders do not imply active runtimes. The Python sibling itself
+has local protocol updates, so its entire checkout should not be labeled old.
+
 ## Evidence and change rule
 
 For protocol work, use this order of authority:

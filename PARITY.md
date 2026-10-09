@@ -287,3 +287,12 @@ Bitget/Bybit/Gate.io derivative tickers), and L1 (all five active exchanges) are
 deferred. Further expansion requires a new explicit plan and current official
 protocol evidence. See [the harness guide](docs/harness.md) for acceptance
 criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
+
+## API currency review — 2026-10-09
+
+- Checked enabled endpoint families and subscription contracts against current
+  official sources; see `docs/exchange-protocol-baseline.md` for per-exchange links.
+- Migrated OKX public/business WebSockets to default TLS port 443 and Global
+  instrument discovery to the recommended REST domain; mixed-feed endpoint
+  parity and catalog identity regressions cover the corrections.
+- No exchange/channel capability expansion or legacy Python protocol fallback.

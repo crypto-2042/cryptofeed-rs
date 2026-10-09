@@ -247,3 +247,15 @@ Project-specific memory for `rust/cryptofeed-rs`.
   explicit, product-qualified startup snapshot; unmatched patterns fail, and
   connection sharding and dynamic discovery remain planned in
   `docs/python-usage-alignment.md`.
+
+## API currency review — 2026-10-09
+
+- OKX announced port 8443 retirement for 2026-10-31; public/business WS use
+  default TLS port 443. Global REST now uses recommended openapi.okx.com;
+  www.okx.com remains a supported alias, not a deprecated protocol.
+- Current OKX SPOT discovery can include preopen rows with empty currencies.
+  Filter non-live rows; malformed remaining identity must return an error,
+  never reach Symbol constructors with empty components or guess currencies.
+- Binance API version numbers differ by product; fapi/dapi v1 are not old
+  solely because Spot REST uses v3. Official product documentation wins over
+  numeric-version comparisons or Python implementation assumptions.

@@ -2382,3 +2382,16 @@ fn binance_contract_index_uses_documented_mark_price_stream() {
         assert_eq!(index.exchange_ts, 1562305380.0);
     }
 }
+
+#[test]
+fn okx_uses_current_tls_endpoints_for_public_and_business_channels() {
+    use cryptofeed_rs::exchange::{okx::Okx, okx::adapter::OkxAdapter};
+    let feed = Okx::new().ticker().candles().symbol("BTC-USDT").build();
+    assert_eq!(
+        OkxAdapter::subscription_urls(&feed),
+        vec![
+            "wss://ws.okx.com/ws/v5/public".to_owned(),
+            "wss://ws.okx.com/ws/v5/business".to_owned(),
+        ]
+    );
+}

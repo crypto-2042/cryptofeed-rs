@@ -25,6 +25,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-09 OKX endpoint migration](reports/live-smoke-2026-10-09.md):
+  default TLS 443, recommended REST domain, and preopen catalog regression.
 - [2026-10-08 final candidate checks](reports/live-smoke-pre-push-2026-10-08.md):
   aggregate five-exchange run and targeted Bybit/Binance/Bitget follow-ups.
 - [2026-10-08 channel additions](reports/live-smoke-2026-10-08.md): Bitget L1 and

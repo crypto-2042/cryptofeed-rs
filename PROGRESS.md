@@ -269,3 +269,19 @@ feature boundaries.
   Rust 1.85, no-default catalog tests, all nine feature checks/tests, formatting,
   README example compilation, and local documentation links passed. No new
   live-service evidence or exchange wire changes are claimed.
+
+## API currency review — 2026-10-09
+
+- Rechecked selected enabled endpoint families/subscription contracts against
+  current official sources for all five active exchanges; sources and scope
+  are recorded in `docs/exchange-protocol-baseline.md`.
+- Migrated OKX public/business WebSockets from retiring port 8443 to default
+  TLS 443, and discovery to the recommended Global REST domain.
+- Reproduced and corrected OKX SPOT catalog panic on preopen empty-identity
+  records: non-live rows are filtered and malformed live rows return errors.
+- Updated sanitized endpoint/catalog references and offline regressions;
+  exchange capabilities and deferred Binance OI remain unchanged.
+- Verification: 393 workspace tests, strict all-target Clippy, all nine feature
+  checks, no-default compilation, Rust 1.85, and formatting passed. A 35-second
+  OKX spot run received Ticker/Trade/L2/Candles and exited cleanly; see
+  `docs/reports/live-smoke-2026-10-09.md` for counts and limitations.

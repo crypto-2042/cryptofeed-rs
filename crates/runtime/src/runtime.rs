@@ -3571,7 +3571,7 @@ mod tests {
 
         assert_eq!(
             planned_connection_urls(&handler),
-            vec!["wss://ws.okx.com:8443/ws/v5/public".to_owned()]
+            vec!["wss://ws.okx.com/ws/v5/public".to_owned()]
         );
     }
 

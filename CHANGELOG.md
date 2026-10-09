@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- OKX v5 WebSockets use default TLS port 443 ahead of the announced 8443
+  shutdown; discovery uses the recommended Global REST domain. Non-live spot
+  directory records are filtered, and empty spot identity returns an error
+  instead of panicking.
+
 - Binance Index uses documented mark-price `i/E` fields, with a deduplicated
   1s topic when Index is requested; native COIN-M contract identities are retained.
 - Bybit derivative ticker snapshots/deltas are reconstructed per connection,
