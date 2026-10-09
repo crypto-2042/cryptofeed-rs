@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `MarketCatalog::refresh` bypasses cached instrument responses, including
+  paginated discovery. Concurrent same-URL requests share in-flight results;
+  discovery reuses an HTTP client and failed fetches preserve cached responses.
+
 - Product-qualified `MarketCatalog` discovery and explicit normalized-symbol
   pattern selection (`*`/`?`), bulk `.symbols` / `.instruments` builders, and
   a `FeedHandler::run_with_shutdown` facade for service-owned shutdown.

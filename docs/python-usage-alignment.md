@@ -1,8 +1,8 @@
 # Python usage alignment
 
 Status: active improvement plan, reviewed 2026-10-09 against the sibling Python
-checkout at commit `3a6d3ca`. Phase 1 is implemented; later phases below are
-planned, not supported APIs. Exchange count and instrument-type coverage are
+checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing are implemented; remaining
+phase 2–5 items below are planned, not supported APIs. Exchange count and instrument-type coverage are
 excluded. Authenticated feeds and trading remain outside the 0.1 scope.
 
 ## Goal and compatibility
@@ -20,7 +20,7 @@ local checkout, not claims about every upstream version.
 
 | Workflow | Python evidence | Rust assessment / treatment |
 | --- | --- | --- |
-| Symbol discovery | `exchange.py`: `symbols`, `info`, `symbol_mapping(refresh=...)` | Phase 1 exposes `MarketCatalog::load` and sorted normalized symbols. Force refresh and public market metadata remain pending. |
+| Symbol discovery | `exchange.py`: `symbols`, `info`, `symbol_mapping(refresh=...)` | `MarketCatalog::load` exposes sorted symbols; `refresh` bypasses cached responses, including pagination. Public market metadata remains pending. |
 | Pattern selection | `feed.py` resolves each supplied name by exact mapping; no general glob expansion found | Phase 1 adds explicit catalog `select` with `*` and `?` as a convenience extension, not Python parity. |
 | Batch configuration | `feed.py`: `symbols` plus `channels` | Multi-symbol feeds already work; phase 1 adds bulk `.symbols` and typed `.instruments`. |
 | Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Rust currently uses one symbol set for every channel in a feed. Multiple feeds are a workaround; phase 2 adds a subscription map. |
@@ -34,7 +34,7 @@ local checkout, not claims about every upstream version.
 | Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Rust has normalized snapshots/deltas and exchange sync, but a lagged broadcast consumer cannot request a synchronized recovery snapshot. Phase 4 prioritizes recovery and documents native-unit differences. |
 | Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Rust uses fixed supervision policies and tracing. Add only demonstrated public-service settings after lifecycle controls; preserve safe defaults and bounded shutdown. |
 | Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Rust REST currently serves discovery and book bootstrap. Public history clients are a later workstream; verify current official endpoints before implementation. |
-| Recording/replay | `raw_data_collection.py`, `util/playback.py` | Rust has deterministic inline fixtures/session doubles, but no user recording/replay API. Phase 5, with sanitization and an explicit file format. |
+| Recording/replay | `raw_data_collection.py`: recording and playback | Rust has deterministic inline fixtures/session doubles, but no user recording/replay API. Phase 5, with sanitization and an explicit file format. |
 | Storage/aggregation | `backends/`: database/message-bus/socket adapters, aggregate callbacks | No bundled Rust backends or OHLCV/throttle/Renko adapters. Phase 5 starts with a small sink contract and one justified adapter, avoiding a dependency-heavy default SDK. |
 | Cross-exchange NBBO | `feedhandler.py`: `add_nbbo`; `nbbo.py` | No Rust aggregation helper. Later opt-in work, with stale-source and symbol/unit compatibility rules. |
 
@@ -65,11 +65,17 @@ shutdown without hydration. Workspace tests, strict Clippy, no-default and
 single-feature compilation, rustdoc, formatting, and Rust 1.85 must pass.
 No exchange wire parser or endpoint changes are part of this phase.
 
-## Phase 2 — subscription planning and refresh (next)
+## Phase 2 — subscription planning and refresh (in progress)
 
-1. Add explicit force-refresh to catalog loading, including paginated catalogs.
-   Bypass only the requested catalog responses; replace cache entries only
-   after validated fetches and never mutate an existing subscription implicitly.
+1. **Implemented: catalog refresh and request sharing.**
+   `MarketCatalog::refresh` bypasses cached responses, including every requested
+   page. Concurrent callers share in-flight work for the same URL; unrelated
+   URLs remain independent. One reusable HTTP client serves discovery requests.
+   Failed HTTP/JSON or exchange-envelope validation preserves the previous
+   cached response. Cancellation releases the request gate and later calls can
+   retry. This is per-response caching, not an atomic transaction across all
+   pages or full parsed instrument validation; existing snapshots/subscriptions
+   are unchanged. Snapshot request concurrency limits remain pending.
 2. Add mutually exclusive channel-symbol-map and existing channels-plus-symbols
    configuration. Validate every selected pair and route only requested pairs;
    use a canonical subscription set for planning and dispatch.

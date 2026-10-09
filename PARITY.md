@@ -296,3 +296,12 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   instrument discovery to the recommended REST domain; mixed-feed endpoint
   parity and catalog identity regressions cover the corrections.
 - No exchange/channel capability expansion or legacy Python protocol fallback.
+
+## Catalog refresh alignment — 2026-10-09
+
+- `MarketCatalog::refresh` forces response/page fetches without changing the
+  capability matrix or wire protocol. Offline tests cover cache bypass, failed
+  refresh preservation, concurrent success/failure sharing, independent URLs,
+  cancellation recovery, and unsupported-product preflight.
+- No new live-service verification is claimed. Subscription hot updates,
+  connection sizing and snapshot concurrency budgets remain pending.

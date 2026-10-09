@@ -522,11 +522,20 @@ pub(crate) async fn fetch_symbol_registry(
     exchange: ExchangeId,
     product: InstrumentKind,
 ) -> Result<SymbolRegistry> {
+    fetch_symbol_registry_with_refresh(exchange, product, false).await
+}
+
+pub(crate) async fn fetch_symbol_registry_with_refresh(
+    exchange: ExchangeId,
+    product: InstrumentKind,
+    refresh: bool,
+) -> Result<SymbolRegistry> {
     let mut registry = SymbolRegistry::default();
     match exchange {
         ExchangeId::Binance => {
             if product == InstrumentKind::Spot {
-                let payload = fetch_json("https://api.binance.com/api/v3/exchangeInfo").await?;
+                let payload =
+                    fetch_json("https://api.binance.com/api/v3/exchangeInfo", refresh).await?;
                 for item in array_at(&payload, &["symbols"])? {
                     add_spot_market(
                         &mut registry,
@@ -536,7 +545,8 @@ pub(crate) async fn fetch_symbol_registry(
                     )?;
                 }
             } else if product == InstrumentKind::Option {
-                let payload = fetch_json("https://eapi.binance.com/eapi/v1/exchangeInfo").await?;
+                let payload =
+                    fetch_json("https://eapi.binance.com/eapi/v1/exchangeInfo", refresh).await?;
                 for item in array_at(&payload, &["optionSymbols"])? {
                     add_binance_option_market(&mut registry, item)?;
                 }
@@ -545,7 +555,7 @@ pub(crate) async fn fetch_symbol_registry(
                     "https://fapi.binance.com/fapi/v1/exchangeInfo",
                     "https://dapi.binance.com/dapi/v1/exchangeInfo",
                 ] {
-                    let payload = fetch_json(url).await?;
+                    let payload = fetch_json(url, refresh).await?;
                     add_binance_markets(&mut registry, &payload, product)?;
                 }
             }
@@ -559,7 +569,7 @@ pub(crate) async fn fetch_symbol_registry(
             for category in categories {
                 let url =
                     format!("https://api.bitget.com/api/v3/market/instruments?category={category}");
-                let payload = fetch_json(&url).await?;
+                let payload = fetch_json(&url, refresh).await?;
                 if product == InstrumentKind::Spot {
                     for item in array_at(&payload, &["data"])? {
                         add_spot_market(
@@ -576,9 +586,11 @@ pub(crate) async fn fetch_symbol_registry(
         }
         ExchangeId::Bybit => {
             if product == InstrumentKind::Spot {
-                let payload =
-                    fetch_json("https://api.bybit.com/v5/market/instruments-info?category=spot")
-                        .await?;
+                let payload = fetch_json(
+                    "https://api.bybit.com/v5/market/instruments-info?category=spot",
+                    refresh,
+                )
+                .await?;
                 for item in array_at(&payload, &["result", "list"])? {
                     add_spot_market(
                         &mut registry,
@@ -592,17 +604,17 @@ pub(crate) async fn fetch_symbol_registry(
                 // requires a `baseCoin` parameter (PARAMS_ERROR otherwise);
                 // the full option catalog pages from
                 // `instruments-info?category=option` without a base coin.
-                fetch_bybit_option_category(&mut registry).await?;
+                fetch_bybit_option_category(&mut registry, refresh).await?;
             } else {
                 for category in ["linear", "inverse"] {
-                    fetch_bybit_category(&mut registry, category, product).await?;
+                    fetch_bybit_category(&mut registry, category, product, refresh).await?;
                 }
             }
         }
         ExchangeId::Gateio => match product {
             InstrumentKind::Spot => {
                 let payload =
-                    fetch_json("https://api.gateio.ws/api/v4/spot/currency_pairs").await?;
+                    fetch_json("https://api.gateio.ws/api/v4/spot/currency_pairs", refresh).await?;
                 for item in gateio_contracts(&payload)? {
                     add_spot_market(
                         &mut registry,
@@ -615,13 +627,16 @@ pub(crate) async fn fetch_symbol_registry(
             InstrumentKind::Perpetual => {
                 for settle in ["usdt", "btc"] {
                     let url = format!("https://api.gateio.ws/api/v4/futures/{settle}/contracts");
-                    let payload = fetch_json(&url).await?;
+                    let payload = fetch_json(&url, refresh).await?;
                     add_gateio_perpetual_markets(&mut registry, &payload, settle)?;
                 }
             }
             InstrumentKind::Futures => {
-                let payload =
-                    fetch_json("https://api.gateio.ws/api/v4/delivery/usdt/contracts").await?;
+                let payload = fetch_json(
+                    "https://api.gateio.ws/api/v4/delivery/usdt/contracts",
+                    refresh,
+                )
+                .await?;
                 add_gateio_delivery_markets(&mut registry, &payload)?;
             }
             InstrumentKind::Unknown | InstrumentKind::Option | InstrumentKind::Margin => {
@@ -658,7 +673,7 @@ pub(crate) async fn fetch_symbol_registry(
             };
             let url =
                 format!("https://openapi.okx.com/api/v5/public/instruments?instType={inst_type}");
-            let payload = fetch_json(&url).await?;
+            let payload = fetch_json(&url, refresh).await?;
             if product == InstrumentKind::Spot {
                 add_okx_spot_markets(&mut registry, &payload)?;
             } else {
@@ -788,6 +803,7 @@ async fn fetch_bybit_category(
     registry: &mut SymbolRegistry,
     category: &str,
     product: InstrumentKind,
+    refresh: bool,
 ) -> Result<()> {
     let mut cursor: Option<String> = None;
     let mut seen = HashSet::new();
@@ -802,7 +818,7 @@ async fn fetch_bybit_category(
                 query.append_pair("cursor", cursor);
             }
         }
-        let payload = fetch_json(url.as_str()).await?;
+        let payload = fetch_json(url.as_str(), refresh).await?;
         cursor = add_bybit_page(registry, &payload, product)?;
         let Some(next) = cursor.as_deref() else {
             return Ok(());
@@ -811,7 +827,7 @@ async fn fetch_bybit_category(
     }
 }
 
-async fn fetch_bybit_option_category(registry: &mut SymbolRegistry) -> Result<()> {
+async fn fetch_bybit_option_category(registry: &mut SymbolRegistry, refresh: bool) -> Result<()> {
     let mut cursor: Option<String> = None;
     let mut seen = HashSet::new();
     loop {
@@ -825,7 +841,7 @@ async fn fetch_bybit_option_category(registry: &mut SymbolRegistry) -> Result<()
                 query.append_pair("cursor", cursor);
             }
         }
-        let payload = fetch_json(url.as_str()).await?;
+        let payload = fetch_json(url.as_str(), refresh).await?;
         cursor = add_bybit_option_page(registry, &payload)?;
         let Some(next) = cursor.as_deref() else {
             return Ok(());
@@ -1236,27 +1252,81 @@ fn add_spot_market(
     registry.insert(Symbol::spot(base, quote), exchange_symbol)
 }
 
-async fn fetch_json(url: &str) -> Result<Value> {
-    // Large catalogs (e.g. Binance exchangeInfo ~17 MB) can be slow or
-    // unstable. A fresh 24h in-process cache is used first (a catalog is a stable
-    // reference; a stale-but-recent one is strictly better than a slow
-    // startup); otherwise fetch with a bounded timeout and one retry, then
-    // refresh the cache.
-    if let Some(cached) = read_catalog_cache(url) {
-        // A cached catalog can lag a brand-new listing by up to 24h; make
-        // the staleness visible instead of surfacing a confusing
-        // "unsupported symbol" for a freshly listed pair.
-        tracing::debug!(url, "serving exchange catalog from cache (24h TTL)");
-        return Ok(cached);
-    }
+async fn fetch_json(url: &str, refresh: bool) -> Result<Value> {
+    fetch_catalog_with(url, refresh, || fetch_catalog_json(url)).await
+}
 
+// Each waiter retains the gate; weak entries avoid retaining completed requests.
+type CatalogRequest =
+    tokio::sync::Mutex<Option<(std::time::Instant, std::result::Result<Value, String>)>>;
+type CatalogRequests = std::sync::Mutex<HashMap<String, std::sync::Weak<CatalogRequest>>>;
+static CATALOG_REQUESTS: std::sync::OnceLock<CatalogRequests> = std::sync::OnceLock::new();
+
+async fn fetch_catalog_with<F, Fut>(url: &str, refresh: bool, fetch: F) -> Result<Value>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Value>>,
+{
+    let requested_at = std::time::Instant::now();
+    if !refresh {
+        if let Some(value) = read_catalog_cache(url) {
+            tracing::debug!(url, "serving exchange catalog from cache (24h TTL)");
+            return Ok(value);
+        }
+    }
+    let gate = {
+        let mut requests = CATALOG_REQUESTS
+            .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+            .lock()
+            .expect("catalog requests lock");
+        requests.retain(|_, gate| gate.strong_count() > 0);
+        if let Some(gate) = requests.get(url).and_then(std::sync::Weak::upgrade) {
+            gate
+        } else {
+            let gate = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+            requests.insert(url.to_owned(), std::sync::Arc::downgrade(&gate));
+            gate
+        }
+    };
+    let mut completed = gate.lock().await;
+    // Share only work completed since this call began. In particular, a new
+    // refresh never reuses an earlier success or a failed request indefinitely.
+    if let Some((at, result)) = completed.as_ref() {
+        if *at >= requested_at {
+            return result.clone().map_err(Error::Transport);
+        }
+    }
+    if !refresh {
+        if let Some(value) = read_catalog_cache(url) {
+            return Ok(value);
+        }
+    }
+    let result = fetch().await.map_err(|error| error.to_string());
+    if let Ok(value) = &result {
+        write_catalog_cache(url, value);
+    }
+    *completed = Some((std::time::Instant::now(), result.clone()));
+    result.map_err(Error::Transport)
+}
+
+fn catalog_http_client() -> Result<&'static reqwest::Client> {
+    static CLIENT: std::sync::OnceLock<std::result::Result<reqwest::Client, String>> =
+        std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| Error::Transport(error.clone()))
+}
+
+async fn fetch_catalog_json(url: &str) -> Result<Value> {
     let attempt = async |attempt: u8| -> Result<Value> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(45))
-            .build()
-            .map_err(|e| Error::Transport(e.to_string()))?;
-        let response = client
+        let response = catalog_http_client()?
             .get(url)
+            .timeout(std::time::Duration::from_secs(45))
             .header(reqwest::header::USER_AGENT, "cryptofeed-rs/0.1")
             .send()
             .await
@@ -1293,15 +1363,9 @@ async fn fetch_json(url: &str) -> Result<Value> {
     };
 
     match attempt(1).await {
-        Ok(value) => {
-            write_catalog_cache(url, &value);
-            Ok(value)
-        }
+        Ok(value) => Ok(value),
         Err(first) => match attempt(2).await {
-            Ok(value) => {
-                write_catalog_cache(url, &value);
-                Ok(value)
-            }
+            Ok(value) => Ok(value),
             Err(second) => Err(Error::Transport(format!(
                 "catalog fetch failed twice for {url}: first: {first}; second: {second}"
             ))),
@@ -1402,6 +1466,109 @@ mod tests {
         symbol::{InstrumentKind, Symbol},
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn catalog_refresh_bypasses_cache_and_failed_refresh_preserves_it() {
+        let url = "test://refresh-preserves-cache";
+        super::write_catalog_cache(url, &json!({"version": 1}));
+        let value =
+            super::fetch_catalog_with(url, false, || async { panic!("cache hit must not fetch") })
+                .await
+                .unwrap();
+        assert_eq!(value["version"], 1);
+        let value = super::fetch_catalog_with(url, true, || async { Ok(json!({"version": 2})) })
+            .await
+            .unwrap();
+        assert_eq!(value["version"], 2);
+        assert!(
+            super::fetch_catalog_with(url, true, || async {
+                Err(Error::Transport("unavailable".into()))
+            })
+            .await
+            .is_err()
+        );
+        assert_eq!(super::read_catalog_cache(url).unwrap()["version"], 2);
+    }
+
+    #[tokio::test]
+    async fn overlapping_catalog_requests_share_success_or_failure() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        for (url, fail, refresh) in [
+            ("test://cold-success", false, false),
+            ("test://refresh-success", false, true),
+            ("test://cold-failure", true, false),
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let requests = (0..8).map(|_| {
+                let calls = calls.clone();
+                super::fetch_catalog_with(url, refresh, move || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::task::yield_now().await;
+                    if fail {
+                        Err(Error::Transport("unavailable".into()))
+                    } else {
+                        Ok(json!({"version": 1}))
+                    }
+                })
+            });
+            let results = futures::future::join_all(requests).await;
+            assert_eq!(calls.load(Ordering::SeqCst), 1, "{url}");
+            assert!(results.iter().all(|result| result.is_err() == fail));
+            if fail {
+                assert!(super::read_catalog_cache(url).is_none());
+                assert!(
+                    super::fetch_catalog_with(url, false, || async { Ok(json!({"version": 2})) })
+                        .await
+                        .is_ok()
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn different_catalog_urls_fetch_independently() {
+        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+        let requests = ["test://independent-a", "test://independent-b"]
+            .into_iter()
+            .map(|url| {
+                let barrier = barrier.clone();
+                super::fetch_catalog_with(url, false, move || async move {
+                    barrier.wait().await;
+                    Ok(json!({"url": url}))
+                })
+            });
+        let values = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            futures::future::join_all(requests),
+        )
+        .await
+        .unwrap();
+        assert!(values.iter().all(|value| value.is_ok()));
+    }
+
+    #[tokio::test]
+    async fn cancelling_catalog_leader_does_not_block_later_requests() {
+        let url = "test://cancelled-leader";
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(super::fetch_catalog_with(url, false, || async move {
+            started_tx.send(()).unwrap();
+            std::future::pending::<cryptofeed_core::error::Result<serde_json::Value>>().await
+        }));
+        started_rx.await.unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            super::fetch_catalog_with(url, false, || async { Ok(json!({"version": 1})) }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result["version"], 1);
+    }
 
     #[test]
     fn okx_spot_catalog_skips_preopen_identity_without_guessing() {

@@ -259,3 +259,14 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Binance API version numbers differ by product; fapi/dapi v1 are not old
   solely because Spot REST uses v3. Official product documentation wins over
   numeric-version comparisons or Python implementation assumptions.
+
+## Catalog refresh semantics
+
+- `MarketCatalog::load` retains the 24-hour cache default; `refresh` bypasses
+  cached pages and returns a new snapshot. Neither changes running feeds.
+- Requests coalesce by exact URL while overlapping, including failed results;
+  later calls retry after failure/cancellation. Distinct URLs are independent.
+- Preserve prior cache entries after HTTP/JSON/envelope failure. Cache commits
+  are per response, not transactional across pages or parsed registry validation.
+- Catalog discovery reuses its HTTP client. Snapshot clients/concurrency and
+  subscription sizing are separate pending work; do not claim they are solved.

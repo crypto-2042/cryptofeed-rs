@@ -285,3 +285,18 @@ feature boundaries.
   checks, no-default compilation, Rust 1.85, and formatting passed. A 35-second
   OKX spot run received Ticker/Trade/L2/Candles and exited cleanly; see
   `docs/reports/live-smoke-2026-10-09.md` for counts and limitations.
+
+## Usage alignment: catalog refresh and request sharing — 2026-10-09
+
+- Added `MarketCatalog::refresh` with capability preflight and cache bypass
+  propagated through every catalog category and Bybit pagination request.
+- Coalesced overlapping same-URL fetches, including failure results; unrelated
+  URLs remain concurrent. Reused the discovery HTTP client.
+- Failed HTTP/JSON/envelope validation preserves prior cached responses.
+  Cancelled leaders release the gate; later calls can retry normally.
+- This is per-response caching, not atomic replacement of a multi-page catalog.
+  Existing snapshots and subscriptions are not modified. Per-channel symbol
+  maps, connection sharding and snapshot concurrency budgets remain pending.
+- Verification: 398 workspace tests, strict all-target Clippy, rustdoc, all nine
+  single-feature checks/tests, no-default catalog tests, Rust 1.85 and formatting
+  passed. No endpoint/schema changes or new live-service evidence are claimed.

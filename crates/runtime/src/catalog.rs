@@ -18,6 +18,22 @@ impl MarketCatalog {
     /// Loads one enabled exchange/product catalog, without opening WebSockets.
     /// Unsupported products are rejected before any HTTP request.
     pub async fn load(exchange: ExchangeId, product: InstrumentKind) -> Result<Self> {
+        Self::load_with_refresh(exchange, product, false).await
+    }
+
+    /// Fetches fresh catalog responses, bypassing cached pages. Concurrent
+    /// requests for the same URL share in-flight work. A failed HTTP/JSON or
+    /// exchange-envelope validation leaves the previous cached response intact.
+    /// This returns a new snapshot and does not change any running feed.
+    pub async fn refresh(exchange: ExchangeId, product: InstrumentKind) -> Result<Self> {
+        Self::load_with_refresh(exchange, product, true).await
+    }
+
+    async fn load_with_refresh(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        refresh: bool,
+    ) -> Result<Self> {
         if !crate::markets::capability_matrix()
             .iter()
             .any(|entry| entry.exchange == exchange && entry.product == product)
@@ -26,7 +42,8 @@ impl MarketCatalog {
                 "{exchange:?}/{product:?} catalog"
             )));
         }
-        let registry = crate::markets::fetch_symbol_registry(exchange, product).await?;
+        let registry =
+            crate::markets::fetch_symbol_registry_with_refresh(exchange, product, refresh).await?;
         Ok(Self {
             symbols: registry.into_symbols(),
         })

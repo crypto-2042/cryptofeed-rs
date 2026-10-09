@@ -14,6 +14,20 @@ async fn unsupported_catalog_fails_without_network() {
     );
 }
 
+#[tokio::test]
+async fn unsupported_catalog_refresh_fails_without_network() {
+    assert!(
+        MarketCatalog::refresh(ExchangeId::Binance, InstrumentKind::Option)
+            .await
+            .is_err()
+    );
+    assert!(
+        MarketCatalog::refresh(ExchangeId::Coinbase, InstrumentKind::Spot)
+            .await
+            .is_err()
+    );
+}
+
 #[test]
 fn bulk_symbols_append_to_existing_symbols() {
     let feed = Binance::new()

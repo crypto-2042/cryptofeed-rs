@@ -299,8 +299,11 @@ async fn example() -> Result<(), Box<dyn std::error::Error>> {
 `MarketCatalog::symbols()` lists normalized instruments. `select` supports `*`
 and `?`, ignores ASCII case, sorts and deduplicates matches, and rejects empty
 input or any unmatched pattern. It uses the existing 24-hour catalog cache;
-there is no forced refresh or automatic listing discovery yet. Patterns are
-expanded explicitly before building a feed, not by `.symbol("*-USDT")`.
+use `MarketCatalog::refresh(exchange, product).await` to bypass cached responses,
+including paginated catalogs. Concurrent requests for the same URL share
+in-flight work. Refresh does not change existing catalog snapshots or running
+subscriptions, and automatic listing discovery is not implemented. Patterns
+are expanded explicitly before building a feed, not by `.symbol("*-USDT")`.
 Broad matches may exceed exchange subscription limits; automatic connection
 sharding is not implemented. Existing capability preflight still applies.
 
