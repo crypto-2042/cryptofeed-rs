@@ -2,9 +2,20 @@
 use cryptofeed_core::error::{Error, Result};
 use std::time::Duration;
 
+/// Transport receipt watchdog; application heartbeats remain active.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum IdlePolicy {
+    #[default]
+    ExchangeDefault,
+    After(Duration),
+    Disabled,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RuntimeOptions {
     max_retries: Option<usize>,
+    start_delay: Duration,
+    idle_policy: IdlePolicy,
     connect_timeout: Duration,
     handler_timeout: Duration,
 }
@@ -12,6 +23,8 @@ impl Default for RuntimeOptions {
     fn default() -> Self {
         Self {
             max_retries: None,
+            start_delay: Duration::ZERO,
+            idle_policy: IdlePolicy::ExchangeDefault,
             connect_timeout: Duration::from_secs(20),
             handler_timeout: Duration::from_secs(5),
         }
@@ -36,6 +49,27 @@ impl RuntimeOptions {
         positive(timeout)?;
         self.handler_timeout = timeout;
         Ok(self)
+    }
+    /// Initial per-physical-connection delay, before admission. Retry backoff
+    /// does not repeat it; a replacement creates a new supervisor and delay.
+    pub fn start_delay(mut self, delay: Duration) -> Self {
+        self.start_delay = delay;
+        self
+    }
+    /// Overrides the receipt watchdog without changing heartbeat payload/cadence.
+    /// Short deadlines can reconnect healthy quiet markets; disabling is explicit.
+    pub fn idle_policy(mut self, policy: IdlePolicy) -> Result<Self> {
+        if let IdlePolicy::After(timeout) = policy {
+            positive(timeout)?;
+        }
+        self.idle_policy = policy;
+        Ok(self)
+    }
+    pub fn startup_delay(self) -> Duration {
+        self.start_delay
+    }
+    pub fn receipt_policy(self) -> IdlePolicy {
+        self.idle_policy
     }
     pub fn retry_limit(self) -> Option<usize> {
         self.max_retries
@@ -64,6 +98,13 @@ mod tests {
     fn defaults_preserve_existing_behavior_and_zero_deadlines_are_rejected() {
         let options = RuntimeOptions::default();
         assert_eq!(options.retry_limit(), None);
+        assert_eq!(options.startup_delay(), Duration::ZERO);
+        assert_eq!(options.receipt_policy(), IdlePolicy::ExchangeDefault);
+        assert!(
+            options
+                .idle_policy(IdlePolicy::After(Duration::ZERO))
+                .is_err()
+        );
         assert_eq!(options.connection_deadline(), Duration::from_secs(20));
         assert_eq!(options.callback_deadline(), Duration::from_secs(5));
         assert!(options.connect_timeout(Duration::ZERO).is_err());
@@ -98,6 +139,9 @@ mod tests {
         use crate::prelude::*;
         let options = RuntimeOptions::default()
             .max_retries(Some(2))
+            .start_delay(Duration::from_millis(5))
+            .idle_policy(IdlePolicy::Disabled)
+            .unwrap()
             .connect_timeout(Duration::from_secs(3))
             .unwrap()
             .handler_timeout(Duration::from_millis(50))

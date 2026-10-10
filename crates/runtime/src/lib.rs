@@ -46,4 +46,4 @@ pub use discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, Discovery
 #[cfg(feature = "orderbook")]
 pub use books::{BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle};
 
-pub use options::RuntimeOptions;
+pub use options::{IdlePolicy, RuntimeOptions};

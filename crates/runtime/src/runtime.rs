@@ -350,6 +350,7 @@ async fn consume_binance_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
                 feed.retry_progress.clone(),
+                feed.runtime_options.startup_delay(),
                 move || {
                     let feed = feed.clone();
                     let plan = plan.clone();
@@ -399,6 +400,7 @@ async fn consume_bitget_feed(
         supervisor::Backoff::new(1, 8),
         shutdown.clone(),
         feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
         move || {
             let feed = feed.clone();
             let shutdown = shutdown.clone();
@@ -430,6 +432,7 @@ async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>)
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
                 planned_feed.retry_progress.clone(),
+                planned_feed.runtime_options.startup_delay(),
                 move || {
                     let feed = planned_feed.clone();
                     let url = url.clone();
@@ -469,6 +472,7 @@ async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
                 planned_feed.retry_progress.clone(),
+                planned_feed.runtime_options.startup_delay(),
                 move || {
                     let feed = planned_feed.clone();
                     let url = url.clone();
@@ -547,6 +551,7 @@ async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
                 feed.retry_progress.clone(),
+                feed.runtime_options.startup_delay(),
                 move || {
                     let feed = feed.clone();
                     let shutdown = retry_shutdown.clone();

@@ -421,3 +421,19 @@ Project-specific memory for `rust/cryptofeed-rs`.
   budgets do not enlarge shutdown grace or preempt non-yielding caller code.
 - Explicit HTTP/WS proxy, idle policy and start delay remain unfinished alignment
   work; Python idle timeout must not be mistaken for a handshake deadline.
+
+
+## Startup and idle policy
+
+- Startup delay defaults zero, runs once per physical supervisor after hydration
+  and before shared admission, and does not repeat on retries. Replacement starts
+  new supervisors and delays again. Shutdown/removal cancels the waiting future;
+  false watch notifications must not restart the timer.
+- IdlePolicy ExchangeDefault preserves verified policies; After(positive Duration)
+  overrides transport receipt idle deadline; Disabled removes only that watchdog.
+  Incoming controls/Ping/Pong/data count; outgoing heartbeat does not.
+- Heartbeats/Ping-Pong handling and subscription acknowledgement deadlines remain
+  active when idle is disabled. Short overrides may reconnect healthy quiet feeds;
+  this is caller-owned policy. Startup is separate from connect/idle/ack deadlines.
+- Explicit HTTP/WS proxy remains unfinished; idle and startup policy are now
+  implemented rather than silently equating Python idle timeout with handshake.

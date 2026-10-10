@@ -179,7 +179,7 @@ impl WsConnection {
                     .map_err(|error| Error::Transport(error.to_string()))
             })
             .await?;
-        let mut session = Session::new(stream, self.heartbeat);
+        let mut session = Session::new(stream, self.heartbeat).runtime_options(self.options);
         session._connection_slot = Some(slot);
         Ok(session)
     }
@@ -189,6 +189,7 @@ pub struct Session<S> {
     stream: S,
     heartbeat: HeartbeatPolicy,
     last_received: Instant,
+    idle_timeout: Option<Duration>,
     next_heartbeat: Option<Instant>,
     pending_subscriptions: std::collections::VecDeque<String>,
     _connection_slot: Option<tokio::sync::OwnedSemaphorePermit>,
@@ -198,6 +199,17 @@ pub struct Session<S> {
 }
 
 impl<S> Session<S> {
+    /// Sets the receipt watchdog; handshake/callback/retry settings apply at
+    /// their owning runtime layers, not to this established session.
+    pub fn runtime_options(mut self, options: crate::options::RuntimeOptions) -> Self {
+        self.idle_timeout = match options.receipt_policy() {
+            crate::options::IdlePolicy::ExchangeDefault => Some(self.heartbeat.idle_timeout),
+            crate::options::IdlePolicy::After(timeout) => Some(timeout),
+            crate::options::IdlePolicy::Disabled => None,
+        };
+        self
+    }
+
     pub(crate) fn set_readiness(&mut self, readiness: Option<super::readiness::ConnectionAttempt>) {
         if let Some(readiness) = &readiness {
             readiness.connected();
@@ -246,6 +258,7 @@ impl<S> Session<S> {
             stream,
             heartbeat,
             last_received: now,
+            idle_timeout: Some(heartbeat.idle_timeout),
             next_heartbeat,
             pending_subscriptions: std::collections::VecDeque::new(),
             _connection_slot: None,
@@ -309,8 +322,10 @@ where
                 return Ok(None);
             }
 
-            let idle_deadline = self.last_received + self.heartbeat.idle_timeout;
-            let heartbeat_deadline = self.next_heartbeat.unwrap_or(idle_deadline);
+            let idle_deadline = self
+                .idle_timeout
+                .map(|timeout| self.last_received + timeout);
+            let heartbeat_deadline = self.next_heartbeat.unwrap_or_else(Instant::now);
             let acknowledgement_deadline = self
                 .readiness
                 .as_ref()
@@ -326,7 +341,7 @@ where
                         }
                     }
                 }
-                _ = tokio::time::sleep_until(idle_deadline) => {
+                _ = tokio::time::sleep_until(idle_deadline.unwrap_or_else(Instant::now)), if idle_deadline.is_some() => {
                     return Err(Error::Transport("websocket idle timeout".to_owned()));
                 }
                 _ = tokio::time::sleep_until(heartbeat_deadline), if self.next_heartbeat.is_some() => {
@@ -352,7 +367,7 @@ where
                     self.subscribed();
                     self.next_subscription = Instant::now() + Duration::from_millis(250);
                 }
-                _ = tokio::time::sleep_until(acknowledgement_deadline.unwrap_or(idle_deadline)), if acknowledgement_deadline.is_some() => {
+                _ = tokio::time::sleep_until(acknowledgement_deadline.unwrap_or_else(Instant::now)), if acknowledgement_deadline.is_some() => {
                     return Err(Error::Transport("subscription acknowledgement timed out".to_owned()));
                 }
                 message = self.stream.next() => {
@@ -490,6 +505,62 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .contains("acknowledgement timed out")
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_idle_deadline_times_out_without_transport_receipts() {
+        let (client, _server) = websocket_pair().await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(None, Duration::from_secs(30), Duration::from_secs(60)),
+        )
+        .runtime_options(
+            crate::options::RuntimeOptions::default()
+                .idle_policy(crate::options::IdlePolicy::After(Duration::from_millis(20)))
+                .unwrap(),
+        );
+        let (_stop, mut shutdown) = watch::channel(false);
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            session.next_text_or_shutdown(&mut shutdown),
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(result, Err(Error::Transport(message)) if message == "websocket idle timeout")
+        );
+    }
+
+    #[tokio::test]
+    async fn disabling_idle_watchdog_keeps_heartbeats_and_shutdown_active() {
+        let (client, mut server) = websocket_pair().await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(
+                Some("ping"),
+                Duration::from_millis(10),
+                Duration::from_millis(30),
+            ),
+        )
+        .runtime_options(
+            crate::options::RuntimeOptions::default()
+                .idle_policy(crate::options::IdlePolicy::Disabled)
+                .unwrap(),
+        );
+        let (stop, mut shutdown) = watch::channel(false);
+        let task = tokio::spawn(async move { session.next_text_or_shutdown(&mut shutdown).await });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            for _ in 0..5 { assert!(matches!(server.next().await.unwrap().unwrap(), Message::Text(value) if value == "ping")); }
+        }).await.unwrap();
+        stop.send(true).unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .is_none()
         );
     }
 

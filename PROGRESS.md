@@ -498,3 +498,22 @@ feature boundaries.
   formatting and documentation links passed. No new live protocol claim.
 - Explicit HTTP/WS proxy, caller idle policy and start delay remain unfinished;
   full market metadata and optional ecosystem work remain in the active goal.
+
+
+## Usage alignment: startup delay and idle receipt policy — 2026-10-10
+
+- RuntimeOptions adds zero-default startup delay and IdlePolicy ExchangeDefault,
+  positive After(duration), or Disabled. Incoming transport receipts anchor idle
+  deadlines; outgoing heartbeats do not. Overrides do not rewrite heartbeat
+  payload/cadence, Ping/Pong handling or subscription-confirmation deadlines.
+- Startup delay runs once per physical supervisor after hydration/before admission;
+  retries use backoff and replacement generations delay again. Shutdown/removal
+  cancels the wait, and false watch notifications do not restart its timer.
+- Offline regressions cover custom idle expiry, disabled idle beyond the previous
+  deadline with continuing heartbeat/shutdown, zero rejection, option retention,
+  startup cancellation before work and false watch notifications. No protocol
+  fixture or external endpoint changed; no new live evidence is claimed.
+- Final verification: 492 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation,
+  formatting and documentation links passed. Explicit HTTP/WS proxy, full market
+  metadata and optional ecosystem work remain under the active overall goal.

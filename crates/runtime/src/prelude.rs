@@ -52,4 +52,4 @@ pub use crate::books::{
     BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle,
 };
 
-pub use crate::options::RuntimeOptions;
+pub use crate::options::{IdlePolicy, RuntimeOptions};

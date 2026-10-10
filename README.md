@@ -459,7 +459,7 @@ Runtime connections implement exchange application heartbeats, idle detection,
 indefinite transient reconnection with bounded backoff, bounded shutdown, feed
 failure isolation, batch event delivery, and product-aware L2 snapshot/gap
 recovery. [RuntimeOptions](docs/runtime-options.md) adds per-connection retry
-limits and handshake/callback deadlines. Handler callbacks default to five
+limits, startup delay, receipt idle policy and handshake/callback deadlines. Handler callbacks default to five
 seconds so a stuck callback
 cannot permanently stop socket reads; high-volume consumers should prefer the
 bounded event-stream API.

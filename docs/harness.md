@@ -344,3 +344,12 @@ exercise validated budgets, retry reset/permanent failure, stalled establishment
 callback cancellation and planning preservation. The paced-session double also
 asserts initialization only after all subscribe writes. Default tests stay offline;
 no new exchange wire fixture or live-service claim is introduced.
+
+
+## Startup and idle timing targets
+
+`startup_delay_is_cancellable` and `false_shutdown_notifications` verify no work
+before a cancelled delay and a stable initial timer despite watch notifications.
+Duplex `custom_idle_deadline` and `disabling_idle_watchdog` verify configured
+expiry and continued heartbeat/shutdown beyond the original disabled deadline.
+These are offline timing-policy tests; exchange heartbeat fixtures are unchanged.

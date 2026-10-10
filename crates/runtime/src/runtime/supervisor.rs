@@ -87,7 +87,15 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = cryptofeed_core::error::Result<T>>,
 {
-    retry_with_progress(max_retries, backoff, shutdown, None, operation).await
+    retry_with_progress(
+        max_retries,
+        backoff,
+        shutdown,
+        None,
+        std::time::Duration::ZERO,
+        operation,
+    )
+    .await
 }
 
 pub(crate) async fn retry_with_progress<T, F, Fut>(
@@ -95,12 +103,30 @@ pub(crate) async fn retry_with_progress<T, F, Fut>(
     mut backoff: Backoff,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
     progress: Option<std::sync::Arc<RetryProgress>>,
+    start_delay: std::time::Duration,
     operation: F,
 ) -> cryptofeed_core::error::Result<Option<T>>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = cryptofeed_core::error::Result<T>>,
 {
+    if !start_delay.is_zero() {
+        let delay = tokio::time::sleep(start_delay);
+        tokio::pin!(delay);
+        loop {
+            if *shutdown.borrow() {
+                return Ok(None);
+            }
+            tokio::select! {
+                biased;
+                changed = shutdown.changed() => match changed {
+                    Ok(()) if !*shutdown.borrow() => continue,
+                    _ => return Ok(None),
+                },
+                _ = &mut delay => break,
+            }
+        }
+    }
     let mut attempts = 0usize;
 
     loop {
@@ -188,6 +214,7 @@ mod tests {
             Backoff::new(0, 0),
             shutdown,
             Some(progress.clone()),
+            std::time::Duration::ZERO,
             || async {
                 let attempt = attempts.fetch_add(1, Ordering::SeqCst);
                 if attempt == 1 {
@@ -206,6 +233,7 @@ mod tests {
             Backoff::new(0, 0),
             shutdown,
             Some(progress.clone()),
+            std::time::Duration::ZERO,
             || async {
                 permanent.fetch_add(1, Ordering::SeqCst);
                 progress.subscribed();
@@ -220,6 +248,74 @@ mod tests {
         assert_eq!(backoff.next_delay_secs(), 2);
         backoff.reset();
         assert_eq!(backoff.next_delay_secs(), 1);
+    }
+
+    #[tokio::test]
+    async fn startup_delay_is_cancellable_before_any_operation() {
+        let (stop, shutdown) = watch::channel(false);
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let observed = attempts.clone();
+        let task = tokio::spawn(async move {
+            super::retry_with_progress(
+                Some(0),
+                Backoff::new(0, 0),
+                shutdown,
+                None,
+                std::time::Duration::from_secs(60),
+                || async {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok::<(), Error>(())
+                },
+            )
+            .await
+        });
+        tokio::task::yield_now().await;
+        stop.send(true).unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 0);
+    }
+    #[tokio::test]
+    async fn false_shutdown_notifications_do_not_restart_startup_timer() {
+        let (stop, shutdown) = watch::channel(false);
+        let notifications = tokio::spawn(async move {
+            for _ in 0..100 {
+                let _ = stop.send(false);
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        });
+        let attempts = AtomicUsize::new(0);
+        let started = tokio::time::Instant::now();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            super::retry_with_progress(
+                Some(1),
+                Backoff::new(0, 0),
+                shutdown,
+                None,
+                std::time::Duration::from_millis(20),
+                || async {
+                    assert!(started.elapsed() >= std::time::Duration::from_millis(20));
+                    if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                        Err(Error::Transport("first".into()))
+                    } else {
+                        Ok(42)
+                    }
+                },
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        notifications.abort();
+        assert_eq!(result, Some(42));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 
     #[test]

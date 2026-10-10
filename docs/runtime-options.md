@@ -3,7 +3,7 @@
 `RuntimeOptions` configures one logical feed's physical connection supervisors
 and callback deadlines. Its defaults preserve unbounded transient retries,
 a 20-second connection establishment timeout and a five-second timeout for each
-callback. Options survive symbol hydration, concrete channel groups, capacity
+callback, zero startup delay and the exchange-specific receipt watchdog. Options survive symbol hydration, concrete channel groups, capacity
 shards, reconnects and managed replacement templates.
 
 ```rust
@@ -13,6 +13,8 @@ use std::time::Duration;
 fn configure() -> Result<ExchangeFeed, Box<dyn std::error::Error>> {
     let options = RuntimeOptions::default()
         .max_retries(Some(3))
+        .start_delay(Duration::from_secs(2))
+        .idle_policy(IdlePolicy::After(Duration::from_secs(120)))?
         .connect_timeout(Duration::from_secs(10))?
         .handler_timeout(Duration::from_millis(200))?;
     Ok(Okx::new().trade().symbol("BTC-USDT").runtime_options(options).build())
@@ -21,8 +23,11 @@ fn configure() -> Result<ExchangeFeed, Box<dyn std::error::Error>> {
 
 Timeout setters reject zero and return a configuration error before a feed is
 built. `retry_limit`, `connection_deadline` and `callback_deadline` expose current
-settings. `WsConnection::runtime_options` also accepts options for low-level
-connection users; it uses only the connection deadline.
+settings. `startup_delay` and `receipt_policy` expose the new timing policies.
+`WsConnection::runtime_options` also accepts options for low-level
+connection users; it uses the connection deadline and applies idle policy to the
+established session. Retry/start delay/callback settings belong to runtime
+supervisors/dispatchers, not the low-level connection itself.
 
 ## Retries and successful initialization
 
@@ -66,14 +71,37 @@ callbacks must yield, and partial external side effects are not undone. See
 [handler semantics](handlers.md). A larger callback deadline does not enlarge the
 runtime's bounded shutdown grace period.
 
-Protocol heartbeats/idle deadlines, the 30-second subscription confirmation limit,
-HTTP directory/snapshot budgets and shared admission/send pacing remain fixed.
-Python's `timeout` is an idle-message watcher; it must not be translated directly
-into this connection deadline. Explicit proxy configuration, start delay and
-caller idle policy remain separate unfinished work: HTTP and WebSocket proxy
-paths must be handled consistently, while idle policy must respect exchange
-heartbeat requirements. This increment does not claim general Python config-file
-or proxy parity.
+## Startup and transport receipt watchdog
+
+`start_delay(duration)` waits once per physical connection supervisor before
+shared connection admission, after catalog/capability preparation. Default zero
+adds no wait. Retry attempts use backoff without repeating startup delay. A new
+replacement generation starts new supervisors and delays again, adding to its
+replacement data gap. The delay is cancellation-aware; shutdown/removal can end
+it before any socket work. False watch notifications do not restart its timer.
+This matches the inspected Python connection handler's initial start delay.
+
+`idle_policy(IdlePolicy::ExchangeDefault)` preserves the verified per-exchange
+watchdog. `IdlePolicy::After(duration)` overrides it with a positive receipt idle
+timeout; zero is rejected. `IdlePolicy::Disabled` removes the receipt watchdog,
+corresponding to Python's disabled timeout option. Unlike Python's periodic
+watcher, Rust checks the actual deadline in the session select loop.
+
+Receipt means incoming transport frames, including Ping/Pong and control/data
+traffic, not just normalized market events. Outgoing heartbeats do not count as
+receipts. Neither changing nor disabling the watchdog changes heartbeat
+payloads/cadence, Ping/Pong responses, subscription-ack deadlines, explicit remote
+close/reconnect behavior or shutdown. Callers can deliberately set a deadline
+shorter than the exchange's quiet heartbeat cadence, which can reconnect healthy
+but quiet subscriptions; use ExchangeDefault unless the application needs that
+tradeoff. Disabled idle detection may leave a quiet connection open until another
+transport/error/shutdown condition occurs.
+
+The 30-second subscription confirmation limit, HTTP directory/snapshot budgets
+and shared admission/send pacing remain fixed. Python's `timeout` is the idle
+message watcher, not the connection establishment deadline. Explicit HTTP/WS
+proxy configuration remains unfinished and must handle both transport paths
+consistently. This increment does not claim general Python config-file parity.
 
 ## Verification
 
@@ -82,5 +110,7 @@ subscription-success reset and permanent-error behavior, stalled establishment,
 result preservation, configured callback cancellation after FeedHandler
 registration, and per-channel option preservation. Existing session doubles
 verify that partial subscribe queues do not reset the budget and completed writes
-do. No external endpoint, fixture or parser was changed; these are SDK policy
+do. Startup regressions cover cancellation and false watch notifications; duplex
+sessions cover custom idle expiry and disabled idle with continued heartbeat
+and shutdown. No external endpoint, fixture or parser was changed; these are SDK policy
 tests, not new live protocol evidence.
