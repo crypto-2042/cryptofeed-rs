@@ -2,7 +2,7 @@ https://api.gateio.ws/api/v4/spot/currency_pairs -> 1710000001.100000: [{"id":"B
 https://api.gateio.ws/api/v4/futures/usdt/contracts -> 1710000001.200000: [{"name":"BTC_USDT","type":"direct","quanto_multiplier":"0.0001","settle":"usdt","settle_currency":"USDT","in_delisting":false}]
 https://api.gateio.ws/api/v4/futures/btc/contracts -> 1710000001.300000: [{"name":"BTC_USD","type":"inverse","quanto_multiplier":"0","settle":"btc","settle_currency":"BTC","in_delisting":false}]
 https://api.gateio.ws/api/v4/delivery/usdt/contracts -> 1710000001.400000: [{"name":"BTC_USDT_20260925","underlying":"BTC_USDT","cycle":"QUARTERLY","type":"direct","quanto_multiplier":"0.0001","orderbook_id":300,"in_delisting":false}]
-https://api.gateio.ws/api/v4/spot/order_book?currency_pair=BTC_USDT&limit=100&with_id=true -> 1710000001.500000: {"id":100,"current":1710000001.5,"bids":[["64999.10","1.25"]],"asks":[["65000.20","0.75"]]}
+https://api.gateio.ws/api/v4/spot/order_book?currency_pair=BTC_USDT&limit=100&with_id=true -> 1710000001.500000: {"id":100,"current":1710000001500,"bids":[["64999.10","1.25"]],"asks":[["65000.20","0.75"]]}
 https://api.gateio.ws/api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=100&with_id=true -> 1710000001.600000: {"id":200,"current":1710000001.6,"update":1710000001.55,"bids":[{"p":"64999.10","s":"2"}],"asks":[{"p":"65000.20","s":"3"}]}
 https://api.gateio.ws/api/v4/futures/btc/order_book?contract=BTC_USD&limit=100&with_id=true -> 1710000001.700000: {"id":250,"current":1710000001.7,"update":1710000001.65,"bids":[{"p":"64998.00","s":"4"}],"asks":[{"p":"65001.00","s":"5"}]}
 https://api.gateio.ws/api/v4/delivery/usdt/order_book?contract=BTC_USDT_20260925&limit=100&with_id=true -> 1710000001.800000: {"id":300,"current":1710000001.8,"update":1710000001.75,"bids":[{"p":"65010.00","s":"6"}],"asks":[{"p":"65020.00","s":"7"}]}
@@ -13,3 +13,11 @@ https://api.gateio.ws/api/v4/spot/currency_pairs -> 1791580000.000000: [{"id":"B
 https://api.gateio.ws/api/v4/spot/currency_pairs -> 1791580000.000000: [{"id":"BTC_USDT","base":"BTC","quote":"USDT","trade_status":"tradable","precision":2,"amount_precision":6,"min_base_amount":"0.00001","min_quote_amount":"5"}]
 
 https://api.gateio.ws/api/v4/futures/usdt/contracts -> 1791580000.000000: [{"name":"BTC_USDT","type":"direct","in_delisting":false,"quanto_multiplier":"0.0001","order_price_round":"0.1","order_size_min":1}]
+
+https://api.gateio.ws/api/v4/spot/tickers?currency_pair=BTC_USDT -> 1710000001.500000: [{"currency_pair":"BTC_USDT","highest_bid":"100.01","lowest_ask":"101.02"}]
+
+https://api.gateio.ws/api/v4/spot/order_book?currency_pair=BTC_USDT&limit=20&with_id=true&interval=0 -> 1710000001.500000: {"id":9007199254740993,"current":1710000000500,"update":1710000000400,"bids":[["99","2"],["100","1"]],"asks":[["102","2"],["101","1"]]}
+
+https://api.gateio.ws/api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=20&with_id=true&interval=0 -> 1710000001.500000: {"id":1,"bids":[{"p":"100","s":"0.25"}],"asks":[],"update":1710000000.5}
+
+https://api.gateio.ws/api/v4/futures/usdt/tickers?contract=BTC_USDT -> 1710000001.500000: [{"contract":"BTC_USDT","highest_bid":"100","lowest_ask":"101"}]

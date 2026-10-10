@@ -11,3 +11,9 @@ https://dapi.binance.com/dapi/v1/exchangeInfo -> 1791580000.000000: {"symbols":[
 https://api.binance.com/api/v3/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","filters":[{"filterType":"LOT_SIZE","stepSize":"0.001","minQty":"0.001"},{"filterType":"PRICE_FILTER","tickSize":"0.05"}]}]}
 
 https://dapi.binance.com/dapi/v1/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSD_PERP","baseAsset":"BTC","quoteAsset":"USD","contractType":"PERPETUAL","contractStatus":"TRADING","contractSize":100,"marginAsset":"BTC","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.1"},{"filterType":"LOT_SIZE","stepSize":"1","minQty":"1"}]}]}
+
+https://data-api.binance.vision/api/v3/ticker/bookTicker?symbol=BTCUSDT -> 1710000001.500000: {"symbol":"BTCUSDT","bidPrice":"100.01","askPrice":"101.02"}
+
+https://data-api.binance.vision/api/v3/depth?symbol=BTCUSDT&limit=20 -> 1710000001.500000: {"lastUpdateId":9007199254740993,"bids":[["99","2"],["100","1"]],"asks":[["102","2"],["101","1"]]}
+
+https://dapi.binance.com/dapi/v1/ticker/bookTicker?symbol=BTCUSD_PERP -> 1710000001.500000: [{"symbol":"BTCUSD_PERP","bidPrice":"100","askPrice":"101","time":1710000000000,"lastUpdateId":9007199254740993}]

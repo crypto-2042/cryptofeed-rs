@@ -9,3 +9,7 @@ https://api.bybit.com/v5/market/instruments-info?category=linear&status=Trading 
 https://api.bybit.com/v5/market/instruments-info?category=spot&status=Trading -> 1791580000.000000: {"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"Trading","priceFilter":{"tickSize":"0.1"},"lotSizeFilter":{"basePrecision":"0.000001","minOrderQty":"0.001","minOrderAmt":"5"}}]}}
 
 https://api.bybit.com/v5/market/instruments-info?category=linear&status=Trading -> 1791580000.000000: {"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"Trading","settleCoin":"USDT","priceScale":"1","priceFilter":{"tickSize":"0.1"},"lotSizeFilter":{"qtyStep":"0.001","minOrderQty":"0.001","minNotionalValue":"5"}}],"nextPageCursor":""}}
+
+https://api.bybit.com/v5/market/tickers?symbol=BTCUSDT&category=spot -> 1710000001.500000: {"retCode":0,"time":1710000000123,"result":{"category":"spot","list":[{"symbol":"BTCUSDT","bid1Price":"100.01","ask1Price":"101.02"}]}}
+
+https://api.bybit.com/v5/market/orderbook?symbol=BTCUSDT&category=spot&limit=20 -> 1710000001.500000: {"retCode":0,"result":{"s":"BTCUSDT","b":[["99","2"],["100","1"]],"a":[["102","2"],["101","1"]],"ts":1710000000123,"cts":1710000000100,"u":9007199254740993}}

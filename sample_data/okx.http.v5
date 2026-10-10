@@ -8,3 +8,7 @@ https://openapi.okx.com/api/v5/public/instruments?instType=SPOT -> 1791510000.10
 https://openapi.okx.com/api/v5/public/instruments?instType=SPOT -> 1791580000.000000: {"data":[{"instId":"BTC-USDT","instType":"SPOT","baseCcy":"BTC","quoteCcy":"USDT","state":"live","tickSz":"0.1","lotSz":"0.000001","minSz":"0.00001"}]}
 
 https://openapi.okx.com/api/v5/public/instruments?instType=SWAP -> 1791580000.000000: {"data":[{"instId":"BTC-USD-SWAP","instType":"SWAP","state":"live","tickSz":"0.1","lotSz":"1","minSz":"1","ctVal":"100","ctValCcy":"USD","ctMult":"1","ctType":"inverse","settleCcy":"BTC"}]}
+
+https://openapi.okx.com/api/v5/market/ticker?instId=BTC-USDT -> 1710000001.500000: {"code":"0","data":[{"instId":"BTC-USDT","instType":"SPOT","bidPx":"100.01","askPx":"101.02","ts":"1710000000123"}]}
+
+https://openapi.okx.com/api/v5/market/books?instId=BTC-USDT&sz=20 -> 1710000001.500000: {"code":"0","data":[{"bids":[["99","2","0","1"],["100","1","0","1"]],"asks":[["102","2","0","1"],["101","1","0","1"]],"ts":"1710000000123","seqId":9007199254740993}]}

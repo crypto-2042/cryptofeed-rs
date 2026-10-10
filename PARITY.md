@@ -57,6 +57,8 @@ Ready on one Spot socket each; required endpoint/product splits remain asserted.
 [MarketInfo](docs/market-metadata.md) now exposes verified directory constraints
 and contract fields with exact Decimal/applicability rules and build-specific
 channel context. No event units or capability cell changed.
+[PublicRestClient](docs/public-rest.md) adds ticker/book snapshots with optional
+native times/IDs and shared HTTP-status backoff; history remains pending.
 Scripted regressions cover listings/removals, native-name changes, empty/failing
 refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
 tracked in [the usage alignment plan](docs/python-usage-alignment.md).

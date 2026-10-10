@@ -385,3 +385,14 @@ identity/metadata retention, feature-aware channels and duplicate conflicts.
 `metadata_only_refresh` verifies unchanged subscriptions. Matching sanitized HTTP
 references have provenance; the separate public example records live catalogs.
 No-default metadata tests ensure this surface works without data-channel features.
+
+
+## Public REST and HTTP backoff targets
+
+`rest::adapter::tests` validates native requests, products/depth, reply identity,
+precision, sequence/time and malformed input. REST client tests cover feature-
+aware capabilities and preflight before HTTP. Paused-clock HTTP tests prove
+queued cooldown extension, venue isolation, cancellation and slot release;
+HTTP-response/byte doubles verify status/date parsing, no body echo and bounds.
+Default tests use no listening socket. The dated `rest_public` run separately
+verifies live Spot/Perpetual snapshots and the corrected Gate Spot unit.

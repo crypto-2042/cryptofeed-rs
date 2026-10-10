@@ -25,6 +25,7 @@ index = ["dep:cryptofeed-index"]
 
 [dependencies]
 base64 = "0.22"
+httpdate = "1"
 cryptofeed-core.workspace = true
 cryptofeed-candles = { path = "../candles", version = "0.1.0", optional = true }
 cryptofeed-funding = { path = "../funding", version = "0.1.0", optional = true }
@@ -46,6 +47,8 @@ tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+http = "1"
+tokio = { workspace = true, features = ["test-util"] }
 async-trait.workspace = true
 
 [[test]]
@@ -137,6 +140,10 @@ required-features = ["trade", "orderbook"]
 [[example]]
 name = "packed_public"
 required-features = ["trade", "orderbook"]
+
+[[example]]
+name = "rest_public"
+required-features = ["ticker", "orderbook"]
 
 [package.metadata.docs.rs]
 all-features = true

@@ -96,8 +96,8 @@ catalog existence/hydration as caller assertions.
 changes. A metadata-only refresh does not restart an otherwise unchanged healthy
 subscription; callers needing updated metadata obtain a new catalog snapshot.
 The current Rust WS capability list is available even in metadata-only builds,
-where supported_channels can be empty. Public REST/history method capabilities
-remain a separate unfinished workstream.
+where supported_channels can be empty. [PublicRestClient](public-rest.md) separately reports its implemented REST methods;
+history/pagination remain unfinished.
 
 ## Verification and references
 

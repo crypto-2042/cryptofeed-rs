@@ -30,7 +30,10 @@ impl Backoff {
 pub fn is_permanent(error: &cryptofeed_core::error::Error) -> bool {
     matches!(
         error,
-        cryptofeed_core::error::Error::UnsupportedExchange(_)
+        cryptofeed_core::error::Error::HttpStatus {
+            status: 400 | 401 | 403 | 404 | 405 | 410 | 422,
+            ..
+        } | cryptofeed_core::error::Error::UnsupportedExchange(_)
             | cryptofeed_core::error::Error::UnsupportedChannel(_)
             | cryptofeed_core::error::Error::UnsupportedSymbol(_)
             | cryptofeed_core::error::Error::AmbiguousSymbol(_)
@@ -384,6 +387,23 @@ mod tests {
 
         assert!(matches!(result, Err(Error::Subscription(_))));
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn http_request_failures_fail_fast_but_throttling_stays_transient() {
+        for (status, expected) in [(400, 1), (429, 2)] {
+            let attempts = AtomicUsize::new(0);
+            let result: Result<()> = super::retry_with_backoff(1, Backoff::new(0, 0), || async {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Err(Error::HttpStatus {
+                    status,
+                    retry_after: None,
+                })
+            })
+            .await;
+            assert!(matches!(result,Err(Error::HttpStatus {status:actual,..}) if actual==status));
+            assert_eq!(attempts.load(Ordering::SeqCst), expected);
+        }
     }
 
     #[tokio::test]

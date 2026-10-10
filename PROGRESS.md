@@ -603,3 +603,35 @@ feature boundaries.
 - Global allocation/resource policies and optional public REST/history,
   recording/replay, sinks/aggregation and NBBO remain unfinished under the active
   overall goal. Full trading-rule/account validation is outside this SDK scope.
+
+
+## Usage alignment: public REST snapshots and HTTP backoff — 2026-10-10
+
+- Added PublicRestClient catalog-bound ticker/L2 snapshots on current five-exchange
+  public routes, with category feature gates, native identity/product validation
+  and normalized existing models. Unknown symbols/depth fail before HTTP; no
+  subscription, account/trading operation or OI polling was added.
+- RestSnapshot exposes optional native time/sequence separately from received
+  time and the existing model fallback. Book prices/sizes and IDs remain exact;
+  levels are sorted/bounded, duplicate/negative sizes fail. Native quantities
+  are not converted or joined to live recovery revision anchors.
+- Directory, REST and bootstrap now share four active HTTP slots/one-second
+  starts, per-venue Retry-After cooldown, cancellation and bounded bodies. Cooldown
+  waiters recheck extensions without occupying slots or blocking other venues.
+  Structured HTTP errors survive catalog coalescing; HTTP statuses are not
+  immediately retried. Existing network/JSON/envelope retry remains one.
+- First live query run exposed a Gate Spot timestamp-unit bug despite successful
+  HTTP results. Verified current Spot millisecond versus derivative second fields,
+  corrected by product, and updated narrow assertions/sanitized references.
+  Final twenty Spot/Perpetual ticker/book queries passed identity/time checks,
+  each book had 20 bids/20 asks and the process exited 0; earlier bad time output
+  remains documented rather than counted as a passing normalization check.
+- Final verification: 524 workspace tests, strict all-target Clippy, rustdoc,
+  all nine feature checks/tests, no-default compilation/capability execution,
+  Rust 1.85/fresh dependency resolution, formatting and documentation links passed.
+  httpdate is a small parsing dependency; HTTP-response and Tokio paused-clock
+  test support remain dev-only. Cargo.lock is untracked.
+- Trade/candle/funding history and bounded pagination, recording/replay,
+  sinks/aggregation, NBBO and weighted/native-code/distributed resource policies
+  remain unfinished under the active full alignment goal. Snapshot REST is not
+  claimed as complete Python REST/history or trading-rule parity.

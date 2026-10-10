@@ -35,7 +35,7 @@ local checkout, not claims about every upstream version.
 | Candle completion | `feed.py`: `candle_closed_only`; Binance applies the flag | Implemented CandlePolicy All/ClosedOnly/ClosedOrUnknown at the common dispatcher; Rust retains its existing All default and never infers unknown completion. |
 | Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Implemented opt-in L2BookHandle atomic full-snapshot/subscription recovery with local identity/connection/epoch/revision anchors and resync/disconnect/stop invalidation. Quantity units remain exchange-native normalized units. |
 | Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Implemented feed-level retry limits and handshake/callback deadlines with compatible defaults and successful-subscription reset. Idle overrides/disable and cancellation-aware startup delay are now implemented; shared explicit HTTP/WS proxy routing is implemented through TransportConfig; fixed protocol/resource policies stay intact. |
-| Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Rust REST currently serves discovery and book bootstrap. Public history clients are a later workstream; verify current official endpoints before implementation. |
+| Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Implemented PublicRestClient ticker/book snapshots on current five-exchange routes, normalized models and optional native time/IDs; trade/candle/funding history and bounded pagination remain pending. |
 | Recording/replay | `raw_data_collection.py`: recording and playback | Rust has deterministic inline fixtures/session doubles, but no user recording/replay API. Phase 5, with sanitization and an explicit file format. |
 | Storage/aggregation | `backends/`: database/message-bus/socket adapters, aggregate callbacks | No bundled Rust backends or OHLCV/throttle/Renko adapters. Phase 5 starts with a small sink contract and one justified adapter, avoiding a dependency-heavy default SDK. |
 | Cross-exchange NBBO | `feedhandler.py`: `add_nbbo`; `nbbo.py` | No Rust aggregation helper. Later opt-in work, with stale-source and symbol/unit compatibility rules. |
@@ -174,7 +174,9 @@ defaults unless a documented migration intentionally changes them.
 
 ## Phase 5 — optional ecosystem features
 
-Public REST/history, sanitized recording/replay, sinks and aggregation, and NBBO
+[Public REST ticker/book snapshots](public-rest.md) and shared HTTP-status backoff
+are implemented. Trade/candle/funding history with bounded pagination remains
+pending. Sanitized recording/replay, sinks and aggregation, and NBBO
 are separate increments after the subscription/lifecycle contract is stable.
 Do not promise full Python backend parity as part of the 0.1 core SDK. Each
 increment needs a concrete caller workflow, bounded resource behavior, and

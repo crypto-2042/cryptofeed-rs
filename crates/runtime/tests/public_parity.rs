@@ -1604,7 +1604,7 @@ fn gateio_l2_book_matches_public_baseline() {
 fn gateio_rest_book_bootstrap_is_a_snapshot() {
     let message = json!({
         "id": 100u64,
-        "current": 1710000001.5,
+        "current": 1710000001500u64,
         "bids": [["64999.10", "1.25"]],
         "asks": [["65000.20", "0.75"]]
     });
@@ -1613,6 +1613,8 @@ fn gateio_rest_book_bootstrap_is_a_snapshot() {
         .expect("REST snapshot");
 
     assert_eq!(snapshot.last_update_id, Some(100));
+    assert_eq!(snapshot.generated_ts, 1710000001.5);
+    assert_eq!(snapshot.book.exchange_ts, 1710000001.5);
     assert_eq!(snapshot.book.symbol.as_str(), "BTC-USDT");
     assert_eq!(
         snapshot.book.bids[0].amount,

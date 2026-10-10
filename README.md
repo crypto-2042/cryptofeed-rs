@@ -357,6 +357,16 @@ The filter applies to handlers, streams and counters. Bitget currently has
 unknown completion, so strict mode delivers no candles there. See
 [candle delivery](docs/candle-delivery.md) for policies and Python differences.
 
+## Public REST snapshots
+
+`PublicRestClient::load(exchange, product).await?` exposes feature-gated
+`ticker(&symbol)` and `l2_book(&symbol, depth)` on current public endpoints.
+Results reuse normalized models, with optional native timestamp/sequence metadata.
+Catalog identity, proxy routing and bounded HTTP admission are shared; queries
+create no WS subscription and do not change live recovery state. See
+[public REST](docs/public-rest.md) for native depth/time rules, HTTP backoff and
+examples. Trade/candle/funding history and pagination remain unfinished.
+
 ## HTTP and WebSocket proxy
 
 Use `.transport(TransportConfig::http_proxy("http://127.0.0.1:8080")?)` to route

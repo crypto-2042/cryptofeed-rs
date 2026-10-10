@@ -770,7 +770,7 @@ fn channel_name(channel: Channel) -> &'static str {
     }
 }
 
-fn product_from_normalized(symbol: &Symbol) -> Result<BinanceProduct> {
+pub(crate) fn product_from_normalized(symbol: &Symbol) -> Result<BinanceProduct> {
     if symbol.kind() == InstrumentKind::Option {
         return Ok(BinanceProduct::Option);
     }

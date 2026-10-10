@@ -5,8 +5,7 @@ mod control;
 pub(crate) use control::tests::start as test_managed_runtime;
 pub(crate) mod planning;
 pub(crate) mod readiness;
-#[cfg(feature = "orderbook")]
-mod snapshot;
+pub(crate) mod snapshot;
 pub mod supervisor;
 
 #[cfg(all(feature = "orderbook", test))]
@@ -82,12 +81,6 @@ const GATEIO_MAX_RESNAPSHOTS: u32 = 3;
 const BINANCE_MAX_RESNAPSHOTS: u32 = 3;
 #[cfg(feature = "orderbook")]
 const MAX_BUFFERED_DELTAS_PER_SYMBOL: usize = 512;
-/// REST snapshot fetches must not hang the session: a stalled request would
-/// otherwise leak the fetch task and grow the pending-delta buffer forever.
-const SNAPSHOT_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-#[cfg(feature = "orderbook")]
-const MAX_SNAPSHOT_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
-
 /// Runs the feeds until Ctrl-C triggers a clean shutdown.
 pub async fn run(handler: FeedHandler) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -1514,7 +1507,7 @@ async fn fetch_binance_l2_snapshot(
     // Partial-depth streams must be bootstrapped from a snapshot of the same
     // width; the full-depth default uses the 1000-level snapshot.
     let url = BinanceAdapter::snapshot_url(&instrument, limit);
-    let payload = snapshot::fetch_json(&url, &transport).await?;
+    let payload = snapshot::fetch_json(&url, &transport, ExchangeId::Binance).await?;
     binance_parser::parse_l2_book_snapshot_for_instrument(
         &payload,
         &instrument,
@@ -1868,38 +1861,9 @@ async fn fetch_gateio_l2_snapshot_for_instrument(
     snapshot_url: String,
     transport: crate::transport::TransportConfig,
 ) -> Result<crate::exchange::gateio::book_sync::GateioBookSnapshot> {
-    let payload = snapshot::fetch_json(&snapshot_url, &transport).await?;
+    let payload = snapshot::fetch_json(&snapshot_url, &transport, ExchangeId::Gateio).await?;
     gateio_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, current_timestamp())
         .ok_or_else(|| Error::Parse("failed to parse gateio l2 snapshot".to_owned()))
-}
-
-#[cfg(feature = "orderbook")]
-async fn read_bounded_snapshot_json(response: reqwest::Response, url: &str) -> Result<Value> {
-    let mut response = response
-        .error_for_status()
-        .map_err(|error| Error::Transport(format!("{url}: {error}")))?;
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_SNAPSHOT_RESPONSE_BYTES as u64)
-    {
-        return Err(Error::MalformedData(format!(
-            "{url}: snapshot exceeds {MAX_SNAPSHOT_RESPONSE_BYTES} bytes"
-        )));
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| Error::Transport(format!("{url}: {error}")))?
-    {
-        if body.len().saturating_add(chunk.len()) > MAX_SNAPSHOT_RESPONSE_BYTES {
-            return Err(Error::MalformedData(format!(
-                "{url}: snapshot exceeds {MAX_SNAPSHOT_RESPONSE_BYTES} bytes"
-            )));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    serde_json::from_slice(&body).map_err(|error| Error::Parse(format!("{url}: {error}")))
 }
 
 #[cfg(feature = "orderbook")]

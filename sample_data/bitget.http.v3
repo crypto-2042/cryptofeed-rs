@@ -13,3 +13,9 @@ https://api.bitget.com/api/v3/market/instruments?category=SPOT -> 1791580000.000
 https://api.bitget.com/api/v3/market/instruments?category=USDT-FUTURES -> 1791580000.000000: {"data":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","type":"perpetual","status":"online","pricePrecision":"2","quantityPrecision":"3","priceMultiplier":"0.02","quantityMultiplier":"0.005","minOrderQty":"0.01","minOrderAmount":"5"}]}
 
 https://api.bitget.com/api/v3/market/instruments?category=SPOT -> 1791580000.000000: {"data":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"online","minOrderAmount":9007199254740993.123456789012}]}
+
+https://api.bitget.com/api/v3/market/tickers?symbol=BTCUSDT&category=SPOT -> 1710000001.500000: {"code":"00000","data":[{"symbol":"BTCUSDT","category":"SPOT","bid1Price":"100.01","ask1Price":"101.02","ts":"1710000000123"}]}
+
+https://api.bitget.com/api/v3/market/orderbook?symbol=BTCUSDT&category=SPOT&limit=20 -> 1710000001.500000: {"code":"00000","data":{"b":[[99,2],[100,1]],"a":[[102,2],[101,1]],"ts":"1710000000123"}}
+
+https://api.bitget.com/api/v3/market/orderbook?symbol=BTCUSDT&category=SPOT&limit=20 -> 1710000001.500000: {"code":"00000","data":{"b":[[100.12345678901234567890123456,0.1234567890123456789012345678]],"a":[],"ts":"1710000000000"}}

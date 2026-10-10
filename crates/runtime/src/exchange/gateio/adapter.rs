@@ -605,7 +605,7 @@ impl GateioAdapter {
     }
 }
 
-fn product_from_symbol(symbol: &Symbol) -> Result<GateioProduct> {
+pub(crate) fn product_from_symbol(symbol: &Symbol) -> Result<GateioProduct> {
     let quote = symbol.as_str().split('-').nth(1).unwrap_or_default();
     match (symbol.kind(), quote) {
         (InstrumentKind::Spot, _) => Ok(GateioProduct::Spot),

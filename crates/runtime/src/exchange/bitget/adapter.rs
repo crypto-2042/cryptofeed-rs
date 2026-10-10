@@ -380,7 +380,7 @@ impl BitgetAdapter {
     }
 }
 
-fn bitget_instrument_type(symbol: &Symbol) -> &'static str {
+pub(crate) fn bitget_instrument_type(symbol: &Symbol) -> &'static str {
     if symbol.kind() == InstrumentKind::Spot {
         return "spot";
     }

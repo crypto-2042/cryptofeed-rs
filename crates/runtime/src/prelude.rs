@@ -57,3 +57,5 @@ pub use crate::options::{IdlePolicy, RuntimeOptions};
 pub use crate::transport::TransportConfig;
 
 pub use crate::market_info::MarketInfo;
+
+pub use crate::rest::{PublicRestClient, RestSnapshot};

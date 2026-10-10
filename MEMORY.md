@@ -503,3 +503,25 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Ten live Spot/Perpetual catalogs passed after an earlier COIN-M request/TLS
   failure; retain both observations. Optional ecosystem/resource-policy work
   remains active; no private/trading or new product capability was enabled.
+
+
+## Public REST snapshots and shared HTTP
+
+- PublicRestClient uses catalog-native identity and transport for ticker/L2
+  snapshots, with data-category feature gates and separate REST capabilities.
+  No subscription, polling, feed-counter or recovery-state mutation occurs.
+- RestSnapshot carries optional native time/ID; models preserve the received-time
+  fallback when native time is absent. Response-generation time is not quote
+  event time. Native IDs are not local recovery revisions or cross-venue order.
+- Gate Spot REST book time is milliseconds; derivative time is seconds. Select
+  by schema/product, never magnitude; preserve the corrected reference/assertion.
+- Directory/REST/bootstrap now share four active HTTP slots/one-second starts.
+  Pacing/cooldown waiters release slots and recheck before starting. HTTP 418/429
+  or unsuccessful responses with Retry-After defer that venue; missing 418/429
+  header uses 60s SDK fallback. Other venues do not inherit cooldown.
+- HTTP errors keep status/optional parsed header, omit bodies and clone through
+  catalog coalescing. No automatic REST query retry; catalog HTTP errors return
+  immediately. Network/JSON/envelope retry remains one, and queued work cancels.
+- Fixed admission is not weight/native-code/distributed/shared-IP quota accounting.
+  Historical trades/candles/funding pagination, recording/replay, sinks,
+  aggregation, NBBO and advanced resource policy remain unfinished.

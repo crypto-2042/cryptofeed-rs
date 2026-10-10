@@ -600,3 +600,19 @@ price rounding. The [metadata guide](market-metadata.md) records source mappings
 optional/zero/error semantics and unit limitations. Sanitized HTTP references and
 inline helper/decoder assertions were added together; public event parser/model
 semantics and capability cells are unchanged. Metadata does not enable trading.
+
+## Public REST snapshot review — 2026-10-10
+
+Current primary ticker/book endpoints were verified for the five active
+exchanges' existing routing profiles. Binance Spot uses the recommended market-
+data-only host; futures book ticker remains v1 in current documentation (v2
+last-price ticker is a different service). Bitget uses v3; Bybit/OKX v5 and Gate
+v4 retain product-qualified routing. [Public REST](public-rest.md) records exact
+methods, limits, timestamp fields, native IDs and missing-time behavior.
+
+Gate Spot book `current`/`update` use milliseconds; derivative fields use seconds.
+The new parser was corrected from a live-observed unit error with product-based
+assertions and sanitized reference updates. No native sequence/bridge rule was
+relaxed. Shared HTTP admission/status/Retry-After behavior is SDK resource policy,
+not an exchange-weight quota guarantee. Public REST snapshots add no private,
+trading, OI-polling or new instrument capability.

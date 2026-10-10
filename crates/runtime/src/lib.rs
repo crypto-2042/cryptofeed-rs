@@ -31,6 +31,7 @@ pub mod market_info;
 pub mod markets;
 pub mod options;
 pub mod prelude;
+pub mod rest;
 pub mod runtime;
 pub mod transport;
 
@@ -53,3 +54,5 @@ pub use options::{IdlePolicy, RuntimeOptions};
 pub use transport::TransportConfig;
 
 pub use market_info::MarketInfo;
+
+pub use rest::{PublicRestClient, RestSnapshot};

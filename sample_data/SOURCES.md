@@ -192,3 +192,24 @@ stress reference (9007199254740993.123456789012), not a real BTC minimum. Its pu
 metadata assertion reads literal JSON with arbitrary_precision before exact
 Decimal conversion. Adversarial unit-only malformed/duplicate/inapplicable fields
 are SDK validation probes, not claims that official endpoints emit those values.
+
+## 2026-10-10 public REST snapshots
+
+Appended ticker/book payloads match the new inline `rest::adapter::tests`
+normalization cases for all five Spot surfaces, plus numeric-precision and Gate
+derivative row-shape references. Values, IDs and timestamps are substituted;
+these are not recordings of actual BTC quotes. Existing product identity
+fixtures and the new request-plan tests cover futures routing independently.
+Sources are the current public REST pages linked in [the guide](../docs/public-rest.md).
+
+Gate Spot `current`/`update` are milliseconds, while derivative book fields are
+seconds. The older Spot bootstrap reference's second-valued `current` was
+corrected to millisecond input alongside its narrow public parity timestamp
+assertion, without changing the normalized timestamp or sequence rule. A new
+near-epoch product test prevents magnitude-based unit guessing in the REST API.
+
+The long JSON-number Bitget book price/size and IDs above 2^53 are explicit
+precision stress references, not real quotes. HTTP Retry-After/status/body-limit
+checks use in-process HTTP-response doubles rather than inventing exchange
+market-data fixture rows. Final real-service observations are recorded separately
+in the dated REST report.

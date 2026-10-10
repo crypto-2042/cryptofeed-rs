@@ -58,11 +58,12 @@ an official Gate request rate is inferred from another exchange's constants.
 
 ## REST book snapshots
 
-Binance and Gate share one process-local snapshot admission budget; HTTP clients
+Directory, public REST and Binance/Gate bootstrap callers share one process-local
+HTTP admission budget; HTTP clients
 are reused within the selected [transport configuration](transport.md):
 
-- At most four admitted snapshot requests at once.
-- At least one second between request starts, including bootstrap and resnapshot.
+- At most four active network requests at once.
+- At least one second between request starts, including directory/REST/bootstrap.
 - Gate initial REST requests begin after buffering the first depth delta for that
   symbol; a long outbound subscribe queue cannot fetch before the subscription
   starts producing data. Full book pushes establish state directly without REST.
@@ -74,8 +75,10 @@ are reused within the selected [transport configuration](transport.md):
   intact. A delayed snapshot never permits skipping sequence validation.
 
 These bounds are not exchange-weight accounting. Other REST calls/processes can
-still consume the shared IP quota. Catalog discovery has a separate reused
-client/cache and request coalescing within its transport scope; it does not acquire snapshot slots.
+still consume the shared IP quota. Catalog discovery retains its transport-scoped
+client/cache and coalescing, but now shares HTTP admission. Per-exchange HTTP
+Retry-After cooldowns recheck queued work without occupying active slots; see
+[public REST](public-rest.md).
 
 ## Verification and remaining work
 
