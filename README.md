@@ -339,6 +339,15 @@ cargo run -p cryptofeed-rs --example managed_public
 state, data observations, reconnect epochs and stopping. Run the five-exchange
 public Trade/L2 observation with `cargo run -p cryptofeed-rs --example readiness_public`.
 
+## Recoverable L2 consumption
+
+Retain `handler.l2_book_handle()` before startup to enable managed L2 recovery.
+`books.recover(identity, &symbol)` atomically returns a full local snapshot and
+subsequent bounded updates with identity/connection/epoch/revision anchors.
+After lag, replace the old receiver and local book with a fresh recovery result.
+Disconnect/resync/stop withdraws unusable books. See [L2 recovery](docs/l2-recovery.md)
+and `book_recovery_public` for the consumer loop and resource/lifecycle limits.
+
 ## Candle completion
 
 Use `.candle_policy(CandlePolicy::ClosedOnly)` to deliver only explicitly final

@@ -43,6 +43,8 @@ capabilities are unchanged. Managed runtime controls/readiness and opt-in
 final/unknown delivery while preserving the all-update default.
 [Multiple handlers](docs/handlers.md) now execute serially with per-invocation
 timeout and catchable panic isolation; legacy primary setters remain compatible.
+[L2 recovery](docs/l2-recovery.md) adds opt-in full snapshots plus anchored
+updates and scoped invalidation; legacy broadcasts remain bounded/lossy.
 Scripted regressions cover listings/removals, native-name changes, empty/failing
 refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
 tracked in [the usage alignment plan](docs/python-usage-alignment.md).

@@ -36,6 +36,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Multiple handlers](handlers.md): registration order, per-callback deadlines,
   panic/error semantics, backpressure and shutdown.
 
+- [Recoverable L2 consumption](l2-recovery.md): atomic snapshots/subscriptions,
+  continuity anchors, lag recovery and cache invalidation.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are
@@ -43,6 +46,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-10 L2 recovery](reports/live-smoke-book-recovery-2026-10-10.md):
+  real OKX anchored L2 updates, full local snapshot and retirement.
 - [2026-10-10 directory reconciliation](reports/live-smoke-discovery-2026-10-10.md):
   real OKX periodic directory refresh without replacement, data and cleanup.
 - [2026-10-10 readiness](reports/live-smoke-readiness-2026-10-10.md):

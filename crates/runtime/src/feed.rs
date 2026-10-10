@@ -218,6 +218,8 @@ impl EventCounters {
 }
 
 pub struct FeedHandler {
+    #[cfg(feature = "orderbook")]
+    book_store: Option<Arc<crate::books::BookStore>>,
     feeds: Vec<ExchangeFeed>,
     event_sender: Option<broadcast::Sender<FeedEvent>>,
     status_sender: Option<broadcast::Sender<FeedStatus>>,
@@ -236,6 +238,8 @@ impl Default for FeedHandler {
 impl FeedHandler {
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "orderbook")]
+            book_store: None,
             feeds: Vec::new(),
             event_sender: None,
             status_sender: None,
@@ -313,6 +317,14 @@ impl FeedHandler {
         }
     }
 
+    /// Enables managed runtime and retains revision-anchored L2 recovery state.
+    /// Call before run; cloned handles remain usable while the runtime runs.
+    #[cfg(feature = "orderbook")]
+    pub fn l2_book_handle(&mut self) -> crate::books::L2BookHandle {
+        self.control_handle();
+        crate::books::L2BookHandle(self.book_store.get_or_insert_with(Default::default).clone())
+    }
+
     /// Tagged broadcast stream with the same bounded/lossy delivery as subscribe.
     pub fn subscribe_identified(&mut self) -> broadcast::Receiver<FeedEnvelope> {
         let sender = self
@@ -326,6 +338,8 @@ impl FeedHandler {
 
     fn control_context(&self) -> control::ControlContext {
         control::ControlContext {
+            #[cfg(feature = "orderbook")]
+            books: self.book_store.clone(),
             event_sender: self.event_sender.clone(),
             envelope_sender: self.envelope_sender.clone(),
             status_sender: self.status_sender.clone(),

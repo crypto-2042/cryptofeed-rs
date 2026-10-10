@@ -33,7 +33,7 @@ local checkout, not claims about every upstream version.
 | Automatically following listings | Python catalog refresh is explicit; no core periodic discover-and-resubscribe loop found | Rust now offers opt-in DiscoveryFeed with forced refresh, per-channel patterns, replacement, backoff and ownership guards; this extends the inspected Python core. |
 | Callback fan-out | `feed.py`: callback lists; `callback.py`: async/sync callback wrappers | Implemented primary plus add_*_handler registrations, serial order, independent five-second deadlines and catchable panic isolation. Traits return (); business errors remain caller-owned. Broadcast remains lossy. |
 | Candle completion | `feed.py`: `candle_closed_only`; Binance applies the flag | Implemented CandlePolicy All/ClosedOnly/ClosedOrUnknown at the common dispatcher; Rust retains its existing All default and never infers unknown completion. |
-| Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Rust has normalized snapshots/deltas and exchange sync, but a lagged broadcast consumer cannot request a synchronized recovery snapshot. Phase 4 prioritizes recovery and documents native-unit differences. |
+| Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Implemented opt-in L2BookHandle atomic full-snapshot/subscription recovery with local identity/connection/epoch/revision anchors and resync/disconnect/stop invalidation. Quantity units remain exchange-native normalized units. |
 | Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Rust uses fixed supervision policies and tracing. Add only demonstrated public-service settings after lifecycle controls; preserve safe defaults and bounded shutdown. |
 | Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Rust REST currently serves discovery and book bootstrap. Public history clients are a later workstream; verify current official endpoints before implementation. |
 | Recording/replay | `raw_data_collection.py`: recording and playback | Rust has deterministic inline fixtures/session doubles, but no user recording/replay API. Phase 5, with sanitization and an explicit file format. |
@@ -153,7 +153,8 @@ Implemented [closed-only candles and explicit unknown-completion policy](candle-
 with compatible all-update defaults and filtering before all delivery surfaces.
 Implemented [multiple handler registrations](handlers.md) with primary/append ordering,
 per-callback timeout, catchable panic isolation and documented business-error semantics.
-A recoverable L2 consumer interface with snapshot revision anchors remains pending. Existing lossy broadcast
+Implemented [L2 recovery](l2-recovery.md) with atomic full snapshots and revision-anchored
+updates, lag recovery and scoped cache invalidation. Existing lossy broadcast
 must remain explicit. Document which books are snapshots versus changes and
 which quantities use contracts versus base units. Add only needed transport
 settings without hiding protocol-specific constraints.

@@ -46,3 +46,8 @@ pub use crate::feed::control::{
 };
 
 pub use crate::discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};
+
+#[cfg(feature = "orderbook")]
+pub use crate::books::{
+    BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle,
+};

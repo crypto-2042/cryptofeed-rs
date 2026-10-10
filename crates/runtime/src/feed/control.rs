@@ -213,6 +213,8 @@ impl RuntimeControl {
 
 #[derive(Clone)]
 pub(crate) struct ControlContext {
+    #[cfg(feature = "orderbook")]
+    pub books: Option<Arc<crate::books::BookStore>>,
     pub event_sender: Option<broadcast::Sender<FeedEvent>>,
     pub envelope_sender: Option<broadcast::Sender<FeedEnvelope>>,
     pub status_sender: Option<broadcast::Sender<FeedStatus>>,
@@ -237,10 +239,17 @@ impl ControlContext {
         identity: FeedIdentity,
         exchange: ExchangeId,
     ) -> Arc<crate::runtime::readiness::FeedMonitor> {
-        Arc::new(crate::runtime::readiness::FeedMonitor::new(
+        let monitor = crate::runtime::readiness::FeedMonitor::new(
             identity,
             exchange,
             self.status_sender.clone(),
-        ))
+        );
+        #[cfg(feature = "orderbook")]
+        let monitor = {
+            let mut monitor = monitor;
+            monitor.books = self.books.clone();
+            monitor
+        };
+        Arc::new(monitor)
     }
 }

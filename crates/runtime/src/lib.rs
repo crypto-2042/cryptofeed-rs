@@ -19,6 +19,8 @@
     )
 )]
 
+#[cfg(feature = "orderbook")]
+pub mod books;
 pub mod catalog;
 pub mod discovery;
 pub mod exchange;
@@ -39,3 +41,6 @@ pub use crate::feed::control::{
 };
 
 pub use discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};
+
+#[cfg(feature = "orderbook")]
+pub use books::{BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle};

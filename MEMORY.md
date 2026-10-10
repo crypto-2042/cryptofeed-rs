@@ -384,3 +384,22 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Serial callbacks block session reads; cross-session shared Arcs can run
   concurrently. Bounded shutdown may cancel before remaining callbacks; no
   transactional/exactly-once delivery or detached-task cleanup is implied.
+
+
+## L2 recovery continuity
+
+- FeedHandler.l2_book_handle opts into managed startup and a shared optional
+  cache. recover(identity,symbol) must acquire full snapshot and new receiver
+  atomically under the same lock as all publication/invalidation.
+- Anchors are local identity/physical connection/epoch/revision, never native
+  sequence guarantees. Require contiguous same-owner deltas after a snapshot;
+  on Lagged replace queue/state, never splice old buffered deltas into recovery.
+- Cache normalized dispatch order separately from internal bootstrap caches,
+  which may already include buffered future events. Assemble full arrays only on
+  recovery, preserving latest applied timestamps/units/precision.
+- Resync withdraws one book; disconnect/drop withdraws only that owner and blocks
+  its late publications. New epochs require new snapshots. Stop/failure/removal
+  retires cache; cancelling a candidate must not touch older active identities.
+- One bounded 1024-update ring includes unrelated symbols, which can cause lag.
+  Retained handles keep its sender alive after shutdown; use lifecycle/shutdown
+  signals, not stream closure alone. No cache is allocated by default.

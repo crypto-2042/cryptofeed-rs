@@ -33,6 +33,8 @@ struct State {
 }
 
 pub(crate) struct FeedMonitor {
+    #[cfg(feature = "orderbook")]
+    pub books: Option<Arc<crate::books::BookStore>>,
     pub identity: FeedIdentity,
     pub exchange: ExchangeId,
     status: Option<broadcast::Sender<FeedStatus>>,
@@ -46,6 +48,8 @@ impl FeedMonitor {
         status: Option<broadcast::Sender<FeedStatus>>,
     ) -> Self {
         Self {
+            #[cfg(feature = "orderbook")]
+            books: None,
             identity,
             exchange,
             status,
@@ -87,6 +91,17 @@ impl FeedMonitor {
             )
         {
             return;
+        }
+        #[cfg(feature = "orderbook")]
+        if let Some(books) = &self.books {
+            match &lifecycle {
+                FeedState::Started => books.activate(self.identity),
+                FeedState::Stopping
+                | FeedState::Stopped { .. }
+                | FeedState::Failed { .. }
+                | FeedState::Cancelled { .. } => books.retire(self.identity),
+                _ => {}
+            }
         }
         state.lifecycle = lifecycle.clone();
         self.emit(lifecycle.clone());
@@ -226,6 +241,10 @@ impl FeedMonitor {
     }
     pub fn invalidate_book(&self, id: u64, epoch: u64, symbol: &str) {
         self.update(|state| {
+            #[cfg(feature = "orderbook")]
+            if let Some(books) = &self.books {
+                books.invalidate(self.identity, id, epoch, Some(symbol));
+            }
             if state.synced.get(symbol) == Some(&(id, epoch)) {
                 state.synced.remove(symbol);
             }
@@ -271,6 +290,10 @@ impl ConnectionTracker {
             record.info.subscriptions_expected = 0;
             record.info.subscriptions_confirmed = 0;
             record.configured = false;
+            #[cfg(feature = "orderbook")]
+            if let Some(books) = &self.monitor.books {
+                books.begin(self.monitor.identity, self.id, epoch, &record.books);
+            }
             state.synced.retain(|_, owner| owner.0 != self.id);
         });
         ConnectionAttempt {
@@ -540,6 +563,15 @@ impl ConnectionAttempt {
             record.info.connected = false;
             record.info.subscriptions_confirmed = 0;
             record.disconnected = true;
+            #[cfg(feature = "orderbook")]
+            if let Some(books) = &self.tracker.monitor.books {
+                books.invalidate(
+                    self.tracker.monitor.identity,
+                    self.tracker.id,
+                    self.epoch,
+                    None,
+                );
+            }
             if error.is_some() {
                 record.info.last_error = error;
             }

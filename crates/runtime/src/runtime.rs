@@ -1349,6 +1349,15 @@ async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) {
         return;
     }
     apply_orderbook_state(feed, &book);
+    if let (Some(monitor), Some(tracker), Some(epoch)) = (
+        &feed.monitor,
+        &feed.connection_tracker,
+        feed.connection_epoch,
+    ) {
+        if let Some(books) = &monitor.books {
+            books.apply(monitor.identity, tracker.id, epoch, &book);
+        }
+    }
     if matches!(&book, L2Book::Snapshot(_)) {
         feed.book_synchronized(book.symbol().as_str());
     }
@@ -3027,6 +3036,54 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(*seen.lock().unwrap(), ["slow"]);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn l2_recovery_runtime_hooks_fence_resync_disconnect_and_stop() {
+        use crate::feed::FeedState;
+        let mut handler = FeedHandler::new();
+        let id = handler.add_feed_with_id(Okx::new().l2_book().symbol("BTC-USDT").build());
+        let handle = handler.l2_book_handle(); // May be enabled after initial registration.
+        let (_, context, _commands) = handler.into_control_parts();
+        let identity = crate::feed::FeedIdentity { id, generation: 1 };
+        let monitor = context.monitor(identity, ExchangeId::Okx);
+        monitor.lifecycle(FeedState::Started);
+        let mut feed = Okx::new().l2_book().symbol("BTC-USDT").build();
+        feed.identity = Some(identity);
+        feed.monitor = Some(monitor.clone());
+        super::readiness::track(
+            &mut feed,
+            "wss://ws.okx.com/ws/v5/public",
+            vec!["BTC-USDT".into()],
+        );
+        let attempt = super::readiness::begin(&mut feed).unwrap();
+        attempt.connected();
+        let symbol = feed.symbols[0].clone();
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 1)).await;
+        assert!(handle.recover(identity, &symbol).snapshot.is_some());
+        feed.invalidate_book_readiness("BTC-USDT");
+        super::dispatch_l2_book(&feed, crate::books::tests::book(false, 2)).await;
+        assert!(handle.recover(identity, &symbol).snapshot.is_none());
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 3)).await;
+        assert!(handle.recover(identity, &symbol).snapshot.is_some());
+        drop(attempt);
+        assert!(handle.recover(identity, &symbol).snapshot.is_none());
+        let attempt = super::readiness::begin(&mut feed).unwrap();
+        attempt.connected();
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 4)).await;
+        assert_eq!(
+            handle
+                .recover(identity, &symbol)
+                .snapshot
+                .unwrap()
+                .anchor
+                .epoch,
+            2
+        );
+        monitor.lifecycle(FeedState::Stopping);
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 9)).await;
+        assert!(handle.recover(identity, &symbol).snapshot.is_none());
     }
 
     #[cfg(feature = "orderbook")]

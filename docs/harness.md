@@ -322,3 +322,15 @@ add-only registration, model isolation, one publication, per-callback timeout,
 panic continuation, subsequent delivery and bounded cancellation. The timeout
 regression uses the actual five-second production deadline. Exchange wire
 fixtures are unchanged because this increment changes SDK callback execution.
+
+
+## L2 recovery targets
+
+`cargo test -p cryptofeed-rs books::tests` covers revision/deletion, lag recovery,
+resync, connection/generation fencing, retirement and concurrent acquisition.
+`l2_recovery_runtime_hooks` verifies cache integration with actual dispatcher,
+monitor, attempt drop and stopping. Orderbook-only lib tests verify feature
+isolation. Seven older tests now declare their actual feature prerequisites;
+their assertions still execute in the full-feature suite. Public `book_recovery_public` provides separate manual OKX evidence;
+mock lag and reconnect are not relabeled as real service observations. No
+exchange parser or wire fixture changed.

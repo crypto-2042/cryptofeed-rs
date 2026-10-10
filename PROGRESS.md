@@ -447,3 +447,30 @@ feature boundaries.
   Rust 1.85, all nine feature checks/tests, no-default test compilation,
   formatting and documentation links passed. Recoverable L2, remaining needed
   runtime policy, metadata and optional ecosystem work remain active.
+
+
+## Usage alignment: recoverable L2 consumption — 2026-10-10
+
+- Added opt-in FeedHandler.l2_book_handle and atomically acquired full local
+  snapshots/subsequent bounded updates. Anchors contain configuration identity,
+  physical connection, retry epoch and contiguous local revision; they are not
+  native exchange sequence numbers. Legacy callbacks/streams are unchanged.
+- Cache normalizes dispatch order independently of ahead-of-dispatch bootstrap
+  state. Deltas require initialization; recovery assembles full arrays only when
+  requested. Lag recovery replaces the old queue and local state atomically.
+- In-session resync, disconnect/drop and stop/failure/removal withdraw affected
+  cache state. Stale epochs/generations cannot alter newer views; cancelling a
+  candidate does not retire the current generation or healthy sibling books.
+- Regressions cover revisions/deletion, lag, resync, owner isolation, retirement,
+  concurrent snapshot/subscription acquisition and runtime lifecycle hooks.
+  Seven older test cases now declare the features their unchanged assertions
+  require; the orderbook-only lib suite passes 209 tests without changing runtime
+  capability preflight or removing full-feature assertions.
+- Public OKX observed three consecutive L2 updates/revision 3, reconstructed
+  400 bids/400 asks, recovery snapshot at the same revision and unavailable cache
+  after removal, then exit 0. Offline lag is not presented as live packet loss.
+- Final verification: 482 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation,
+  orderbook-only lib tests, formatting and documentation links passed.
+- Needed runtime policies, full market metadata and optional REST/history,
+  recording/replay, sinks/aggregation and NBBO remain in the active overall goal.

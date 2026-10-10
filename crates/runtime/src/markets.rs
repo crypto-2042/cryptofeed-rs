@@ -1750,6 +1750,17 @@ mod tests {
     }
     use std::collections::HashSet;
 
+    #[cfg(all(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles",
+        feature = "funding",
+        feature = "liquidations",
+        feature = "index",
+        feature = "markprice",
+        feature = "openinterest"
+    ))]
     #[test]
     fn capability_matrix_is_non_empty_and_channel_consistent() {
         let matrix = capability_matrix();
@@ -1856,6 +1867,14 @@ mod tests {
         ));
     }
 
+    #[cfg(all(
+        feature = "funding",
+        feature = "liquidations",
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles"
+    ))]
     #[test]
     fn preflight_allows_verified_derivative_cells_only() {
         let binance = Binance::new()
@@ -2219,6 +2238,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "candles")]
     #[test]
     fn preflight_validates_candle_interval_per_exchange() {
         let binance_hourly = ExchangeFeedBuilder::new(ExchangeId::Binance)
@@ -2269,6 +2289,7 @@ mod tests {
         assert_eq!(validate_feed(&gate_10s).unwrap(), InstrumentKind::Perpetual);
     }
 
+    #[cfg(all(feature = "orderbook", feature = "ticker"))]
     #[test]
     fn preflight_validates_l2_depth_level_per_exchange() {
         let bybit_200 = ExchangeFeedBuilder::new(ExchangeId::Bybit)
@@ -2349,6 +2370,7 @@ mod tests {
         ));
     }
 
+    #[cfg(all(feature = "orderbook", feature = "ticker"))]
     #[test]
     fn preflight_validates_l2_book_interval_per_exchange() {
         let binance_spot_1000 = ExchangeFeedBuilder::new(ExchangeId::Binance)
@@ -2740,6 +2762,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ticker")]
     #[tokio::test]
     async fn explicit_bidirectional_mapping_resolves_without_discovery() {
         let feed = Binance::new()
@@ -2754,6 +2777,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ticker")]
     #[tokio::test]
     async fn explicit_mapping_requires_one_native_symbol_per_instrument() {
         let feed = Binance::new()
