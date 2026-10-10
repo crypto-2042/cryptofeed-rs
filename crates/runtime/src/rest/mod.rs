@@ -12,6 +12,8 @@ mod candles;
 #[cfg(feature = "funding")]
 mod history;
 #[cfg(feature = "trade")]
+mod trade_history;
+#[cfg(feature = "trade")]
 mod trades;
 use crate::{catalog::MarketCatalog, transport::TransportConfig};
 #[cfg(feature = "candles")]
@@ -32,6 +34,10 @@ use cryptofeed_core::{
 #[cfg(feature = "funding")]
 pub use history::{FundingHistory, FundingHistoryCursor, FundingHistoryQuery, HistoryStop};
 use std::sync::Arc;
+#[cfg(feature = "trade")]
+pub use trade_history::{
+    TradeHistory, TradeHistoryCursor, TradeHistoryKind, TradeHistoryQuery, TradeHistoryStop,
+};
 
 /// A standalone query result, not a WS synchronization/recovery anchor.
 #[derive(Clone, Debug, PartialEq)]
@@ -103,12 +109,32 @@ impl PublicRestClient {
         ]
         .into_iter()
         .filter(|channel| self.catalog.supported_channels().contains(channel))
-        .filter(|channel| {
-            *channel != Channel::Candles
-                || self.catalog.exchange() != ExchangeId::Gateio
-                || self.catalog.product() != InstrumentKind::Futures
-        })
         .collect()
+    }
+    /// Declared history granularities; native profiles may stop without continuation.
+    #[cfg(feature = "trade")]
+    pub fn supported_trade_history_kinds(&self) -> Vec<TradeHistoryKind> {
+        if !self.catalog.supported_channels().contains(&Channel::Trade) {
+            return Vec::new();
+        }
+        match self.catalog.exchange() {
+            ExchangeId::Binance => vec![TradeHistoryKind::Aggregate],
+            ExchangeId::Okx => vec![TradeHistoryKind::Individual],
+            ExchangeId::Gateio => vec![TradeHistoryKind::Individual],
+            _ => Vec::new(),
+        }
+    }
+    #[cfg(feature = "trade")]
+    pub async fn trade_history(
+        &self,
+        symbol: &Symbol,
+        query: TradeHistoryQuery,
+    ) -> Result<TradeHistory> {
+        let info = self.catalog.market(symbol)?;
+        trade_history::collect(info, query, |url| async move {
+            crate::runtime::snapshot::fetch_json(url.as_str(), &self.transport, info.exchange).await
+        })
+        .await
     }
     /// A single bounded recent batch, not a complete historical range.
     #[cfg(feature = "trade")]
@@ -217,7 +243,7 @@ mod tests {
         );
     }
     #[test]
-    fn candle_rest_capabilities_exclude_undocumented_gate_delivery() {
+    fn candle_rest_capabilities_include_documented_gate_delivery() {
         for exchange in [
             ExchangeId::Binance,
             ExchangeId::Bitget,
@@ -242,7 +268,47 @@ mod tests {
             crate::markets::SymbolRegistry::default(),
         );
         let client = PublicRestClient::from_catalog(catalog, TransportConfig::direct());
-        assert!(!client.supported_channels().contains(&Channel::Candles));
+        assert_eq!(
+            client.supported_channels().contains(&Channel::Candles),
+            cfg!(feature = "candles")
+        );
+    }
+    #[cfg(feature = "trade")]
+    #[test]
+    fn history_capabilities_report_granularity_separately_from_recent_trades() {
+        assert_eq!(
+            client().supported_trade_history_kinds(),
+            vec![TradeHistoryKind::Aggregate]
+        );
+        for (exchange, product, expected) in [
+            (
+                ExchangeId::Okx,
+                InstrumentKind::Spot,
+                vec![TradeHistoryKind::Individual],
+            ),
+            (
+                ExchangeId::Gateio,
+                InstrumentKind::Perpetual,
+                vec![TradeHistoryKind::Individual],
+            ),
+            (
+                ExchangeId::Gateio,
+                InstrumentKind::Futures,
+                vec![TradeHistoryKind::Individual],
+            ),
+            (ExchangeId::Bybit, InstrumentKind::Spot, vec![]),
+            (ExchangeId::Bitget, InstrumentKind::Spot, vec![]),
+        ] {
+            let client = PublicRestClient::from_catalog(
+                MarketCatalog::from_registry(
+                    exchange,
+                    product,
+                    crate::markets::SymbolRegistry::default(),
+                ),
+                TransportConfig::direct(),
+            );
+            assert_eq!(client.supported_trade_history_kinds(), expected);
+        }
     }
     #[cfg(feature = "trade")]
     #[tokio::test]

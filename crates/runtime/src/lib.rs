@@ -62,3 +62,8 @@ pub use crate::rest::{FundingHistory, FundingHistoryCursor, FundingHistoryQuery,
 
 #[cfg(feature = "candles")]
 pub use crate::rest::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, CandleHistoryStop};
+
+#[cfg(feature = "trade")]
+pub use crate::rest::{
+    TradeHistory, TradeHistoryCursor, TradeHistoryKind, TradeHistoryQuery, TradeHistoryStop,
+};

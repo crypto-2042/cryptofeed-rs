@@ -687,8 +687,8 @@ feature boundaries.
 ## Five-venue candle history — 2026-10-10
 
 - Extended current public candle-history queries to Bitget v3, OKX v5 and Gate
-  v4 Spot/perpetual. Gate delivery has no documented candle endpoint and remains
-  explicitly rejected, including REST capability reporting.
+  v4 Spot/perpetual. Gate delivery was initially omitted after an incomplete document inspection;
+  the later full-reference recheck restores its documented candle route/capability.
 - Bitget aligns native end boundaries, limits requests to 90 days and accepts
   exactly one documented earlier overlap, counted against raw scan limits.
   Gate sends the first legal bar open, second-valued from/to, no conflicting
@@ -737,3 +737,35 @@ feature boundaries.
   formatting/local links, trade-only REST/session tests and Rust 1.85 all-target
   checks with fresh resolution passed. Historical trade pagination, recording/
   replay, sinks/aggregation, NBBO and advanced resource policies remain active.
+
+## Native trade-history continuation — 2026-10-10
+
+- Added explicit Aggregate/Individual queries/results, bounded raw scan/page
+  budgets, scope-bound JSON cursors and separate history-capability reporting.
+  Binance current aggregate time seeds advance via IDs, OKX time seeds switch
+  to native ID paging, Gate fixed ranges use current page/offset parameters.
+- Same-millisecond execution IDs survive continuation; no timestamp+1 skip.
+  Gate Spot/perpetual are pageable; delivery time ranges are one native page,
+  SourceLimit if full, without its retired last_id or an invented offset. Bybit/Bitget
+  current implemented public surfaces remain recent-only; no private fallback.
+- Corrected Gate contract create_time_ms to fractional seconds, distinct from
+  Spot millisecond counts. Matching capture and near-epoch regression prevent
+  magnitude inference. Recent smoke now verifies a five-minute age lower bound.
+- Tests cover native same-time ID progression, JSON scope edits, bounded empty
+  seeds/offset ceilings, precision/granularity, boundary filtering, stalls and
+  later-page cancellation. Source/budget/boundary/ceiling stops are explicit;
+  none guarantees complete retention or an exchange-atomic historical view.
+- Public six-product first/JSON-resume smoke passed: each batch 10 selected/
+  scanned records over two pages, unique IDs/range identity checked, all budget-
+  limited with further cursors. 24 pages/120 executions; earlier observations
+  are retained in [evidence](docs/reports/live-smoke-trade-history-2026-10-10.md).
+  Corrected ten-product recent smoke also passed with the added age lower bound.
+- Full Gate delivery documentation recheck corrected the earlier candle omission:
+  current USDT delivery candle path/capability and contract normalization now have
+  a focused offline regression. Historical delivery ranges are bounded one-page
+  queries, SourceLimit if full; no delivery live result is claimed.
+- Final gates passed: 564 workspace tests, nine focused history regressions,
+  trade-only/candle-only REST suites, all nine feature checks, no-default build,
+  strict all-target Clippy, rustdoc, formatting/local links and Rust 1.85 all-target
+  fresh resolution. Recording/replay, sinks/aggregation, NBBO and advanced resource
+  policies remain under the active full-alignment objective.

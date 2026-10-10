@@ -54,16 +54,16 @@ API must expose that distinction explicitly.
 Results sort by exact native timestamp ascending, preserving source order for
 ties. Distinct IDs at the same instant survive. Sorting precedes conversion to
 the existing model's f64 seconds; that model may round sub-microsecond differences.
-Gate prefers `create_time_ms` (including fractional milliseconds) and falls back
-to documented second-valued `create_time` only when the former is absent/null.
+Gate Spot `create_time_ms` counts milliseconds with fractions. Gate contracts
+use seconds with fractional precision despite the same field name. Both fall
+back to second-valued `create_time` only when the preferred field is absent/null.
 Other sources use native millisecond fields. All rows share local `received_ts`,
 which never replaces a missing trade time. No implied volatility is inferred.
 
 This API is **recent-only**: no time-range completeness, historical pagination,
 cursor, subscription, feed counter update or WS recovery anchor is promised.
-Bybit v5 and Bitget v3 recent fills do not expose history cursors here. Native
-history/aggregate retrieval is the next separate increment; archived-file import
-is not implemented. Repeating the recent call can overlap as the source moves.
+Bybit v5 and Bitget v3 recent fills do not expose history cursors here. [Native history/aggregate retrieval](trade-history.md) is implemented on
+Binance/OKX/Gate Spot/perpetual profiles; archived-file import is not implemented. Repeating the recent call can overlap as the source moves.
 
 Current official references checked on 2026-10-10:
 [Binance Spot](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#recent-trades-list),

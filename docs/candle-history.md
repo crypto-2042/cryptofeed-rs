@@ -2,10 +2,10 @@
 
 With the `candles` feature, `PublicRestClient::candle_history` queries current
 Binance Spot/USD-M/COIN-M, Bitget v3 Spot/contracts, Bybit v5 Spot/linear/inverse,
-OKX v5 Spot/swap/futures and Gate v4 Spot/USDT/BTC perpetual surfaces.
+OKX v5 Spot/swap/futures and Gate v4 Spot/USDT/BTC perpetual and USDT delivery surfaces.
 `supported_channels().contains(&Channel::Candles)` checks the implemented REST
-subset. Gate delivery is explicitly unsupported: its current official REST
-reference does not document a candle endpoint. No authentication is used.
+subset. Gate delivery uses the documented `/api/v4/delivery/usdt/candlesticks`
+endpoint with contract quantities and unknown completion. No authentication is used.
 
 ```rust,no_run
 use cryptofeed_rs::prelude::*;

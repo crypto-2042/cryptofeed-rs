@@ -289,9 +289,7 @@ fn plan(info: &MarketInfo, q: &CandleHistoryQuery, lower: u64, before: u64) -> R
             }
             GateioProduct::BtcPerpetual => "https://api.gateio.ws/api/v4/futures/btc/candlesticks",
             GateioProduct::UsdtDelivery => {
-                return Err(Error::UnsupportedCapability(
-                    "Gate delivery candle history is undocumented".into(),
-                ));
+                "https://api.gateio.ws/api/v4/delivery/usdt/candlesticks"
             }
         },
         _ => return Err(Error::UnsupportedExchange(format!("{:?}", info.exchange))),
@@ -1095,7 +1093,7 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn gate_subsecond_empty_window_and_delivery_reject_before_http() {
+    async fn gate_subsecond_empty_window_and_documented_delivery_route() {
         let info = info(ExchangeId::Gateio);
         let q = CandleHistoryQuery::new(60_001, 60_002, "10s").unwrap();
         let result = collect(&info, q, |_| async {
@@ -1107,12 +1105,21 @@ mod tests {
         assert_eq!(result.stop, CandleHistoryStop::RangeBoundary);
         let mut delivery = info.clone();
         delivery.symbol = Symbol::futures("BTC", "USDT", "241227");
+        delivery.exchange_symbol = "BTC_USDT_20241227".into();
         let q = CandleHistoryQuery::new(0, 180_000, "1m").unwrap();
-        assert!(
-            collect(&delivery, q, |_| async { panic!("undocumented endpoint") })
-                .await
-                .is_err()
+        assert_eq!(
+            plan(&delivery, &q, 0, 180_000).unwrap().path(),
+            "/api/v4/delivery/usdt/candlesticks"
         );
+        let result = collect(&delivery, q, |_| async {
+            let mut payload = new_payload(ExchangeId::Gateio, &[60_000], false);
+            payload[0].as_object_mut().unwrap().remove("sum");
+            Ok(payload)
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.records[0].symbol, delivery.symbol);
+        assert_eq!(result.records[0].volume.to_string(), "325");
     }
     #[test]
     fn completion_and_volume_shapes_fail_without_guessing() {

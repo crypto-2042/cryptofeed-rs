@@ -54,6 +54,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Funding history](funding-history.md): bounded settlement batches, exact actual
   rates, versioned cursors, native pagination/retention and termination semantics.
 
+- [Trade history](trade-history.md): explicit granularity, ID-aware paging,
+  scoped continuation, native retention and bounded stop reasons.
+
 - [Recent trades](recent-trades.md): bounded five-venue public queries, taker side,
   exact native IDs/quantity units, sorting and granularity differences.
 

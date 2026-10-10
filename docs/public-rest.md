@@ -5,8 +5,8 @@ queries for the five active exchanges' existing Spot/Perpetual/Futures profiles.
 It is independent of FeedHandler and creates no subscription, polling task,
 callback or recovery anchor. Ticker means the SDK's best bid/ask model, not all
 native 24-hour statistics. Bounded [funding history](funding-history.md) and
-[five-venue candle history](candle-history.md) are also implemented. [Recent trades](recent-trades.md) adds bounded five-venue batches. Trade history
-pagination remains unfinished; Gate delivery candles remain unsupported.
+[five-venue candle history](candle-history.md) are also implemented. [Recent trades](recent-trades.md) adds bounded five-venue batches. [Native trade history](trade-history.md) adds scoped continuation
+for Binance aggregate and OKX/Gate individual executions; Gate delivery candles use the documented delivery endpoint.
 `supported_channels()` reports
 implemented REST methods in the current Cargo build, separately from
 MarketCatalog's WS capabilities.

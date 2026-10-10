@@ -14,7 +14,7 @@ documentation = "https://docs.rs/cryptofeed-rs"
 [features]
 default = ["ticker", "trade", "orderbook", "candles", "funding", "index", "liquidations", "markprice", "openinterest"]
 ticker = ["dep:cryptofeed-ticker"]
-trade = ["dep:cryptofeed-trade"]
+trade = ["dep:cryptofeed-trade", "dep:serde"]
 orderbook = ["dep:cryptofeed-orderbook"]
 candles = ["dep:cryptofeed-candles", "dep:chrono", "dep:serde"]
 funding = ["dep:cryptofeed-funding", "dep:serde"]
@@ -156,6 +156,10 @@ required-features = ["candles"]
 
 [[example]]
 name = "recent_trades_public"
+required-features = ["trade"]
+
+[[example]]
+name = "trade_history_public"
 required-features = ["trade"]
 
 [package.metadata.docs.rs]

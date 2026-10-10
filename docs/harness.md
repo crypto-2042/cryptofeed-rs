@@ -424,3 +424,9 @@ five-venue HTTP references assert taker side, native IDs/units and explicit cloc
 scales. Same-time distinct IDs remain present; exact Decimal sorting precedes
 f64 normalization. Malformed/mismatched/over-budget probes are SDK-only tests.
 Recent executions must not be relabeled as paginated complete trade history.
+
+Trade-history inline tests (`rest::trade_history`) cover JSON scope/position,
+multiple native pages at one timestamp, empty seeds, offsets, boundary filtering,
+non-progress and cancellation. The sanitized aggregate payload is distinct from
+recent individual executions. Gate contract trade clocks use second input;
+Spot uses milliseconds. Near-epoch same-value regression guards explicit units.

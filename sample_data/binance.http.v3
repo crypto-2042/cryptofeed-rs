@@ -25,3 +25,5 @@ https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=100&startTime=
 https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=2&startTime=0&endTime=119999 -> 1710000001.500000: [[60000,"100.0000000000000000000000001","102","99","101","3.25",119999,"328",7,"1","101","0"]]
 
 https://data-api.binance.vision/api/v3/trades?symbol=BTCUSDT&limit=1 -> 1710000001.500000: [{"id":9007199254740993,"price":"100.01","qty":"0.25","time":1001,"isBuyerMaker":true}]
+
+https://fapi.binance.com/fapi/v1/aggTrades?symbol=BTCUSDT&limit=2&startTime=1000&endTime=1999 -> 1710000001.500000: [{"a":9007199254740994,"p":"100.01","q":"0.25","T":1500,"m":true,"f":9007199254740994,"l":9007199254740994},{"a":9007199254740993,"p":"100.01","q":"0.25","T":1500,"m":true,"f":9007199254740993,"l":9007199254740993}]

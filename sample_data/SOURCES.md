@@ -258,7 +258,32 @@ Appended five-venue recent-trade payloads mirror
 Epochs/prices/quantities/IDs are substituted, not actual market executions.
 The ID above 2^53 and execId-versus-execLinkId choice are deliberate identity
 assertions. Gate Spot and derivative examples separately assert side/quantity
-and explicit fractional-millisecond scaling. Current primary sources are linked
+and explicit product-qualified clocks (Spot fractional milliseconds; contracts fractional seconds). Current primary sources are linked
 in [recent trades](../docs/recent-trades.md). Same-time ID sorting, signed long
 JSON-number precision, malformed/duplicate/oversized data and unknown-symbol
 checks are SDK probes, not claims that official endpoints emit invalid records.
+
+## 2026-10-10 native trade-history paging and clock correction
+
+Appended Binance aggregate, OKX history and Gate range/offset payloads mirror
+`rest::trade_history::tests::native_id_cursors_preserve_multiple_pages_at_identical_milliseconds`.
+Two different IDs above 2^53 deliberately share the same millisecond; these
+substituted prices/times/IDs are protocol references, not actual matching-engine
+records. Granularity/rate-unit/current endpoint sources are in
+[trade history](../docs/trade-history.md). Cursor mutation, non-progress/ceiling
+and cancellation checks are SDK-only probes. Captures are not auto-loaded tests.
+
+The earlier Gate recent-contract create_time_ms reference was corrected from
+1001.123 to 1.001123 together with its normalization assertion: contract input is
+seconds, unlike Spot's millisecond count. A new same-input near-epoch product test
+prevents unit inference from magnitude. The dated recent report retains the
+original insufficient clock check and stronger corrected live evidence.
+
+The delivery-candle reference now mirrors the replaced Gate delivery regression:
+the current official delivery guide explicitly documents candlesticks, missed by
+the earlier incomplete inspection. Contract name/epoch/OHLCV are substituted;
+this is not a delivery live certification. Historical delivery full-page range
+SourceLimit is separately tested without adding unsupported paging parameters.
+The delivery-trade range reference mirrors the focused SourceLimit test with
+native integer signed size and fractional-second numeric time, using substituted
+contract identity/OHLC values. It contains no invented page/offset parameter.

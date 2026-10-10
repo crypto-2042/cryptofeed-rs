@@ -23,6 +23,7 @@ async fn observe(
             || trade.exchange_ts <= 0.0
             || trade.exchange_ts < previous
             || trade.exchange_ts > trade.received_ts + 60.0
+            || trade.exchange_ts < trade.received_ts - 300.0
             || !ids.insert(trade.id.as_deref().ok_or("trade ID missing")?)
         {
             return Err("recent trade identity/time/duplicate mismatch".into());

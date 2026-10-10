@@ -15,6 +15,7 @@ use url::Url;
 pub(super) struct Plan {
     pub url: Url,
     category: Option<String>,
+    pub(super) aggregate: bool,
 }
 fn invalid() -> Error {
     Error::MalformedData("invalid public REST trade".into())
@@ -110,7 +111,11 @@ pub(super) fn plan(info: &MarketInfo, limit: u16) -> Result<Plan> {
     if let Some(category) = &category {
         url.query_pairs_mut().append_pair("category", category);
     }
-    Ok(Plan { url, category })
+    Ok(Plan {
+        url,
+        category,
+        aggregate: false,
+    })
 }
 fn id(value: &Value) -> Result<String> {
     match value {
@@ -148,6 +153,18 @@ pub(super) fn decode(
     limit: u16,
     received_ts: f64,
 ) -> Result<Vec<Trade>> {
+    Ok(decode_timed(info, plan, payload, limit, received_ts)?
+        .into_iter()
+        .map(|(_, trade)| trade)
+        .collect())
+}
+pub(super) fn decode_timed(
+    info: &MarketInfo,
+    plan: &Plan,
+    payload: &Value,
+    limit: u16,
+    received_ts: f64,
+) -> Result<Vec<(Decimal, Trade)>> {
     let root = adapter::data(info.exchange, payload)?;
     if info.exchange == ExchangeId::Bybit && root["category"].as_str() != plan.category.as_deref() {
         return Err(Error::MalformedData("REST trade category mismatch".into()));
@@ -171,12 +188,14 @@ pub(super) fn decode(
                 if row.get("symbol").is_some() {
                     adapter::identity(info, row, "symbol")?;
                 }
-                let maker = row["isBuyerMaker"].as_bool().ok_or_else(invalid)?;
+                let maker = row[if plan.aggregate { "m" } else { "isBuyerMaker" }]
+                    .as_bool()
+                    .ok_or_else(invalid)?;
                 (
-                    "id",
-                    "price",
-                    "qty",
-                    time(row, "time", None)?,
+                    if plan.aggregate { "a" } else { "id" },
+                    if plan.aggregate { "p" } else { "price" },
+                    if plan.aggregate { "q" } else { "qty" },
+                    time(row, if plan.aggregate { "T" } else { "time" }, None)?,
                     if maker { Side::Sell } else { Side::Buy },
                 )
             }
@@ -229,7 +248,20 @@ pub(super) fn decode(
                     "id",
                     "price",
                     if spot { "amount" } else { "size" },
-                    time(row, "create_time_ms", Some("create_time"))?,
+                    if spot {
+                        time(row, "create_time_ms", Some("create_time"))?
+                    } else {
+                        // Gate contract fields carry seconds despite the _ms name.
+                        let value = row
+                            .get("create_time_ms")
+                            .filter(|value| !value.is_null())
+                            .unwrap_or(&row["create_time"]);
+                        let time = adapter::decimal(value)?;
+                        if time.is_sign_negative() {
+                            return Err(invalid());
+                        }
+                        time
+                    },
                     side,
                 )
             }
@@ -268,7 +300,7 @@ pub(super) fn decode(
     }
     // Stable exact timestamp order; distinct IDs at the same instant survive.
     trades.sort_by_key(|(time, _)| *time);
-    Ok(trades.into_iter().map(|(_, trade)| trade).collect())
+    Ok(trades)
 }
 
 #[cfg(test)]
@@ -311,7 +343,7 @@ mod tests {
                 json!({"id":"execution-1","currency_pair":"BTC_USDT","price":"100.01","amount":"0.25","create_time_ms":"1001.123","create_time":"1","side":side})
             }
             ExchangeId::Gateio => {
-                json!({"id":9007199254740993u64,"contract":"BTC_USDT","price":"100.01","size":if buy {"25"} else {"-25"},"create_time_ms":1001.123,"create_time":1})
+                json!({"id":9007199254740993u64,"contract":"BTC_USDT","price":"100.01","size":if buy {"25"} else {"-25"},"create_time_ms":1.001123,"create_time":1})
             }
             _ => unreachable!(),
         }
@@ -437,8 +469,8 @@ mod tests {
         a["id"] = json!("a");
         b["id"] = json!("b");
         c["id"] = json!("c");
-        a["create_time_ms"] = json!("1000000000000.000002");
-        b["create_time_ms"] = json!("1000000000000.000001");
+        a["create_time_ms"] = json!("1000000000.000000002");
+        b["create_time_ms"] = json!("1000000000.000000001");
         c["create_time_ms"] = b["create_time_ms"].clone();
         let p = json!([a, b, c]);
         let trades = decode(&info, &plan(&info, 3).unwrap(), &p, 3, 0.0).unwrap();
@@ -518,5 +550,19 @@ mod tests {
         let mut p = payload(info.exchange, true, vec![]);
         p["result"]["category"] = json!("linear");
         assert!(decode(&info, &self::plan(&info, 1).unwrap(), &p, 1, 0.0).is_err());
+    }
+    #[test]
+    fn gate_clock_units_depend_on_product_not_field_name_or_magnitude() {
+        for spot in [true, false] {
+            let info = info(ExchangeId::Gateio, spot);
+            let mut row = row(info.exchange, spot, true);
+            row["create_time_ms"] = json!("1001.123");
+            let records =
+                decode(&info, &plan(&info, 1).unwrap(), &json!([row]), 1, 2000.0).unwrap();
+            assert_eq!(
+                records[0].exchange_ts,
+                if spot { 1.001123 } else { 1001.123 }
+            );
+        }
     }
 }

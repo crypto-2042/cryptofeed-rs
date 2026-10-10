@@ -67,3 +67,14 @@ modulo 86400 seconds. Spot 7d returned 1788134400 and 1788739200, remainder
 345600 modulo 604800 (Monday); perpetual 7d returned 1787788800 and 1788393600,
 remainder zero. This caught and corrected the Spot weekly request-grid assumption
 before commit. Regression assertions now bind the first legal open by product.
+
+## Delivery documentation correction
+
+During the later trade-history increment, a full official delivery reference
+inspection found the documented /delivery/{settle}/candlesticks endpoint. The
+earlier statement that it was undocumented was inaccurate and reflected an
+incomplete inspection. Current Rust planning/capabilities now include USDT
+delivery candles with a narrow offline routing/contract-volume assertion.
+The ten-product live table above is unchanged; it does not prove delivery live
+coverage. Historical delivery trades separately have no current page/offset;
+their bounded range API returns SourceLimit on a full page.

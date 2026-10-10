@@ -655,8 +655,9 @@ Observed nonaligned from returned six 1m bars for a five-minute span; the first
 legal aligned open returned five. Current Spot rows have base volume and a close
 flag (eight fields); the seven-field example lacks base quantity and is rejected.
 Perpetual t accepts exact numeric seconds, v is contracts and completion is absent.
-Gate documentation calls 30d a calendar month. The delivery reference documents
-contracts/books/trades, not a candle endpoint; Rust does not invent one.
+Gate documentation calls 30d a calendar month. The full delivery reference also documents `/delivery/{settle}/candlesticks`;
+the earlier incomplete inspection missed it. Rust now implements its existing
+USDT delivery profile using the documented path and contract-volume row shape.
 
 Gate weekly boundary verification: current Spot `7d` bars open Monday (epoch
 remainder four days), while perpetual `7d` bars are epoch-aligned, as documented
@@ -675,7 +676,35 @@ not older v1/v2 tradeId shapes. Bybit v5 /market/recent-trade returns a category
 and list of symbol/execId/price/size/side/time, Spot capped at 60 and contracts 1000.
 OKX v5 /market/trades has instId/tradeId/px/sz/side/ts (500 cap).
 Gate v4 Spot/futures/delivery trades use current product/settlement routes; Spot
-amount/side differs from signed contract size. create_time_ms is milliseconds
-(to three decimal places for futures), create_time is seconds. Gate Spot maximum
+amount/side differs from signed contract size. Spot create_time_ms counts milliseconds, while derivative create_time_ms is
+second-valued with fractional precision in current public responses; create_time
+is seconds for both. The futures field description specifies precision rather
+than an epoch-millisecond unit. Gate Spot maximum
 is 1000; derivative parameter tables omit a numeric limit, so Rust's 1000 is a
 bounded SDK policy. No private history API or archived download is substituted.
+
+## Historical trade pagination and Gate clocks — 2026-10-10
+
+Current sources linked in [trade history](trade-history.md) confirm Binance
+aggregate fromId inclusive and derivative time ranges less than one hour, 48h
+retention, and a warning against combining IDs/time parameters. Rust uses time
+seeds followed by ID+1. OKX history-trades uses type=2 timestamp after, then type=1
+tradeId after (100 rows, last three months); before does not support timestamp
+paging. Gate Spot page and perpetual offset were verified with fixed from/to
+ranges to return distinct IDs even at the same millisecond. Old last_id is not
+used; delivery declares it no longer supported and has no current offset/page.
+
+Public Gate probes returned Spot create_time_ms as millisecond counts with
+fractions and perpetual create_time_ms as fractional seconds. The earlier trade
+clock assumption was corrected in parser/capture/tests, with no magnitude guess.
+The recent manual smoke's added age bound now detects thousand-fold clock errors.
+An initial urllib OKX history probe returned HTTP403; a separate curl request
+returned the documented public payload. No obsolete host/private fallback added.
+
+Full Gate delivery reference recheck: public candlesticks are documented at
+/delivery/{settle}/candlesticks with second bounds, limit/range incompatibility,
+contract volume and 7d epoch alignment. Candle capability/reporting and request
+planning now include this profile; a narrow offline native-route/normalization
+regression replaces the earlier unsupported preflight. Historical delivery
+trades have from/to but no current offset/page; range queries stop with explicit
+SourceLimit on a full page, rather than guessing retired last_id.

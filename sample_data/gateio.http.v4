@@ -30,4 +30,10 @@ https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=BTC_USDT&interval=1
 
 https://api.gateio.ws/api/v4/spot/trades?currency_pair=BTC_USDT&limit=1 -> 1710000001.500000: [{"id":"execution-1","currency_pair":"BTC_USDT","price":"100.01","amount":"0.25","create_time_ms":"1001.123","create_time":"1","side":"sell"}]
 
-https://api.gateio.ws/api/v4/futures/usdt/trades?contract=BTC_USDT&limit=1 -> 1710000001.500000: [{"id":9007199254740993,"contract":"BTC_USDT","price":"100.01","size":"-25","create_time_ms":1001.123,"create_time":1}]
+https://api.gateio.ws/api/v4/futures/usdt/trades?contract=BTC_USDT&limit=1 -> 1710000001.500000: [{"id":9007199254740993,"contract":"BTC_USDT","price":"100.01","size":"-25","create_time_ms":1.001123,"create_time":1}]
+
+https://api.gateio.ws/api/v4/futures/usdt/trades?contract=BTC_USDT&limit=2&from=1&to=2&offset=0 -> 1710000001.500000: [{"id":9007199254740994,"contract":"BTC_USDT","price":"100.01","size":"-25","create_time_ms":1.5},{"id":9007199254740993,"contract":"BTC_USDT","price":"100.01","size":"-25","create_time_ms":1.5}]
+
+https://api.gateio.ws/api/v4/delivery/usdt/candlesticks?contract=BTC_USDT_20241227&interval=1m&from=0&to=179 -> 1710000001.500000: [{"t":60,"o":"100","h":"102","l":"99","c":"101","v":325}]
+
+https://api.gateio.ws/api/v4/delivery/usdt/trades?contract=BTC_USDT_20241227&limit=2&from=1&to=2 -> 1710000001.500000: [{"id":1,"contract":"BTC_USDT_20241227","price":"100.01","size":-25,"create_time_ms":1.5},{"id":2,"contract":"BTC_USDT_20241227","price":"100.01","size":-25,"create_time_ms":1.5}]

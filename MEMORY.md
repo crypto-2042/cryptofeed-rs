@@ -564,8 +564,9 @@ Project-specific memory for `rust/cryptofeed-rs`.
 
 ## Remaining candle-history venues
 
-- Bitget/OKX/Gate Spot+perpetual now join Binance/Bybit. Gate delivery REST candles
-  are undocumented and rejected, despite its WS capability.
+- Bitget/OKX/Gate now join Binance/Bybit. Gate delivery candles use the current
+  documented /delivery/usdt/candlesticks path; earlier rejection came from an
+  incomplete document inspection and has been corrected.
 - Bitget v3 history has 90-day ranges and aligned end bounds. Exactly one earlier
   overlap is allowed/counts against scan budget, then filtered for next window;
   never relax all-venue boundary/duplicate rules.
@@ -590,7 +591,25 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   isBuyerMaker=true means taker Sell. Gate signed contract size determines side;
   normalize amount to abs. Bitget execId is the execution ID, not execLinkId.
 - Stable exact timestamp sorting precedes f64 model conversion; never coalesce
-  distinct same-time IDs. Gate create_time_ms is milliseconds, create_time seconds.
+  distinct same-time IDs. Gate Spot create_time_ms counts milliseconds; contract create_time_ms is
+  fractional seconds despite its name. create_time is seconds for both.
 - Binance recent /trades uses individual IDs, distinct from WS/Python aggTrade IDs.
   Future historical aggregate API must name that granularity. No recent-call
   completeness/cursor guarantee, feed publication or recovery anchor is implied.
+
+## Native trade history
+
+- Explicit granularity is mandatory: Binance aggregate IDs differ from recent
+  individual IDs; OKX/Gate history is Individual. Report history capabilities
+  separately from recent Trade. Bybit/Bitget remain recent-only; Gate delivery range history is one page,
+  SourceLimit if full, with no current native continuation.
+- Seed Binance with <=one-hour times, then fromId only; never combine IDs/times
+  or advance dense same-time pages by milliseconds. OKX type=2 after time seeds,
+  type=1 after ID continues. Gate fixed from/to with page or offset avoids retired
+  last_id. Native/SDK offset ceiling 100,000 has explicit SourceLimit.
+- Count enclosing-second Gate boundary rows against budget, filter exact Decimal
+  times; batches can be empty with continuation. Cursors bind exact mapping,
+  range, kind and page size. No retention/atomic-completeness claim.
+- Gate contract create_time_ms is fractional seconds, unlike Spot milliseconds.
+  Positive/not-future smoke checks were insufficient; recent BTC smoke now also
+  requires age <=300s. Preserve the correction and earlier weak evidence.
