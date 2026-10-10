@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio::time::Instant;
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async_with_config,
+    MaybeTlsStream, WebSocketStream,
     tungstenite::{Message, protocol::WebSocketConfig},
 };
 use url::Url;
@@ -131,6 +131,7 @@ impl HeartbeatPolicy {
 
 pub struct WsConnection {
     pub url: Url,
+    transport: crate::transport::TransportConfig,
     options: crate::options::RuntimeOptions,
     heartbeat: HeartbeatPolicy,
     exchange: ExchangeId,
@@ -140,11 +141,17 @@ impl WsConnection {
     pub fn new(url: Url, exchange: ExchangeId) -> Self {
         let heartbeat = HeartbeatPolicy::for_exchange(exchange, &url);
         Self {
+            transport: Default::default(),
             options: Default::default(),
             url,
             heartbeat,
             exchange,
         }
+    }
+
+    pub fn transport(mut self, transport: crate::transport::TransportConfig) -> Self {
+        self.transport = transport;
+        self
     }
 
     pub fn runtime_options(mut self, options: crate::options::RuntimeOptions) -> Self {
@@ -172,12 +179,8 @@ impl WsConnection {
             max_frame_size: Some(Self::MAX_FRAME_BYTES),
             ..WebSocketConfig::default()
         };
-        let (stream, _) = self
-            .handshake(async {
-                connect_async_with_config(self.url.as_str(), Some(config), false)
-                    .await
-                    .map_err(|error| Error::Transport(error.to_string()))
-            })
+        let stream = self
+            .handshake(self.transport.websocket(&self.url, config))
             .await?;
         let mut session = Session::new(stream, self.heartbeat).runtime_options(self.options);
         session._connection_slot = Some(slot);

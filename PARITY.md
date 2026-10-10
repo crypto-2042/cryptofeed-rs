@@ -48,6 +48,8 @@ updates and scoped invalidation; legacy broadcasts remain bounded/lossy.
 [RuntimeOptions](docs/runtime-options.md) exposes retry/connection/callback
 budgets, startup delay and receipt watchdog overrides/disable, preserving
 heartbeat and confirmation policies.
+[TransportConfig](docs/transport.md) shares explicit proxy routing across
+catalogs, REST book snapshots/resync and WS, with scoped caches and direct defaults.
 Scripted regressions cover listings/removals, native-name changes, empty/failing
 refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
 tracked in [the usage alignment plan](docs/python-usage-alignment.md).

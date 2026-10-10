@@ -53,3 +53,5 @@ pub use crate::books::{
 };
 
 pub use crate::options::{IdlePolicy, RuntimeOptions};
+
+pub use crate::transport::TransportConfig;

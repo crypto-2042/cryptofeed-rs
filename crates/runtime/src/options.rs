@@ -146,7 +146,9 @@ mod tests {
             .unwrap()
             .handler_timeout(Duration::from_millis(50))
             .unwrap();
+        let transport = TransportConfig::http_proxy("http://localhost:8080").unwrap();
         let feed = Binance::new()
+            .transport(transport.clone())
             .runtime_options(options)
             .subscription(Channel::Trade, ["BTC-USDT", "ETH-USDT"])
             .subscription(Channel::Ticker, ["BTC-USDT"])
@@ -156,5 +158,6 @@ mod tests {
         let groups = feed.connection_feeds().unwrap();
         assert_eq!(groups.len(), 2);
         assert!(groups.iter().all(|group| group.runtime_options == options));
+        assert!(groups.iter().all(|group| group.transport.cache_key("catalog") == transport.cache_key("catalog")));
     }
 }

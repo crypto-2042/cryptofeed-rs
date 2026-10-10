@@ -1,3 +1,4 @@
+use crate::transport::TransportConfig;
 use std::collections::{HashMap, HashSet};
 
 use crate::exchange::ExchangeFeed;
@@ -524,35 +525,38 @@ pub async fn resolve_feed_symbols(feed: &ExchangeFeed) -> Result<Vec<String>> {
             .collect();
     }
 
-    let registry = fetch_symbol_registry(feed.exchange, product).await?;
+    let registry =
+        fetch_symbol_registry_with_refresh(feed.exchange, product, false, &feed.transport).await?;
     feed.symbols
         .iter()
         .map(|symbol| registry.to_exchange(symbol).map(ToOwned::to_owned))
         .collect()
 }
 
-pub(crate) async fn fetch_symbol_registry(
-    exchange: ExchangeId,
-    product: InstrumentKind,
-) -> Result<SymbolRegistry> {
-    fetch_symbol_registry_with_refresh(exchange, product, false).await
-}
-
 pub(crate) async fn fetch_symbol_registry_with_refresh(
     exchange: ExchangeId,
     product: InstrumentKind,
     refresh: bool,
+    transport: &TransportConfig,
 ) -> Result<SymbolRegistry> {
     let mut registry = SymbolRegistry::default();
     match exchange {
         ExchangeId::Binance => {
             if product == InstrumentKind::Spot {
-                let payload =
-                    fetch_json("https://api.binance.com/api/v3/exchangeInfo", refresh).await?;
+                let payload = fetch_json(
+                    "https://api.binance.com/api/v3/exchangeInfo",
+                    refresh,
+                    transport,
+                )
+                .await?;
                 add_spot_catalog(&mut registry, &payload, ExchangeId::Binance)?;
             } else if product == InstrumentKind::Option {
-                let payload =
-                    fetch_json("https://eapi.binance.com/eapi/v1/exchangeInfo", refresh).await?;
+                let payload = fetch_json(
+                    "https://eapi.binance.com/eapi/v1/exchangeInfo",
+                    refresh,
+                    transport,
+                )
+                .await?;
                 for item in array_at(&payload, &["optionSymbols"])? {
                     add_binance_option_market(&mut registry, item)?;
                 }
@@ -561,7 +565,7 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
                     "https://fapi.binance.com/fapi/v1/exchangeInfo",
                     "https://dapi.binance.com/dapi/v1/exchangeInfo",
                 ] {
-                    let payload = fetch_json(url, refresh).await?;
+                    let payload = fetch_json(url, refresh, transport).await?;
                     add_binance_markets(&mut registry, &payload, product)?;
                 }
             }
@@ -575,7 +579,7 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
             for category in categories {
                 let url =
                     format!("https://api.bitget.com/api/v3/market/instruments?category={category}");
-                let payload = fetch_json(&url, refresh).await?;
+                let payload = fetch_json(&url, refresh, transport).await?;
                 if product == InstrumentKind::Spot {
                     add_spot_catalog(&mut registry, &payload, ExchangeId::Bitget)?;
                 } else {
@@ -588,6 +592,7 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
                 let payload = fetch_json(
                     "https://api.bybit.com/v5/market/instruments-info?category=spot&status=Trading",
                     refresh,
+                    transport,
                 )
                 .await?;
                 add_spot_catalog(&mut registry, &payload, ExchangeId::Bybit)?;
@@ -596,23 +601,28 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
                 // requires a `baseCoin` parameter (PARAMS_ERROR otherwise);
                 // the full option catalog pages from
                 // `instruments-info?category=option` without a base coin.
-                fetch_bybit_option_category(&mut registry, refresh).await?;
+                fetch_bybit_option_category(&mut registry, refresh, transport).await?;
             } else {
                 for category in ["linear", "inverse"] {
-                    fetch_bybit_category(&mut registry, category, product, refresh).await?;
+                    fetch_bybit_category(&mut registry, category, product, refresh, transport)
+                        .await?;
                 }
             }
         }
         ExchangeId::Gateio => match product {
             InstrumentKind::Spot => {
-                let payload =
-                    fetch_json("https://api.gateio.ws/api/v4/spot/currency_pairs", refresh).await?;
+                let payload = fetch_json(
+                    "https://api.gateio.ws/api/v4/spot/currency_pairs",
+                    refresh,
+                    transport,
+                )
+                .await?;
                 add_spot_catalog(&mut registry, &payload, ExchangeId::Gateio)?;
             }
             InstrumentKind::Perpetual => {
                 for settle in ["usdt", "btc"] {
                     let url = format!("https://api.gateio.ws/api/v4/futures/{settle}/contracts");
-                    let payload = fetch_json(&url, refresh).await?;
+                    let payload = fetch_json(&url, refresh, transport).await?;
                     add_gateio_perpetual_markets(&mut registry, &payload, settle)?;
                 }
             }
@@ -620,6 +630,7 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
                 let payload = fetch_json(
                     "https://api.gateio.ws/api/v4/delivery/usdt/contracts",
                     refresh,
+                    transport,
                 )
                 .await?;
                 add_gateio_delivery_markets(&mut registry, &payload)?;
@@ -658,7 +669,7 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
             };
             let url =
                 format!("https://openapi.okx.com/api/v5/public/instruments?instType={inst_type}");
-            let payload = fetch_json(&url, refresh).await?;
+            let payload = fetch_json(&url, refresh, transport).await?;
             if product == InstrumentKind::Spot {
                 add_okx_spot_markets(&mut registry, &payload)?;
             } else {
@@ -800,6 +811,7 @@ async fn fetch_bybit_category(
     category: &str,
     product: InstrumentKind,
     refresh: bool,
+    transport: &TransportConfig,
 ) -> Result<()> {
     let mut cursor: Option<String> = None;
     let mut seen = HashSet::new();
@@ -815,7 +827,7 @@ async fn fetch_bybit_category(
                 query.append_pair("cursor", cursor);
             }
         }
-        let payload = fetch_json(url.as_str(), refresh).await?;
+        let payload = fetch_json(url.as_str(), refresh, transport).await?;
         cursor = add_bybit_page(registry, &payload, product)?;
         let Some(next) = cursor.as_deref() else {
             return Ok(());
@@ -824,7 +836,11 @@ async fn fetch_bybit_category(
     }
 }
 
-async fn fetch_bybit_option_category(registry: &mut SymbolRegistry, refresh: bool) -> Result<()> {
+async fn fetch_bybit_option_category(
+    registry: &mut SymbolRegistry,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<()> {
     let mut cursor: Option<String> = None;
     let mut seen = HashSet::new();
     loop {
@@ -838,7 +854,7 @@ async fn fetch_bybit_option_category(registry: &mut SymbolRegistry, refresh: boo
                 query.append_pair("cursor", cursor);
             }
         }
-        let payload = fetch_json(url.as_str(), refresh).await?;
+        let payload = fetch_json(url.as_str(), refresh, transport).await?;
         cursor = add_bybit_option_page(registry, &payload)?;
         let Some(next) = cursor.as_deref() else {
             return Ok(());
@@ -1312,8 +1328,9 @@ fn add_spot_market(
     registry.insert(Symbol::spot(base, quote), exchange_symbol)
 }
 
-async fn fetch_json(url: &str, refresh: bool) -> Result<Value> {
-    fetch_catalog_with(url, refresh, || fetch_catalog_json(url)).await
+async fn fetch_json(url: &str, refresh: bool, transport: &TransportConfig) -> Result<Value> {
+    let key = transport.cache_key(url);
+    fetch_catalog_with(&key, refresh, || fetch_catalog_json(url, transport)).await
 }
 
 // Each waiter retains the gate; weak entries avoid retaining completed requests.
@@ -1369,22 +1386,10 @@ where
     result.map_err(Error::Transport)
 }
 
-fn catalog_http_client() -> Result<&'static reqwest::Client> {
-    static CLIENT: std::sync::OnceLock<std::result::Result<reqwest::Client, String>> =
-        std::sync::OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            reqwest::Client::builder()
-                .build()
-                .map_err(|error| error.to_string())
-        })
-        .as_ref()
-        .map_err(|error| Error::Transport(error.clone()))
-}
-
-async fn fetch_catalog_json(url: &str) -> Result<Value> {
+async fn fetch_catalog_json(url: &str, transport: &TransportConfig) -> Result<Value> {
     let attempt = async |attempt: u8| -> Result<Value> {
-        let response = catalog_http_client()?
+        let response = transport
+            .http_client()?
             .get(url)
             .timeout(std::time::Duration::from_secs(45))
             .header(reqwest::header::USER_AGENT, "cryptofeed-rs/0.1")

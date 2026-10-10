@@ -353,3 +353,13 @@ before a cancelled delay and a stable initial timer despite watch notifications.
 Duplex `custom_idle_deadline` and `disabling_idle_watchdog` verify configured
 expiry and continued heartbeat/shutdown beyond the original disabled deadline.
 These are offline timing-policy tests; exchange heartbeat fixtures are unchanged.
+
+
+## Explicit proxy transport targets
+
+`transport::tests` uses in-process duplex streams for CONNECT success/auth/IPv6,
+interim responses, tunnel byte preservation, rejection/malformed/incomplete/size
+limits, safe diagnostics and cache/client isolation. Planning tests retain the
+same route across channel groups. Default tests open no proxy listener or external
+socket; the separately dated `proxy_public` observation uses an authenticated
+local forwarding proxy against real Binance catalog/WS/REST bootstrap services.

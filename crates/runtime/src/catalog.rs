@@ -19,7 +19,13 @@ impl MarketCatalog {
     /// Loads one enabled exchange/product catalog, without opening WebSockets.
     /// Unsupported products are rejected before any HTTP request.
     pub async fn load(exchange: ExchangeId, product: InstrumentKind) -> Result<Self> {
-        Self::load_with_refresh(exchange, product, false).await
+        Self::load_with_refresh(
+            exchange,
+            product,
+            false,
+            &crate::transport::TransportConfig::direct(),
+        )
+        .await
     }
 
     /// Fetches fresh catalog responses, bypassing cached pages. Concurrent
@@ -27,13 +33,37 @@ impl MarketCatalog {
     /// exchange-envelope validation leaves the previous cached response intact.
     /// This returns a new snapshot and does not change any running feed.
     pub async fn refresh(exchange: ExchangeId, product: InstrumentKind) -> Result<Self> {
-        Self::load_with_refresh(exchange, product, true).await
+        Self::load_with_refresh(
+            exchange,
+            product,
+            true,
+            &crate::transport::TransportConfig::direct(),
+        )
+        .await
+    }
+
+    /// Loads through the supplied explicit transport; cache entries are scoped
+    /// to its configuration identity, shared by clones of that configuration.
+    pub async fn load_with_transport(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        transport: &crate::transport::TransportConfig,
+    ) -> Result<Self> {
+        Self::load_with_refresh(exchange, product, false, transport).await
+    }
+    pub async fn refresh_with_transport(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        transport: &crate::transport::TransportConfig,
+    ) -> Result<Self> {
+        Self::load_with_refresh(exchange, product, true, transport).await
     }
 
     async fn load_with_refresh(
         exchange: ExchangeId,
         product: InstrumentKind,
         refresh: bool,
+        transport: &crate::transport::TransportConfig,
     ) -> Result<Self> {
         if !crate::markets::capability_matrix()
             .iter()
@@ -43,8 +73,10 @@ impl MarketCatalog {
                 "{exchange:?}/{product:?} catalog"
             )));
         }
-        let registry =
-            crate::markets::fetch_symbol_registry_with_refresh(exchange, product, refresh).await?;
+        let registry = crate::markets::fetch_symbol_registry_with_refresh(
+            exchange, product, refresh, transport,
+        )
+        .await?;
         Ok(Self::from_registry(registry))
     }
 

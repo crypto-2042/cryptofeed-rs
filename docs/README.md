@@ -42,6 +42,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Runtime budgets](runtime-options.md): retry limits/reset, handshake and callback
   deadlines, fixed protocol policies and remaining transport settings.
 
+- [Explicit transport/proxy](transport.md): shared HTTP/WS routing, authentication,
+  direct defaults, cache isolation and TLS/deadline behavior.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are
@@ -49,6 +52,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-10 authenticated proxy](reports/live-smoke-proxy-2026-10-10.md):
+  actual Binance catalog, WS and REST-assisted L2 readiness through HTTP CONNECT.
 - [2026-10-10 L2 recovery](reports/live-smoke-book-recovery-2026-10-10.md):
   real OKX anchored L2 updates, full local snapshot and retirement.
 - [2026-10-10 directory reconciliation](reports/live-smoke-discovery-2026-10-10.md):

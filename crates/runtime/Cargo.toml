@@ -24,6 +24,7 @@ openinterest = ["dep:cryptofeed-openinterest"]
 index = ["dep:cryptofeed-index"]
 
 [dependencies]
+base64 = "0.22"
 cryptofeed-core.workspace = true
 cryptofeed-candles = { path = "../candles", version = "0.1.0", optional = true }
 cryptofeed-funding = { path = "../funding", version = "0.1.0", optional = true }
@@ -128,6 +129,10 @@ required-features = ["trade"]
 [[example]]
 name = "book_recovery_public"
 required-features = ["orderbook"]
+
+[[example]]
+name = "proxy_public"
+required-features = ["trade", "orderbook"]
 
 [package.metadata.docs.rs]
 all-features = true

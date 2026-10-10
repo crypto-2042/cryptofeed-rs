@@ -34,7 +34,7 @@ local checkout, not claims about every upstream version.
 | Callback fan-out | `feed.py`: callback lists; `callback.py`: async/sync callback wrappers | Implemented primary plus add_*_handler registrations, serial order, independent five-second deadlines and catchable panic isolation. Traits return (); business errors remain caller-owned. Broadcast remains lossy. |
 | Candle completion | `feed.py`: `candle_closed_only`; Binance applies the flag | Implemented CandlePolicy All/ClosedOnly/ClosedOrUnknown at the common dispatcher; Rust retains its existing All default and never infers unknown completion. |
 | Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Implemented opt-in L2BookHandle atomic full-snapshot/subscription recovery with local identity/connection/epoch/revision anchors and resync/disconnect/stop invalidation. Quantity units remain exchange-native normalized units. |
-| Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Implemented feed-level retry limits and handshake/callback deadlines with compatible defaults and successful-subscription reset. Idle overrides/disable and cancellation-aware startup delay are now implemented; explicit HTTP/WS proxy config remains pending; fixed protocol/resource policies stay intact. |
+| Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Implemented feed-level retry limits and handshake/callback deadlines with compatible defaults and successful-subscription reset. Idle overrides/disable and cancellation-aware startup delay are now implemented; shared explicit HTTP/WS proxy routing is implemented through TransportConfig; fixed protocol/resource policies stay intact. |
 | Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Rust REST currently serves discovery and book bootstrap. Public history clients are a later workstream; verify current official endpoints before implementation. |
 | Recording/replay | `raw_data_collection.py`: recording and playback | Rust has deterministic inline fixtures/session doubles, but no user recording/replay API. Phase 5, with sanitization and an explicit file format. |
 | Storage/aggregation | `backends/`: database/message-bus/socket adapters, aggregate callbacks | No bundled Rust backends or OHLCV/throttle/Renko adapters. Phase 5 starts with a small sink contract and one justified adapter, avoiding a dependency-heavy default SDK. |
@@ -71,8 +71,9 @@ No exchange wire parser or endpoint changes are part of this phase.
 
 1. **Implemented: catalog refresh and request sharing.**
    `MarketCatalog::refresh` bypasses cached responses, including every requested
-   page. Concurrent callers share in-flight work for the same URL; unrelated
-   URLs remain independent. One reusable HTTP client serves discovery requests.
+   page. Concurrent callers share in-flight work for the same URL and transport
+   configuration; unrelated URLs/routes remain independent. Reusable HTTP clients
+   serve requests within each transport scope.
    Failed HTTP/JSON or exchange-envelope validation preserves the previous
    cached response. Cancellation releases the request gate and later calls can
    retry. This is per-response caching, not an atomic transaction across all
@@ -160,7 +161,9 @@ which quantities use contracts versus base units. Add only needed transport
 settings without hiding protocol-specific constraints.
 [RuntimeOptions](runtime-options.md) now covers finite retries, handshake/callback
 deadlines, successful-subscription retry/backoff reset, idle policy and startup
-delay; explicit HTTP/WS proxy configuration remains unfinished.
+delay. [TransportConfig](transport.md) now covers explicit HTTP/WS proxy routing,
+including standalone/periodic catalogs and REST bootstrap/resync. General Python
+config-file loading is not claimed.
 
 Acceptance: tests cover unfinished/unknown candles, handler ordering and failure,
 lag-and-recovery continuity, and shutdown with slow consumers. Preserve existing

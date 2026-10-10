@@ -437,3 +437,23 @@ Project-specific memory for `rust/cryptofeed-rs`.
   this is caller-owned policy. Startup is separate from connect/idle/ack deadlines.
 - Explicit HTTP/WS proxy remains unfinished; idle and startup policy are now
   implemented rather than silently equating Python idle timeout with handshake.
+
+
+## Explicit transport routing
+
+- TransportConfig is shared by feed catalog hydration, standalone/periodic
+  catalogs, Binance/Gate bootstrap/resnapshot and every physical WS. Clone one
+  configuration to reuse HTTP pool/cache identity; never lose it in pagination
+  or resync jobs. HTTP snapshots still share one process-wide admission budget.
+- Default HTTP and WS are explicitly direct; no hidden environment/system proxy
+  inference. Existing HTTP-only inference was inconsistent; migration is explicit.
+- HTTP proxy endpoints only, Basic auth via separate method, no userinfo/query/
+  fragment/non-root path. Debug hides credentials/endpoint; headers are sensitive;
+  CONNECT errors omit reason/body content and 407 is configuration failure.
+- CONNECT is bounded, preserves following TLS bytes and original destination
+  TLS/SNI verification. No fallback direct on proxy failure. Connection timeout
+  covers proxy TCP/CONNECT/TLS/WS; cancellation owns and drops the socket future.
+- Proxy configurations have process-local opaque cache IDs, never credential keys.
+  Clones share results; separate/direct/auth configurations never coalesce caches.
+- HTTPS/SOCKS/PAC/custom CA/mTLS are not claimed. Full market metadata and optional
+  ecosystem work remain active; public feed scope is unchanged.

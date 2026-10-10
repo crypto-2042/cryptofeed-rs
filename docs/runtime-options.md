@@ -99,9 +99,8 @@ transport/error/shutdown condition occurs.
 
 The 30-second subscription confirmation limit, HTTP directory/snapshot budgets
 and shared admission/send pacing remain fixed. Python's `timeout` is the idle
-message watcher, not the connection establishment deadline. Explicit HTTP/WS
-proxy configuration remains unfinished and must handle both transport paths
-consistently. This increment does not claim general Python config-file parity.
+message watcher, not the connection establishment deadline. [TransportConfig](transport.md) now handles explicit HTTP/WS
+proxy routing consistently, independently of these budgets. This increment does not claim general Python config-file parity.
 
 ## Verification
 

@@ -517,3 +517,34 @@ feature boundaries.
   Rust 1.85, all nine feature checks/tests, no-default test compilation,
   formatting and documentation links passed. Explicit HTTP/WS proxy, full market
   metadata and optional ecosystem work remain under the active overall goal.
+
+
+## Usage alignment: explicit HTTP/WS proxy transport — 2026-10-10
+
+- Added cloneable TransportConfig for direct or HTTP proxy routing and separate
+  Basic authentication. Feed hydration/pagination, standalone/periodic catalogs,
+  every WS and Binance/Gate bootstrap/resnapshot use the same route. Clones reuse
+  a client/cache identity; distinct/direct/auth configurations isolate caches.
+- Default HTTP now explicitly bypasses environment/system proxy inference to
+  match WS direct behavior; users relying on HTTP-only inference must configure
+  routing explicitly. Unsupported schemes/userinfo/path/query/fragment fail
+  before network; proxy failure never silently falls back to direct.
+- CONNECT preserves target TLS verification, bounds headers, handles interim
+  statuses/IPv6 and does not consume tunnel bytes. Debug/header/error handling
+  excludes credentials and proxy reason/body echoes; CONNECT 407 is permanent
+  configuration failure. Existing HTTP limits, admission and cancellation remain.
+- Duplex regressions cover auth, limits/errors/redaction, IPv6/interim success,
+  non-overread and cache/client/planning preservation. No default test requires
+  a listening proxy or external connection. No exchange parser/fixture changed.
+- Authenticated local-forwarder smoke observed 1,375 Binance spot catalog symbols,
+  authenticated api/WS tunnels, Trade/L2 Ready with 9 events and revision 8 local
+  book (1,004 bids/1,001 asks), clean removal/shutdown and exit 0. Forwarder stopped;
+  neither proxy credentials nor TLS contents were retained in the public report.
+- Final verification: 497 workspace tests, strict all-target Clippy, rustdoc,
+  all nine feature checks/tests, no-default test compilation, formatting/links,
+  and Rust 1.85 against fresh no-lockfile dependency resolution passed. Base64
+  0.22 is an explicit small dependency; Cargo.lock remains untracked.
+- Full market metadata, optimized unequal-set packing/remaining resource policy
+  and optional REST/history, recording/replay, sinks/aggregation and NBBO remain
+  unfinished under the overall alignment goal. HTTPS/SOCKS/PAC/custom CA and
+  general Python config-file parity are not promised by this HTTP proxy increment.

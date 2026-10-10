@@ -31,6 +31,7 @@ pub mod markets;
 pub mod options;
 pub mod prelude;
 pub mod runtime;
+pub mod transport;
 
 pub use catalog::MarketCatalog;
 pub use exchange::*;
@@ -47,3 +48,5 @@ pub use discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, Discovery
 pub use books::{BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle};
 
 pub use options::{IdlePolicy, RuntimeOptions};
+
+pub use transport::TransportConfig;

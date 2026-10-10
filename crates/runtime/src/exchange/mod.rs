@@ -61,6 +61,7 @@ pub enum CandlePolicy {
 
 #[derive(Clone)]
 pub struct ExchangeFeed {
+    pub transport: crate::transport::TransportConfig,
     pub runtime_options: crate::options::RuntimeOptions,
     pub exchange: ExchangeId,
     pub channels: Vec<Channel>,
@@ -504,6 +505,7 @@ fn channel_name_for_warning(channel: Channel) -> &'static str {
 }
 
 pub struct ExchangeFeedBuilder {
+    transport: crate::transport::TransportConfig,
     runtime_options: crate::options::RuntimeOptions,
     exchange: ExchangeId,
     channels: Vec<Channel>,
@@ -568,6 +570,7 @@ pub struct ExchangeFeedBuilder {
 impl ExchangeFeedBuilder {
     pub fn new(exchange: ExchangeId) -> Self {
         Self {
+            transport: Default::default(),
             runtime_options: Default::default(),
             exchange,
             channels: Vec::new(),
@@ -678,6 +681,12 @@ impl ExchangeFeedBuilder {
     #[cfg(feature = "candles")]
     pub fn candle_policy(mut self, policy: CandlePolicy) -> Self {
         self.candle_policy = policy;
+        self
+    }
+
+    /// Shares explicit HTTP and WebSocket routing, including catalog/bootstrap.
+    pub fn transport(mut self, transport: crate::transport::TransportConfig) -> Self {
+        self.transport = transport;
         self
     }
 
@@ -946,6 +955,7 @@ impl ExchangeFeedBuilder {
             );
         }
         ExchangeFeed {
+            transport: self.transport,
             runtime_options: self.runtime_options,
             exchange: self.exchange,
             channels: self.channels,

@@ -7,22 +7,18 @@ use tokio::sync::Semaphore;
 const MAX_CONCURRENT_SNAPSHOTS: usize = 4;
 
 struct SnapshotRequests {
-    client: reqwest::Client,
     slots: Semaphore,
     next: tokio::sync::Mutex<tokio::time::Instant>,
     interval: std::time::Duration,
 }
 
 impl SnapshotRequests {
-    fn new(limit: usize, interval: std::time::Duration) -> Result<Self> {
-        Ok(Self {
-            client: reqwest::Client::builder()
-                .build()
-                .map_err(|error| Error::Transport(error.to_string()))?,
+    fn new(limit: usize, interval: std::time::Duration) -> Self {
+        Self {
             slots: Semaphore::new(limit),
             next: tokio::sync::Mutex::new(tokio::time::Instant::now()),
             interval,
-        })
+        }
     }
 
     async fn run<F: Future>(&self, request: F) -> F::Output {
@@ -40,20 +36,18 @@ impl SnapshotRequests {
     }
 }
 
-pub(super) async fn fetch_json(url: &str) -> Result<serde_json::Value> {
-    static REQUESTS: std::sync::OnceLock<std::result::Result<SnapshotRequests, String>> =
-        std::sync::OnceLock::new();
-    let requests = REQUESTS
-        .get_or_init(|| {
-            SnapshotRequests::new(MAX_CONCURRENT_SNAPSHOTS, std::time::Duration::from_secs(1))
-                .map_err(|error| error.to_string())
-        })
-        .as_ref()
-        .map_err(|error| Error::Transport(error.clone()))?;
+pub(super) async fn fetch_json(
+    url: &str,
+    transport: &crate::transport::TransportConfig,
+) -> Result<serde_json::Value> {
+    static REQUESTS: std::sync::OnceLock<SnapshotRequests> = std::sync::OnceLock::new();
+    let requests = REQUESTS.get_or_init(|| {
+        SnapshotRequests::new(MAX_CONCURRENT_SNAPSHOTS, std::time::Duration::from_secs(1))
+    });
     requests
         .run(async {
-            let response = requests
-                .client
+            let response = transport
+                .http_client()?
                 .get(url)
                 .timeout(super::SNAPSHOT_HTTP_TIMEOUT)
                 .send()
@@ -74,7 +68,7 @@ mod tests {
 
     #[tokio::test]
     async fn request_concurrency_is_bounded_across_callers() {
-        let requests = SnapshotRequests::new(2, std::time::Duration::ZERO).unwrap();
+        let requests = SnapshotRequests::new(2, std::time::Duration::ZERO);
         let active = AtomicUsize::new(0);
         let peak = AtomicUsize::new(0);
         let barrier = tokio::sync::Barrier::new(2);
@@ -98,7 +92,7 @@ mod tests {
 
     #[tokio::test]
     async fn request_starts_are_paced_independently_of_response_time() {
-        let requests = SnapshotRequests::new(4, std::time::Duration::from_millis(10)).unwrap();
+        let requests = SnapshotRequests::new(4, std::time::Duration::from_millis(10));
         let start = tokio::time::Instant::now();
         futures::future::join_all((0..3).map(|_| requests.run(async {}))).await;
         assert!(start.elapsed() >= std::time::Duration::from_millis(20));
@@ -106,7 +100,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancelling_an_active_request_releases_capacity() {
-        let requests = Arc::new(SnapshotRequests::new(1, std::time::Duration::ZERO).unwrap());
+        let requests = Arc::new(SnapshotRequests::new(1, std::time::Duration::ZERO));
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let task = {
             let requests = requests.clone();
@@ -135,7 +129,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancelled_waiter_never_starts_network_work() {
-        let requests = Arc::new(SnapshotRequests::new(1, std::time::Duration::ZERO).unwrap());
+        let requests = Arc::new(SnapshotRequests::new(1, std::time::Duration::ZERO));
         let permit = requests.slots.acquire().await.unwrap();
         let started = Arc::new(AtomicUsize::new(0));
         let task = {

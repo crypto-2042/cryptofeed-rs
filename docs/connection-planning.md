@@ -57,7 +57,8 @@ an official Gate request rate is inferred from another exchange's constants.
 
 ## REST book snapshots
 
-Binance and Gate share one process-local snapshot HTTP client and budget:
+Binance and Gate share one process-local snapshot admission budget; HTTP clients
+are reused within the selected [transport configuration](transport.md):
 
 - At most four admitted snapshot requests at once.
 - At least one second between request starts, including bootstrap and resnapshot.
@@ -73,7 +74,7 @@ Binance and Gate share one process-local snapshot HTTP client and budget:
 
 These bounds are not exchange-weight accounting. Other REST calls/processes can
 still consume the shared IP quota. Catalog discovery has a separate reused
-client/cache and request coalescing; it does not acquire snapshot slots.
+client/cache and request coalescing within its transport scope; it does not acquire snapshot slots.
 
 ## Verification and remaining work
 

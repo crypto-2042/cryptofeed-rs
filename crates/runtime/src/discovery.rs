@@ -208,8 +208,11 @@ impl DiscoveryFeed {
     pub async fn start(self, control: RuntimeControl) -> Result<DiscoveryHandle> {
         let exchange = self.template.exchange;
         let product = self.product;
-        self.start_with(control, move || MarketCatalog::refresh(exchange, product))
-            .await
+        let transport = self.template.transport.clone();
+        self.start_with(control, move || {
+            let transport = transport.clone();
+            async move { MarketCatalog::refresh_with_transport(exchange, product, &transport).await }
+        }).await
     }
     async fn start_with<L, F>(self, control: RuntimeControl, mut load: L) -> Result<DiscoveryHandle>
     where

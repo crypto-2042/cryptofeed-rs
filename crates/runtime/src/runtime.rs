@@ -618,8 +618,9 @@ async fn consume_binance_session(
         Some((url, _)) => Url::parse(url).map_err(|error| Error::Transport(error.to_string()))?,
         None => Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?,
     };
-    let connection =
-        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone());
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -638,7 +639,11 @@ async fn consume_binance_session(
     let snapshot_receivers = if plan.snapshot_urls.is_empty() {
         std::collections::HashMap::new()
     } else {
-        spawn_binance_snapshot_fetches(&plan.instruments, plan.l2_book_depth.unwrap_or(1000))
+        spawn_binance_snapshot_fetches(
+            &plan.instruments,
+            plan.l2_book_depth.unwrap_or(1000),
+            &feed.transport,
+        )
     };
     #[cfg(feature = "orderbook")]
     let pending_deltas: std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>> =
@@ -720,8 +725,9 @@ async fn consume_bitget_session(
         feed.clear_connection_books(&feed.symbols);
     }
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection =
-        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone());
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -766,8 +772,9 @@ async fn consume_bybit_session(
         feed.clear_connection_books(&feed.symbols);
     }
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection =
-        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone());
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -819,8 +826,9 @@ async fn consume_okx_session(
         feed.clear_connection_books(&feed.symbols);
     }
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection =
-        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone());
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -871,8 +879,9 @@ async fn consume_gateio_session(
         );
     }
     let url = Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection =
-        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone());
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -1451,6 +1460,7 @@ where
 fn spawn_binance_snapshot_fetches(
     instruments: &[BinanceInstrument],
     limit: u16,
+    transport: &crate::transport::TransportConfig,
 ) -> std::collections::HashMap<
     String,
     oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
@@ -1459,7 +1469,7 @@ fn spawn_binance_snapshot_fetches(
 
     for instrument in instruments {
         let symbol_key = instrument.symbol.as_str().to_owned();
-        let rx = spawn_binance_snapshot_fetch(instrument.clone(), limit);
+        let rx = spawn_binance_snapshot_fetch(instrument.clone(), limit, transport.clone());
         receivers.insert(symbol_key, rx);
     }
 
@@ -1470,13 +1480,14 @@ fn spawn_binance_snapshot_fetches(
 fn spawn_binance_snapshot_fetch(
     instrument: BinanceInstrument,
     limit: u16,
+    transport: crate::transport::TransportConfig,
 ) -> oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>> {
     let (mut tx, rx) = oneshot::channel();
     tokio::spawn(async move {
         tokio::select! {
             biased;
             _ = tx.closed() => {}
-            result = fetch_binance_l2_snapshot(instrument, limit) => {
+            result = fetch_binance_l2_snapshot(instrument, limit, transport) => {
                 let _ = tx.send(result);
             }
         }
@@ -1488,11 +1499,12 @@ fn spawn_binance_snapshot_fetch(
 async fn fetch_binance_l2_snapshot(
     instrument: BinanceInstrument,
     limit: u16,
+    transport: crate::transport::TransportConfig,
 ) -> Result<(u64, cryptofeed_orderbook::L2BookSnapshot)> {
     // Partial-depth streams must be bootstrapped from a snapshot of the same
     // width; the full-depth default uses the 1000-level snapshot.
     let url = BinanceAdapter::snapshot_url(&instrument, limit);
-    let payload = snapshot::fetch_json(&url).await?;
+    let payload = snapshot::fetch_json(&url, &transport).await?;
     binance_parser::parse_l2_book_snapshot_for_instrument(
         &payload,
         &instrument,
@@ -1565,7 +1577,11 @@ async fn poll_binance_snapshot_bootstraps(
                     }
                     receivers.insert(
                         key.clone(),
-                        spawn_binance_snapshot_fetch(instrument.clone(), limit),
+                        spawn_binance_snapshot_fetch(
+                            instrument.clone(),
+                            limit,
+                            feed.transport.clone(),
+                        ),
                     );
                     continue;
                 }
@@ -1810,7 +1826,7 @@ fn schedule_binance_resync(
     receivers.remove(symbol_key);
     receivers.insert(
         symbol_key.to_owned(),
-        spawn_binance_snapshot_fetch(instrument.clone(), limit),
+        spawn_binance_snapshot_fetch(instrument.clone(), limit, feed.transport.clone()),
     );
 }
 
@@ -1818,13 +1834,14 @@ fn schedule_binance_resync(
 fn spawn_gateio_snapshot_fetch_for_instrument(
     instrument: GateioInstrument,
     snapshot_url: String,
+    transport: crate::transport::TransportConfig,
 ) -> oneshot::Receiver<Result<crate::exchange::gateio::book_sync::GateioBookSnapshot>> {
     let (mut tx, rx) = oneshot::channel();
     tokio::spawn(async move {
         tokio::select! {
             biased;
             _ = tx.closed() => {}
-            result = fetch_gateio_l2_snapshot_for_instrument(instrument, snapshot_url) => {
+            result = fetch_gateio_l2_snapshot_for_instrument(instrument, snapshot_url, transport) => {
                 let _ = tx.send(result);
             }
         }
@@ -1836,8 +1853,9 @@ fn spawn_gateio_snapshot_fetch_for_instrument(
 async fn fetch_gateio_l2_snapshot_for_instrument(
     instrument: GateioInstrument,
     snapshot_url: String,
+    transport: crate::transport::TransportConfig,
 ) -> Result<crate::exchange::gateio::book_sync::GateioBookSnapshot> {
-    let payload = snapshot::fetch_json(&snapshot_url).await?;
+    let payload = snapshot::fetch_json(&snapshot_url, &transport).await?;
     gateio_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, current_timestamp())
         .ok_or_else(|| Error::Parse("failed to parse gateio l2 snapshot".to_owned()))
 }
@@ -1975,7 +1993,11 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                 receivers.remove(&key);
                 receivers.insert(
                     key.clone(),
-                    spawn_gateio_snapshot_fetch_for_instrument(instrument.clone(), snapshot_url),
+                    spawn_gateio_snapshot_fetch_for_instrument(
+                        instrument.clone(),
+                        snapshot_url,
+                        feed.transport.clone(),
+                    ),
                 );
             }
         }
@@ -2200,7 +2222,11 @@ fn schedule_gateio_resync_for_plan(
     receivers.remove(symbol_key);
     receivers.insert(
         symbol_key.to_owned(),
-        spawn_gateio_snapshot_fetch_for_instrument(instrument.clone(), snapshot_url),
+        spawn_gateio_snapshot_fetch_for_instrument(
+            instrument.clone(),
+            snapshot_url,
+            feed.transport.clone(),
+        ),
     );
     Ok(())
 }
@@ -2254,7 +2280,11 @@ fn schedule_gateio_resync(
         receivers.remove(symbol_key);
         receivers.insert(
             symbol_key.to_owned(),
-            spawn_gateio_snapshot_fetch_for_instrument(instrument, snapshot_url),
+            spawn_gateio_snapshot_fetch_for_instrument(
+                instrument,
+                snapshot_url,
+                feed.transport.clone(),
+            ),
         );
     }
 }

@@ -52,6 +52,8 @@ empty channel is omitted while another channel still has symbols. If the entire
 selection is empty, reconciliation reports Backoff and preserves the last
 nonempty configuration. It does not start an idle subscription for future-only
 patterns. All selected native names come from the same fetched catalog snapshot.
+The template transport is also used for initial/periodic HTTP refresh and
+replacement sessions; see [transport configuration](transport.md).
 
 Catalogs filter explicitly unavailable statuses: Binance `TRADING`, Bybit
 `Trading`, Bitget `online/limit_open/limit_close`, and Gate spot

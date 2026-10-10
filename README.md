@@ -357,6 +357,16 @@ The filter applies to handlers, streams and counters. Bitget currently has
 unknown completion, so strict mode delivers no candles there. See
 [candle delivery](docs/candle-delivery.md) for policies and Python differences.
 
+## HTTP and WebSocket proxy
+
+Use `.transport(TransportConfig::http_proxy("http://127.0.0.1:8080")?)` to route
+catalog discovery, REST book bootstrap/resync and WebSockets consistently.
+Basic proxy authentication uses `.basic_auth(username, password)?`; credentials
+are excluded from URLs and debug output. Default routing is explicitly direct,
+including HTTP; system proxy environment inference is not used. See
+[transport configuration](docs/transport.md) for standalone catalogs, discovery,
+cache isolation, supported proxy types and migration details.
+
 ## Symbol discovery and service shutdown
 
 Load a product-qualified catalog, then select explicit normalized symbols:
