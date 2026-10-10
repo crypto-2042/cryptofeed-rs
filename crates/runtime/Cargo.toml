@@ -154,5 +154,9 @@ required-features = ["funding"]
 name = "candle_history_public"
 required-features = ["candles"]
 
+[[example]]
+name = "recent_trades_public"
+required-features = ["trade"]
+
 [package.metadata.docs.rs]
 all-features = true

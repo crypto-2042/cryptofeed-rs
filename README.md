@@ -369,8 +369,9 @@ examples. Feature-gated `funding_history(&symbol, query)` now provides bounded s
 pages and versioned continuation, with actual rates and explicit stop reasons.
 See [funding history](docs/funding-history.md). Five-venue
 [candle history](docs/candle-history.md) adds bounded time windows and JSON
-continuation. Trade history remains unfinished; Gate delivery candles remain
-unsupported.
+continuation. [Recent trades](docs/recent-trades.md) now provides bounded
+five-venue batches with exact IDs and native quantity units. Trade history
+pagination remains unfinished; Gate delivery candles remain unsupported.
 
 ## HTTP and WebSocket proxy
 

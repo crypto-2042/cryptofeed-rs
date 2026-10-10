@@ -23,3 +23,5 @@ https://api.bitget.com/api/v3/market/orderbook?symbol=BTCUSDT&category=SPOT&limi
 https://api.bitget.com/api/v3/market/history-fund-rate?symbol=BTCUSDT&limit=2&category=USDT-FUTURES&cursor=1 -> 1710000001.500000: {"code":"00000","data":{"resultList":[{"symbol":"BTCUSDT","fundingRateTimestamp":"9000","fundingRate":"-0.0001"},{"symbol":"BTCUSDT","fundingRateTimestamp":"8000","fundingRate":"-0.0001"}]}}
 
 https://api.bitget.com/api/v3/market/history-candles?symbol=BTCUSDT&interval=1m&limit=2&startTime=180000&endTime=300000&category=USDT-FUTURES -> 1710000001.500000: {"code":"00000","data":[["240000","100","102","99","101","3.25","328"],["180000","100","102","99","101","3.25","328"]]}
+
+https://api.bitget.com/api/v3/market/fills?symbol=BTCUSDT&limit=1&category=SPOT -> 1710000001.500000: {"code":"00000","data":[{"execId":"execution-1","execLinkId":"unrelated","price":"100.01","size":"0.25","ts":"1001","side":"sell"}]}

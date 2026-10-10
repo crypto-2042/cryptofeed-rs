@@ -580,3 +580,17 @@ for futures. Request rounding uses the product-specific anchor. Public September
 2026 probes confirmed both grids and UTC-midnight daily opens. Monthly Spot and
 perpetual `30d` probes each returned the September 1 UTC open. These observations
 are separate from the ten-product 1m smoke; offline tests assert both week grids.
+
+## Public recent trades
+
+- PublicRestClient recent_trades is one bounded trade-feature batch on five current
+  public surfaces. Keep native limits (Bybit Spot 60, Bitget 100, OKX 500) and the
+  SDK Gate derivative cap distinct from documented exchange maxima.
+- Native units, exact Decimal prices/amounts and string IDs are preserved. Binance
+  isBuyerMaker=true means taker Sell. Gate signed contract size determines side;
+  normalize amount to abs. Bitget execId is the execution ID, not execLinkId.
+- Stable exact timestamp sorting precedes f64 model conversion; never coalesce
+  distinct same-time IDs. Gate create_time_ms is milliseconds, create_time seconds.
+- Binance recent /trades uses individual IDs, distinct from WS/Python aggTrade IDs.
+  Future historical aggregate API must name that granularity. No recent-call
+  completeness/cursor guarantee, feed publication or recovery anchor is implied.

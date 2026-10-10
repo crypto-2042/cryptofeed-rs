@@ -3,13 +3,16 @@
     feature = "ticker",
     feature = "orderbook",
     feature = "funding",
-    feature = "candles"
+    feature = "candles",
+    feature = "trade"
 ))]
 mod adapter;
 #[cfg(feature = "candles")]
 mod candles;
 #[cfg(feature = "funding")]
 mod history;
+#[cfg(feature = "trade")]
+mod trades;
 use crate::{catalog::MarketCatalog, transport::TransportConfig};
 #[cfg(feature = "candles")]
 pub use candles::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, CandleHistoryStop};
@@ -17,7 +20,8 @@ pub use candles::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, Candle
     feature = "ticker",
     feature = "orderbook",
     feature = "funding",
-    feature = "candles"
+    feature = "candles",
+    feature = "trade"
 ))]
 use cryptofeed_core::symbol::Symbol;
 use cryptofeed_core::{
@@ -47,7 +51,8 @@ pub struct PublicRestClient {
         feature = "ticker",
         feature = "orderbook",
         feature = "funding",
-        feature = "candles"
+        feature = "candles",
+        feature = "trade"
     ))]
     transport: TransportConfig,
 }
@@ -68,7 +73,8 @@ impl PublicRestClient {
             feature = "ticker",
             feature = "orderbook",
             feature = "funding",
-            feature = "candles"
+            feature = "candles",
+            feature = "trade"
         )))]
         let _ = transport;
         Self {
@@ -77,7 +83,8 @@ impl PublicRestClient {
                 feature = "ticker",
                 feature = "orderbook",
                 feature = "funding",
-                feature = "candles"
+                feature = "candles",
+                feature = "trade"
             ))]
             transport,
         }
@@ -92,6 +99,7 @@ impl PublicRestClient {
             Channel::L2Book,
             Channel::Funding,
             Channel::Candles,
+            Channel::Trade,
         ]
         .into_iter()
         .filter(|channel| self.catalog.supported_channels().contains(channel))
@@ -101,6 +109,20 @@ impl PublicRestClient {
                 || self.catalog.product() != InstrumentKind::Futures
         })
         .collect()
+    }
+    /// A single bounded recent batch, not a complete historical range.
+    #[cfg(feature = "trade")]
+    pub async fn recent_trades(
+        &self,
+        symbol: &Symbol,
+        limit: u16,
+    ) -> Result<Vec<cryptofeed_trade::Trade>> {
+        let info = self.catalog.market(symbol)?;
+        let plan = trades::plan(info, limit)?;
+        let payload =
+            crate::runtime::snapshot::fetch_json(plan.url.as_str(), &self.transport, info.exchange)
+                .await?;
+        trades::decode(info, &plan, &payload, limit, received_time())
     }
     #[cfg(feature = "candles")]
     pub async fn candle_history(
@@ -154,7 +176,8 @@ impl PublicRestClient {
     feature = "ticker",
     feature = "orderbook",
     feature = "funding",
-    feature = "candles"
+    feature = "candles",
+    feature = "trade"
 ))]
 fn received_time() -> f64 {
     std::time::SystemTime::now()
@@ -187,7 +210,7 @@ mod tests {
             channels.contains(&Channel::L2Book),
             cfg!(feature = "orderbook")
         );
-        assert!(!channels.contains(&Channel::Trade));
+        assert_eq!(channels.contains(&Channel::Trade), cfg!(feature = "trade"));
         assert_eq!(
             channels.contains(&Channel::Candles),
             cfg!(feature = "candles")
@@ -220,6 +243,28 @@ mod tests {
         );
         let client = PublicRestClient::from_catalog(catalog, TransportConfig::direct());
         assert!(!client.supported_channels().contains(&Channel::Candles));
+    }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn recent_trade_validation_precedes_http() {
+        assert!(
+            client()
+                .recent_trades(&Symbol::spot("MISSING", "USDT"), 1)
+                .await
+                .is_err()
+        );
+        assert!(
+            client()
+                .recent_trades(&Symbol::spot("BTC", "USDT"), 0)
+                .await
+                .is_err()
+        );
+        assert!(
+            client()
+                .recent_trades(&Symbol::spot("BTC", "USDT"), 1001)
+                .await
+                .is_err()
+        );
     }
     #[cfg(all(feature = "ticker", feature = "orderbook"))]
     #[tokio::test]

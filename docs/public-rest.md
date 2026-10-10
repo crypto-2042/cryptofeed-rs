@@ -5,8 +5,8 @@ queries for the five active exchanges' existing Spot/Perpetual/Futures profiles.
 It is independent of FeedHandler and creates no subscription, polling task,
 callback or recovery anchor. Ticker means the SDK's best bid/ask model, not all
 native 24-hour statistics. Bounded [funding history](funding-history.md) and
-[five-venue candle history](candle-history.md) are also implemented. Trade history
-remains unfinished; Gate delivery candles remain unsupported.
+[five-venue candle history](candle-history.md) are also implemented. [Recent trades](recent-trades.md) adds bounded five-venue batches. Trade history
+pagination remains unfinished; Gate delivery candles remain unsupported.
 `supported_channels()` reports
 implemented REST methods in the current Cargo build, separately from
 MarketCatalog's WS capabilities.
@@ -32,8 +32,8 @@ Unknown normalized names fail before HTTP. To follow new listings/mappings,
 refresh a catalog and construct a new client from it; query calls do not guess
 native names or automatically refresh the symbol universe.
 
-Ticker, book, funding-history and candle-history methods are gated by `ticker`,
-`orderbook`, `funding` and `candles`, respectively.
+Ticker, book, funding-history, candle-history and recent-trade methods are gated
+by `ticker`, `orderbook`, `funding`, `candles` and `trade`, respectively.
 The catalog/context API remains available in builds without those categories.
 Existing capability cells, private feeds, options/MARGIN, trading and the Binance
 contract-OI deferral are unchanged. This does not claim every newly introduced

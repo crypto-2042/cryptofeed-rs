@@ -664,3 +664,18 @@ for futures. Request rounding uses the product-specific anchor. Public September
 2026 probes confirmed both grids and UTC-midnight daily opens. Monthly Spot and
 perpetual `30d` probes each returned the September 1 UTC open. These observations
 are separate from the ten-product 1m smoke; offline tests assert both week grids.
+
+## Recent public trade APIs — 2026-10-10
+
+Current official sources linked in [recent trades](recent-trades.md) were checked
+before implementation. Binance current Spot/UM/CM /trades returns individual
+id/price/qty/time/isBuyerMaker rows (1000 cap); aggregated /aggTrades is distinct.
+Bitget v3 /market/fills uses execId/price/size/side/ts (100 cap, explicit category),
+not older v1/v2 tradeId shapes. Bybit v5 /market/recent-trade returns a category
+and list of symbol/execId/price/size/side/time, Spot capped at 60 and contracts 1000.
+OKX v5 /market/trades has instId/tradeId/px/sz/side/ts (500 cap).
+Gate v4 Spot/futures/delivery trades use current product/settlement routes; Spot
+amount/side differs from signed contract size. create_time_ms is milliseconds
+(to three decimal places for futures), create_time is seconds. Gate Spot maximum
+is 1000; derivative parameter tables omit a numeric limit, so Rust's 1000 is a
+bounded SDK policy. No private history API or archived download is substituted.

@@ -403,3 +403,22 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   2+2 pages per product, no duplicate opens, BudgetReached/next=true; 40 pages
   and 200 per-product records, exit 0. Earlier Gate/Bitget failures remain in
   the [dated report](docs/reports/live-smoke-candle-history-2026-10-10.md).
+
+## Public recent trades — 2026-10-10
+
+- Added trade-feature PublicRestClient::recent_trades on five current public
+  routes, category/product-qualified and bounded by per-source/SDK row caps.
+  Invalid inputs fail before HTTP; no paging or completeness claim is made.
+- Prices/amounts use exact Decimal, signed Gate contract quantity becomes absolute
+  with explicit side, Binance maker flag converts to taker side. Native IDs stay
+  exact (including >2^53); Bitget uses execId, not execLinkId. Same-time executions
+  survive and sort stably by exact native time before model f64 conversion.
+- Recent Binance individual trade IDs are distinct from Python/Rust WS aggregate
+  IDs; the guide documents granularity and prohibits cross-namespace dedup claims.
+  Historical pagination/aggregate retrieval remains the next increment.
+- Offline tests cover five venue/product row families, both sides, caps/routing,
+  signed/numeric precision, explicit Gate seconds fallback, stable same-time IDs,
+  duplicates/malformed/oversized/mismatched payloads and pre-HTTP validation.
+- Public Spot/perpetual smoke passed for all five venues: 5 records/unique IDs per
+  product, ascending time and matching identity, ten queries/50 executions, exit 0.
+  See [evidence](docs/reports/live-smoke-recent-trades-2026-10-10.md).

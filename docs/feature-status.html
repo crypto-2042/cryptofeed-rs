@@ -205,6 +205,7 @@
   <section>
     <h2><span class="step">1</span> 能力矩阵（按标的类型分组：现货 / 合约 / 期权 / MARGIN）</h2>
     <p class="note">首版推送前工程复核：字段语义、无损 JSON 精度、产品限定、Bybit delta 状态、周期格式和日历月边界已修正。383 项测试（含 82 parity）、Rust 1.85、全部 feature、文档与 lint 门禁通过；依赖审计零漏洞。10 配置聚合冒烟及 Bybit/Binance/Bitget 最终目标复核干净退出。最终工程门禁已复跑，源代码已推送 GitHub；GitHub 私有漏洞报告已启用并验证，正式发版仍需确认许可证来源。<a href="reports/live-smoke-pre-push-2026-10-08.md">实盘验证范围</a></p>
+    <p class="note">2026-10-10 近期成交：五家公共 REST 已新增 recent_trades，逐源限制行数，Decimal 精度与原生 ID/数量单位保留；Binance maker 标志换算主动方向，Gate 合约有符号数量确定方向并取绝对值。同刻不同 ID 不合并，精确时间排序后才转 f64。Binance 近期个别成交与 WS/历史聚合成交 ID 空间不同；本批不宣称历史分页或完整性。十组现货/永续公开查询各 5 条、ID 不重复、时间递增，退出 0；553 项工作区测试、trade 独立测试、九个 feature 编译、严格 Clippy 与 Rust 1.85 全目标全新解析通过。<a href="recent-trades.md">接口与语义</a></p>
     <p class="note">2026-10-10 五家蜡烛历史补齐：新增 Bitget v3、OKX v5、Gate v4 现货/永续。Bitget 90 天上限及单根较早重叠计入预算、续页不丢记录；Gate 使用首个合法开盘边界、秒单位且不传冲突 limit，现货取 base volume/完成标志，永续保留合约量/未知完成。额外公开验证发现 Gate Spot 周线按周一、永续 7d 按 epoch 网格；请求边界已按产品修正并回归。OKX 月/季线按 UTC+8 日历，confirm 原样保留。Gate 交割无官方历史蜡烛端点，能力与查询均明确拒绝。最终十组首次/续页各 10 条、各 2 页，无重复；547 项工作区测试、严格 Clippy、独立 feature 编译、Rust 1.85 全新解析通过。两轮 Gate/Bitget 边界失败及修正过程保留在实盘报告。<a href="candle-history.md">当前接口</a></p>
     <p class="note">2026-10-10 蜡烛历史：Binance Spot/USD-M/COIN-M 与 Bybit v5 spot/linear/inverse 已实现有界反向时间窗口和 JSON 续页，每页/每批最多 100，请求跨度最多 200 天。月线按日历计算，空窗口继续推进；两家 REST 均保留未知收盘状态，不推断完成。四组现货/永续公开验证首次与续页各 10 条/2 页，无重复，退出 0；540 项工作区测试、严格 Clippy、九个 feature 独立编译/边界测试及 Rust 1.85 全新依赖解析通过。其余三家已在后续批次补齐；成交历史待完成。<a href="candle-history.md">接口与边界</a> · <a href="reports/live-smoke-candle-history-2026-10-10.md">实盘证据</a></p>
     <p class="note">2026-10-10 资金费率历史：五家已实现有界实际结算记录与版本 1 JSON 续页游标；半开整数毫秒范围、每页/每批最多 100、每次最多扫描 10,000 行，恢复前验证交易所/标的/原生映射/范围/页大小。Binance 正向、其他时间/Bitget v3 cursor 反向分页，使用 resultList 而非旧 v2 pageNo；OKX 取实际 realizedRate，Gate 秒显式换算，不推测下一费率/周期。停止原因区分预算/边界/源耗尽/原生上限，不承诺完整保留历史。五家实盘各 10+10 条、2+2 页、无重复，全部预算到达且仍有游标，退出 0。533 项测试及全部门禁通过，含 funding-only 独立测试。Binance/Bybit 蜡烛历史已在后续批次实现；Bitget/OKX/Gate 现货与永续蜡烛历史已在后续批次补齐；成交历史、录制回放、存储聚合、NBBO 与高级资源策略仍待完成。<a href="funding-history.md">范围与续页</a> · <a href="reports/live-smoke-funding-history-2026-10-10.md">证据</a></p>
@@ -333,7 +334,7 @@
         </div>
         <div class="kb-item">
           <div class="t">历史数据 REST（get_candles/get_trades）</div>
-          <div class="d">REST 客户端与五家资金费率历史已实现；五家蜡烛历史已实现有界窗口和续页，Gate 交割蜡烛因无官方端点而拒绝。成交查询仍待接入、分页和验收。</div>
+          <div class="d">REST 客户端与五家资金费率历史已实现；五家蜡烛历史已实现有界窗口和续页，Gate 交割蜡烛因无官方端点而拒绝。五家近期成交查询已接入并限额；历史成交原生分页仍待实现。</div>
         </div>
         <div class="kb-item">
           <div class="t">离线回放（playback）</div>

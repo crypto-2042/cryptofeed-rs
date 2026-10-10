@@ -100,7 +100,8 @@ fn retry_after(header: Option<&str>, now: SystemTime) -> Option<Duration> {
     feature = "ticker",
     feature = "orderbook",
     feature = "funding",
-    feature = "candles"
+    feature = "candles",
+    feature = "trade"
 ))]
 pub(crate) async fn fetch_json(
     url: &str,

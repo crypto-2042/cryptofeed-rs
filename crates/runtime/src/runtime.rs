@@ -5870,7 +5870,9 @@ mod tests {
             .remove(0);
         let (mut client, mut server) = duplex_session(ExchangeId::Gateio).await;
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        #[cfg(feature = "orderbook")]
         let receivers = std::collections::HashMap::new();
+        #[cfg(feature = "orderbook")]
         let pending_deltas = std::collections::HashMap::new();
 
         let session = tokio::spawn(async move {
@@ -5879,7 +5881,9 @@ mod tests {
                 plan,
                 shutdown_rx,
                 &mut client,
+                #[cfg(feature = "orderbook")]
                 receivers,
+                #[cfg(feature = "orderbook")]
                 pending_deltas,
             )
             .await

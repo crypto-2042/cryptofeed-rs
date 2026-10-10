@@ -27,3 +27,7 @@ https://api.gateio.ws/api/v4/futures/usdt/funding_rate?contract=BTC_USDT&limit=2
 https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract=BTC_USDT&interval=1m&from=180&to=299 -> 1710000001.500000: [{"t":240,"o":"100","h":"102","l":"99","c":"101","v":325,"sum":"328"},{"t":180,"o":"100","h":"102","l":"99","c":"101","v":325,"sum":"328"}]
 
 https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair=BTC_USDT&interval=1m&from=180&to=299 -> 1710000001.500000: [["240","328","101","102","99","100","3.25","true"],["180","328","101","102","99","100","3.25","true"]]
+
+https://api.gateio.ws/api/v4/spot/trades?currency_pair=BTC_USDT&limit=1 -> 1710000001.500000: [{"id":"execution-1","currency_pair":"BTC_USDT","price":"100.01","amount":"0.25","create_time_ms":"1001.123","create_time":"1","side":"sell"}]
+
+https://api.gateio.ws/api/v4/futures/usdt/trades?contract=BTC_USDT&limit=1 -> 1710000001.500000: [{"id":9007199254740993,"contract":"BTC_USDT","price":"100.01","size":"-25","create_time_ms":1001.123,"create_time":1}]

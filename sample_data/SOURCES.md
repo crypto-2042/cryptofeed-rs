@@ -250,3 +250,15 @@ Request tests separately assert Bitget end rounding/90-day cap, Gate no-limit
 second bounds and REST 1d mapping. The documented one-earlier Bitget overlap,
 Gate range rounding and old seven-field Spot example are bounded regression
 probes; actual first-failure/follow-up observations remain in the dated report.
+
+## 2026-10-10 recent public trades
+
+Appended five-venue recent-trade payloads mirror
+`rest::trades::tests::five_venues_keep_taker_side_quantity_ids_and_native_times`.
+Epochs/prices/quantities/IDs are substituted, not actual market executions.
+The ID above 2^53 and execId-versus-execLinkId choice are deliberate identity
+assertions. Gate Spot and derivative examples separately assert side/quantity
+and explicit fractional-millisecond scaling. Current primary sources are linked
+in [recent trades](../docs/recent-trades.md). Same-time ID sorting, signed long
+JSON-number precision, malformed/duplicate/oversized data and unknown-symbol
+checks are SDK probes, not claims that official endpoints emit invalid records.

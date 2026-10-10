@@ -710,3 +710,30 @@ feature boundaries.
 - Additional Gate day/week/month public probes confirmed UTC daily/calendar
   month opens and caught different weekly grids: Spot Monday versus perpetual
   epoch alignment. Product-specific request rounding and regressions cover both.
+
+## Public recent trades — 2026-10-10
+
+- Added trade-feature PublicRestClient::recent_trades on five current public
+  routes, category/product-qualified and bounded by per-source/SDK row caps.
+  Invalid inputs fail before HTTP; no paging or completeness claim is made.
+- Prices/amounts use exact Decimal, signed Gate contract quantity becomes absolute
+  with explicit side, Binance maker flag converts to taker side. Native IDs stay
+  exact (including >2^53); Bitget uses execId, not execLinkId. Same-time executions
+  survive and sort stably by exact native time before model f64 conversion.
+- Recent Binance individual trade IDs are distinct from Python/Rust WS aggregate
+  IDs; the guide documents granularity and prohibits cross-namespace dedup claims.
+  Historical pagination/aggregate retrieval remains the next increment.
+- Offline tests cover five venue/product row families, both sides, caps/routing,
+  signed/numeric precision, explicit Gate seconds fallback, stable same-time IDs,
+  duplicates/malformed/oversized/mismatched payloads and pre-HTTP validation.
+- Public Spot/perpetual smoke passed for all five venues: 5 records/unique IDs per
+  product, ascending time and matching identity, ten queries/50 executions, exit 0.
+  See [evidence](docs/reports/live-smoke-recent-trades-2026-10-10.md).
+- Trade-only focused REST tests and the Gate full-session double now compile and
+  pass without orderbook. Fixed that existing double's unconditional book-only
+  arguments with matching cfg attributes, retaining its trade-only coverage.
+  Nine individual feature checks and no-default compilation passed.
+- Final verification: 553 workspace tests, strict all-target Clippy, rustdoc,
+  formatting/local links, trade-only REST/session tests and Rust 1.85 all-target
+  checks with fresh resolution passed. Historical trade pagination, recording/
+  replay, sinks/aggregation, NBBO and advanced resource policies remain active.

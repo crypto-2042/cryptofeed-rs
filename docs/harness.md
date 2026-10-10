@@ -418,3 +418,9 @@ continuation, Gate integer/decimal second units and range rounding, native
 completion flags, base-vs-contract volume and OKX UTC+8 quarters. Sanitized
 references match those inline assertions; bad/duplicate/out-of-range probes
 remain unit-only cases, not supposed real exchange captures.
+
+Recent-trade inline regressions live in `rest::trades::tests`. Their matching
+five-venue HTTP references assert taker side, native IDs/units and explicit clock
+scales. Same-time distinct IDs remain present; exact Decimal sorting precedes
+f64 normalization. Malformed/mismatched/over-budget probes are SDK-only tests.
+Recent executions must not be relabeled as paginated complete trade history.
