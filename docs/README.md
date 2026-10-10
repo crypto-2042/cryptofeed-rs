@@ -51,6 +51,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Public REST snapshots](public-rest.md): normalized ticker/book methods, native
   time/sequence metadata, depth limits, shared HTTP admission and backoff.
 
+- [Funding history](funding-history.md): bounded settlement batches, exact actual
+  rates, versioned cursors, native pagination/retention and termination semantics.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are
@@ -58,6 +61,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-10 funding history](reports/live-smoke-funding-history-2026-10-10.md):
+  five public services, bounded first/resume batches and JSON cursor restoration.
 - [2026-10-10 public REST](reports/live-smoke-rest-2026-10-10.md): twenty Spot/Perpetual
   ticker/book observations and the Gate Spot timestamp-unit correction.
 - [2026-10-10 market metadata](reports/live-smoke-metadata-2026-10-10.md):

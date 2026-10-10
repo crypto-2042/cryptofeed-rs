@@ -213,3 +213,20 @@ precision stress references, not real quotes. HTTP Retry-After/status/body-limit
 checks use in-process HTTP-response doubles rather than inventing exchange
 market-data fixture rows. Final real-service observations are recorded separately
 in the dated REST report.
+
+## 2026-10-10 funding history
+
+Appended funding request/payload references mirror `rest::history::tests`' five
+normalization families: Binance ascending millisecond bounds, Bitget v3 numeric
+cursor/data.resultList/fundingRateTimestamp, Bybit end-time paging, OKX after and
+actual realizedRate, and Gate second-valued t/r. These are sanitized field-table
+references with substituted small epochs/rates, not actual crypto settlements
+at the Unix epoch. Current primary sources are linked in
+[funding history](../docs/funding-history.md).
+
+The long negative JSON-number Binance rate is a synthetic exact-precision probe,
+not a real market rate. The OKX forecast 0.009 versus actual -0.0001 deliberately
+asserts actual-rate selection. SDK-only JSON cursor mutation/empty/duplicate/
+conflicting/oversized/cancelled-page tests are not claims of venue behavior.
+The dated live report separately records first/resume success; it does not label
+budget-limited records as complete history.

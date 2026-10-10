@@ -21,3 +21,5 @@ https://api.gateio.ws/api/v4/spot/order_book?currency_pair=BTC_USDT&limit=20&wit
 https://api.gateio.ws/api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=20&with_id=true&interval=0 -> 1710000001.500000: {"id":1,"bids":[{"p":"100","s":"0.25"}],"asks":[],"update":1710000000.5}
 
 https://api.gateio.ws/api/v4/futures/usdt/tickers?contract=BTC_USDT -> 1710000001.500000: [{"contract":"BTC_USDT","highest_bid":"100","lowest_ask":"101"}]
+
+https://api.gateio.ws/api/v4/futures/usdt/funding_rate?contract=BTC_USDT&limit=2&to=9 -> 1710000001.500000: [{"t":9,"r":"-0.0001"},{"t":8,"r":"-0.0001"}]

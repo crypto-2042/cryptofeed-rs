@@ -59,3 +59,6 @@ pub use crate::transport::TransportConfig;
 pub use crate::market_info::MarketInfo;
 
 pub use crate::rest::{PublicRestClient, RestSnapshot};
+
+#[cfg(feature = "funding")]
+pub use crate::rest::{FundingHistory, FundingHistoryCursor, FundingHistoryQuery, HistoryStop};

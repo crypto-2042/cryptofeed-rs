@@ -17,3 +17,7 @@ https://data-api.binance.vision/api/v3/ticker/bookTicker?symbol=BTCUSDT -> 17100
 https://data-api.binance.vision/api/v3/depth?symbol=BTCUSDT&limit=20 -> 1710000001.500000: {"lastUpdateId":9007199254740993,"bids":[["99","2"],["100","1"]],"asks":[["102","2"],["101","1"]]}
 
 https://dapi.binance.com/dapi/v1/ticker/bookTicker?symbol=BTCUSD_PERP -> 1710000001.500000: [{"symbol":"BTCUSD_PERP","bidPrice":"100","askPrice":"101","time":1710000000000,"lastUpdateId":9007199254740993}]
+
+https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=2&startTime=1000&endTime=9999 -> 1710000001.500000: [{"symbol":"BTCUSDT","fundingTime":1000,"fundingRate":"-0.0001","markPrice":"100","rateType":"Regular"},{"symbol":"BTCUSDT","fundingTime":2000,"fundingRate":"-0.0001","markPrice":"100","rateType":"Regular"}]
+
+https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=100&startTime=0&endTime=9999 -> 1710000001.500000: [{"symbol":"BTCUSDT","fundingTime":1000,"fundingRate":-0.1234567890123456789012345678}]

@@ -396,3 +396,14 @@ queued cooldown extension, venue isolation, cancellation and slot release;
 HTTP-response/byte doubles verify status/date parsing, no body echo and bounds.
 Default tests use no listening socket. The dated `rest_public` run separately
 verifies live Spot/Perpetual snapshots and the corrected Gate Spot unit.
+
+
+## Funding-history targets
+
+`rest::history::tests` covers current five-venue actual rates/time/cursor shapes,
+limits/half-open ranges, scope-bound JSON restore before HTTP, duplicates/conflicts,
+missing actual rates, oversized/no-progress pages, source cap/empty-page semantics,
+exact negative numeric rates and cancellation during a later fetch. Captures have
+provenance. Funding-only builds run these tests independently; default tests use
+no external socket. `funding_history_public` provides separate live first/resume
+evidence without claiming completeness when the budget is reached.

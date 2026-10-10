@@ -635,3 +635,31 @@ feature boundaries.
   sinks/aggregation, NBBO and weighted/native-code/distributed resource policies
   remain unfinished under the active full alignment goal. Snapshot REST is not
   claimed as complete Python REST/history or trading-rule parity.
+
+
+## Usage alignment: bounded funding settlement history — 2026-10-10
+
+- Added feature-gated FundingHistoryQuery/result and version-1 JSON continuation
+  cursor to PublicRestClient, on five current perpetual/swap history surfaces.
+  Half-open integer-ms ranges, 1..100 rows/pages and <=10,000 scanned rows/call
+  bound work/memory. Scope/version/position/native mapping validate before HTTP.
+- Implemented native ascending/backward/Bitget-v3 page-cursor progression, exact
+  signed actual rates and explicit Gate second conversion. OKX realizedRate is
+  actual, never replaced by forecast fundingRate; no next time/rate is inferred.
+  Non-Regular Binance types/Spot/delivery funding remain explicitly unsupported.
+- Stop reasons distinguish budget, requested boundary, source exhaustion and
+  native cursor ceiling; no full-retention boolean is offered. Conflicts,
+  oversized/stalled/mismatched pages fail. Cancellation drops pending fetch;
+  errors do not return undisclosed partial success. Returned batches sort by time.
+- Regressions cover JSON resume, scope edits, native request boundaries/shape,
+  rate/time semantics, negative numeric precision, empty/capped/stalled/conflicting
+  data and later-page cancellation. Matching sanitized references/provenance agree.
+- Public five-venue first/resume smoke observed 10+10 records and 2+2 pages each,
+  no repeated identity/time, all BudgetReached with further cursors, exit 0.
+  This is 20 pages/100 per-exchange records, not a complete seven-day history claim.
+- Final verification: 533 workspace tests, strict all-target Clippy, rustdoc,
+  all nine feature checks/tests, no-default compilation, funding-only history
+  execution, Rust 1.85/fresh resolution, formatting/documentation links passed.
+- Trade/candle history, recording/replay, sinks/aggregation, NBBO and advanced
+  resource policies remain unfinished under the active full alignment goal.
+  Private/trading/instrument-type coverage and Binance OI deferral stay unchanged.

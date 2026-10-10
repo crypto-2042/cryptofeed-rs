@@ -17,7 +17,7 @@ ticker = ["dep:cryptofeed-ticker"]
 trade = ["dep:cryptofeed-trade"]
 orderbook = ["dep:cryptofeed-orderbook"]
 candles = ["dep:cryptofeed-candles", "dep:chrono"]
-funding = ["dep:cryptofeed-funding"]
+funding = ["dep:cryptofeed-funding", "dep:serde"]
 liquidations = ["dep:cryptofeed-liquidations"]
 markprice = ["dep:cryptofeed-markprice"]
 openinterest = ["dep:cryptofeed-openinterest"]
@@ -40,6 +40,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"], option
 futures.workspace = true
 reqwest.workspace = true
 rust_decimal.workspace = true
+serde = { workspace = true, optional = true }
 serde_json.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
@@ -144,6 +145,10 @@ required-features = ["trade", "orderbook"]
 [[example]]
 name = "rest_public"
 required-features = ["ticker", "orderbook"]
+
+[[example]]
+name = "funding_history_public"
+required-features = ["funding"]
 
 [package.metadata.docs.rs]
 all-features = true

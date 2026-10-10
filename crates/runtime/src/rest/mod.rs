@@ -1,14 +1,18 @@
 //! Public, normalized REST market-data queries.
-#[cfg(any(feature = "ticker", feature = "orderbook"))]
+#[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
 mod adapter;
+#[cfg(feature = "funding")]
+mod history;
 use crate::{catalog::MarketCatalog, transport::TransportConfig};
-#[cfg(any(feature = "ticker", feature = "orderbook"))]
+#[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
 use cryptofeed_core::symbol::Symbol;
 use cryptofeed_core::{
     error::Result,
     exchange::{Channel, ExchangeId},
     symbol::InstrumentKind,
 };
+#[cfg(feature = "funding")]
+pub use history::{FundingHistory, FundingHistoryCursor, FundingHistoryQuery, HistoryStop};
 use std::sync::Arc;
 
 /// A standalone query result, not a WS synchronization/recovery anchor.
@@ -25,7 +29,7 @@ pub struct RestSnapshot<T> {
 #[derive(Clone)]
 pub struct PublicRestClient {
     catalog: Arc<MarketCatalog>,
-    #[cfg(any(feature = "ticker", feature = "orderbook"))]
+    #[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
     transport: TransportConfig,
 }
 impl PublicRestClient {
@@ -41,11 +45,11 @@ impl PublicRestClient {
         Ok(Self::from_catalog(catalog, transport))
     }
     pub fn from_catalog(catalog: MarketCatalog, transport: TransportConfig) -> Self {
-        #[cfg(not(any(feature = "ticker", feature = "orderbook")))]
+        #[cfg(not(any(feature = "ticker", feature = "orderbook", feature = "funding")))]
         let _ = transport;
         Self {
             catalog: Arc::new(catalog),
-            #[cfg(any(feature = "ticker", feature = "orderbook"))]
+            #[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
             transport,
         }
     }
@@ -54,11 +58,24 @@ impl PublicRestClient {
     }
     /// Implemented public REST methods for this build, distinct from WS channels.
     pub fn supported_channels(&self) -> Vec<Channel> {
-        [Channel::Ticker, Channel::L2Book]
+        [Channel::Ticker, Channel::L2Book, Channel::Funding]
             .into_iter()
             .filter(|channel| self.catalog.supported_channels().contains(channel))
             .collect()
     }
+    #[cfg(feature = "funding")]
+    pub async fn funding_history(
+        &self,
+        symbol: &Symbol,
+        query: FundingHistoryQuery,
+    ) -> Result<FundingHistory> {
+        let info = self.catalog.market(symbol)?;
+        history::collect(info, query, |url| async move {
+            crate::runtime::snapshot::fetch_json(url.as_str(), &self.transport, info.exchange).await
+        })
+        .await
+    }
+
     #[cfg(feature = "ticker")]
     pub async fn ticker(&self, symbol: &Symbol) -> Result<RestSnapshot<cryptofeed_ticker::Ticker>> {
         let info = self.catalog.market(symbol)?;
@@ -82,7 +99,7 @@ impl PublicRestClient {
         adapter::book(info, &plan, &payload, depth, received_time())
     }
 }
-#[cfg(any(feature = "ticker", feature = "orderbook"))]
+#[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
 fn received_time() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

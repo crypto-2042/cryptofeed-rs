@@ -523,5 +523,30 @@ Project-specific memory for `rust/cryptofeed-rs`.
   catalog coalescing. No automatic REST query retry; catalog HTTP errors return
   immediately. Network/JSON/envelope retry remains one, and queued work cancels.
 - Fixed admission is not weight/native-code/distributed/shared-IP quota accounting.
-  Historical trades/candles/funding pagination, recording/replay, sinks,
+  Trade/candle history remains pending; funding continuation is implemented.
+  Recording/replay, sinks,
   aggregation, NBBO and advanced resource policy remain unfinished.
+
+
+## Bounded funding history
+
+- FundingHistoryQuery uses half-open integer-ms UTC ranges, page_size/max_pages
+  1..100, and <=10,000 raw scanned rows/call. Budget includes out-of-range rows;
+  oversized pages fail. Errors/cancellation do not return hidden partial success.
+- Binance pages forward observed max+1ms; Bybit/OKX/Gate backward observed min;
+  Gate seconds convert explicitly. Bitget v3 uses numeric cursor 1..100 and
+  resultList, not legacy pageNo. Its moving offset pages are not atomic history.
+- Version-1 JSON cursor binds exchange, normalized/native identity, original
+  range, page size and position; validate before HTTP. Batch page budget may
+  change on resume, page size may not. Treat cursor as public state, not a secret.
+- Return ascending records within a batch, dedup exact settlements and fail
+  conflicting rates/mark prices or repeated full pages. Backward resumed chunks
+  need merge/sort across batches. No interval/next rate is invented.
+- OKX actual realizedRate is mandatory in the target segment; fundingRate is
+  prediction. Binance non-Regular types are unsupported. All next/predicted
+  model fields stay None; native signed rates stay exact ratios.
+- Stop reason distinguishes range, source exhaustion, budget and native limit;
+  never claim full retention/settlement coverage. Live five-venue first/resume
+  observed 10+10 records each, all budget-limited with further cursors, exit 0.
+- Trade/candle history, recording/replay, sinks/aggregation, NBBO and advanced
+  resource policy remain active; dated funding/private/trading/OI scope unchanged.

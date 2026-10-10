@@ -1,17 +1,22 @@
+#[cfg(any(feature = "ticker", feature = "orderbook"))]
 use super::RestSnapshot;
 use crate::market_info::MarketInfo;
+#[cfg(any(feature = "ticker", feature = "orderbook"))]
+use cryptofeed_core::symbol::InstrumentKind;
 use cryptofeed_core::{
     error::{Error, Result},
     exchange::ExchangeId,
-    symbol::InstrumentKind,
 };
 use serde_json::Value;
+#[cfg(any(feature = "ticker", feature = "orderbook"))]
 use url::Url;
 
+#[cfg(any(feature = "ticker", feature = "orderbook"))]
 pub(super) struct Plan {
     pub url: Url,
     category: Option<String>,
 }
+#[cfg(any(feature = "ticker", feature = "orderbook"))]
 pub(super) fn plan(info: &MarketInfo, depth: Option<u16>) -> Result<Plan> {
     use crate::exchange::{
         binance::adapter::{BinanceProduct, product_from_normalized},
@@ -149,7 +154,7 @@ pub(super) fn plan(info: &MarketInfo, depth: Option<u16>) -> Result<Plan> {
     }
     Ok(Plan { url, category })
 }
-fn data(exchange: ExchangeId, payload: &Value) -> Result<&Value> {
+pub(super) fn data(exchange: ExchangeId, payload: &Value) -> Result<&Value> {
     let valid = match exchange {
         ExchangeId::Binance => payload
             .get("code")
@@ -173,6 +178,7 @@ fn data(exchange: ExchangeId, payload: &Value) -> Result<&Value> {
         _ => payload,
     })
 }
+#[cfg(any(feature = "ticker", feature = "orderbook"))]
 fn category(plan: &Plan, row: &Value, field: &str) -> Result<()> {
     if let (Some(expected), Some(actual)) = (&plan.category, row.get(field)) {
         if !actual
@@ -186,7 +192,7 @@ fn category(plan: &Plan, row: &Value, field: &str) -> Result<()> {
     }
     Ok(())
 }
-fn identity(info: &MarketInfo, row: &Value, field: &str) -> Result<()> {
+pub(super) fn identity(info: &MarketInfo, row: &Value, field: &str) -> Result<()> {
     if !row[field]
         .as_str()
         .is_some_and(|native| native.eq_ignore_ascii_case(&info.exchange_symbol))
@@ -221,6 +227,7 @@ fn select<'a>(rows: &'a Value, info: &MarketInfo, field: &str) -> Result<&'a Val
     }
     Ok(selected_row)
 }
+#[cfg(any(feature = "ticker", feature = "orderbook"))]
 fn time(value: Option<&Value>, scale: f64) -> Result<Option<f64>> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
@@ -233,6 +240,7 @@ fn time(value: Option<&Value>, scale: f64) -> Result<Option<f64>> {
         .ok_or_else(|| Error::MalformedData("invalid REST timestamp".into()))?;
     Ok(Some(time / scale))
 }
+#[cfg(any(feature = "ticker", feature = "orderbook"))]
 fn sequence(value: Option<&Value>) -> Result<Option<u64>> {
     let Some(value) = value.filter(|value| !value.is_null()) else {
         return Ok(None);
@@ -243,7 +251,7 @@ fn sequence(value: Option<&Value>) -> Result<Option<u64>> {
         .map(Some)
         .ok_or_else(|| Error::MalformedData("invalid REST sequence".into()))
 }
-fn decimal(value: &Value) -> Result<rust_decimal::Decimal> {
+pub(super) fn decimal(value: &Value) -> Result<rust_decimal::Decimal> {
     let raw = match value {
         Value::String(raw) => raw.clone(),
         Value::Number(raw) => raw.to_string(),

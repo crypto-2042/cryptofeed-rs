@@ -616,3 +616,15 @@ assertions and sanitized reference updates. No native sequence/bridge rule was
 relaxed. Shared HTTP admission/status/Retry-After behavior is SDK resource policy,
 not an exchange-weight quota guarantee. Public REST snapshots add no private,
 trading, OI-polling or new instrument capability.
+
+## Funding-history review — 2026-10-10
+
+Current public funding-history surfaces were verified before implementation:
+Binance fapi/dapi fundingRate uses ascending inclusive millisecond bounds;
+Bitget v3 history-fund-rate uses cursor/resultList rather than v2 pageNo/data;
+Bybit v5 supports end-time continuation; OKX v5 after is earlier-than and
+realizedRate is actual while fundingRate is predicted; Gate v4 uses seconds t/r.
+[Funding history](funding-history.md) records normalized range/cursor semantics,
+retention/termination limits and sources. Captures and narrow assertions were
+added together. No next settlement is inferred, prediction is not relabeled as
+actual, and source exhaustion is not proof of complete retention coverage.
