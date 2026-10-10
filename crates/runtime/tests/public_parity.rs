@@ -2428,3 +2428,34 @@ fn bybit_spot_subscription_batches_respect_per_request_arg_limit() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn binance_explicit_subscription_preserves_planned_topics_and_route() {
+    use cryptofeed_rs::binance::{Binance, adapter::BinanceAdapter};
+    let feed = Binance::new().trade().l2_book().symbol("BTC-USDT").build();
+    let plan = BinanceAdapter::connection_plans(&feed).unwrap().remove(0);
+    let (url, message) = BinanceAdapter::explicit_subscription(&plan).unwrap();
+    assert_eq!(url, "wss://stream.binance.com:9443/stream");
+    let message: serde_json::Value = serde_json::from_str(&message).unwrap();
+    assert_eq!(
+        message,
+        serde_json::json!({"method":"SUBSCRIBE","params":["btcusdt@aggTrade","btcusdt@depth@100ms"],"id":1})
+    );
+    let derivative = Binance::new()
+        .trade()
+        .l2_book()
+        .symbol("BTC-USDT-PERP")
+        .build();
+    let routes: Vec<_> = BinanceAdapter::connection_plans(&derivative)
+        .unwrap()
+        .iter()
+        .map(|plan| BinanceAdapter::explicit_subscription(plan).unwrap().0)
+        .collect();
+    assert_eq!(
+        routes,
+        [
+            "wss://fstream.binance.com/public/stream",
+            "wss://fstream.binance.com/market/stream"
+        ]
+    );
+}

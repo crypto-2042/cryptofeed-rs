@@ -1,8 +1,8 @@
 # Managed runtime control
 
 Implemented core commands and configuration-generation identity on 2026-10-10.
-Remote subscription readiness, periodic discovery reconciliation and further
-consumer recovery remain in the [alignment plan](python-usage-alignment.md).
+Remote subscription readiness and retained state queries are now available;
+periodic discovery reconciliation and further consumer recovery remain in the [alignment plan](python-usage-alignment.md).
 
 ## Enabling control
 
@@ -61,7 +61,9 @@ IDs are unique only within the current process and are not persisted identifiers
 
 `control.feeds()` lists registered logical workers and their latest committed
 identity/exchange. This includes initial preparation or failed workers retained
-for replacement; the registry is not a health/readiness snapshot. It also lets
+for replacement; the registry is not a health/readiness snapshot. Use `control.state(id)` for
+an authoritative `FeedSnapshot` including lifecycle, connection epochs,
+confirmed subscription counts, book readiness and observation diagnostics. It also lets
 a caller reconcile IDs if a command was committed before its reply was lost.
 Removed workers disappear from the registry. Unknown IDs and busy updates
 return explicit errors.
@@ -70,7 +72,8 @@ Commands have a bounded runtime queue of 32; each feed worker has a four-command
 queue. Add/replace acknowledgements mean **tasks launched**, not exchange
 subscription accepted, first event received, or an L2 book synchronized. Use the
 identified data stream for actual data and lifecycle notifications for failures.
-Remote-ready status is a remaining implementation item.
+Ready and Subscribed states are now available; [their exact criteria](readiness.md)
+are separate from command acknowledgement.
 
 ## Replacement and cancellation
 
@@ -109,13 +112,14 @@ handle, legacy startup remains strict and validates/hydrates the complete list
 before connecting. Both paths preserve capability preflight and resource budgets.
 
 `subscribe_status` preserves existing terminal notifications and adds scoped
-Lifecycle states: Preparing, Started, Stopping, Stopped, Failed, Degraded and
-Cancelled. Degraded identifies a failed concrete group while other groups can
+Lifecycle states: Preparing, Started, Connecting, Subscribed, Ready,
+Reconnecting, Stopping, Stopped, Failed, Degraded and Cancelled. Degraded identifies a failed concrete group while other groups can
 continue. Candidate-generation failure/cancellation does not mark an older
-running generation as stopped. Status delivery remains bounded/lossy (64
-entries); it is not a durable audit log or readiness registry.
+running generation as stopped. Status delivery remains bounded/lossy (64 entries). Retained state queries
+recover current state after lag; the notification stream is not a durable log.
 
-Failed logical workers remain available for explicit replacement until removed
+Failed logical workers, including initially configured IDs that fail validation,
+remain queryable and available for explicit replacement until removed
 or the runtime is shut down. Dropping control handles is not a request to stop
 healthy feeds; the external watch signal or Ctrl-C can still stop the runtime.
 A managed runtime may remain idle waiting for explicit shutdown/replacement.
@@ -134,7 +138,6 @@ before removal acknowledgement. Existing protocol/session tests remain enabled.
 The public [managed smoke report](reports/live-smoke-managed-2026-10-10.md)
 records one real OKX replacement and clean removal/shutdown.
 
-Next lifecycle work includes remote readiness/state queries and opt-in listing
-reconciliation. Multi-handler delivery, closed-only candles, recoverable L2
+Next lifecycle work includes opt-in listing reconciliation. Multi-handler delivery, closed-only candles, recoverable L2
 consumption, public REST/history and ecosystem tooling remain separate unfinished
 alignment work. This control increment is not completion of the overall goal.

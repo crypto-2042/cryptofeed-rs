@@ -24,6 +24,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Managed runtime control](runtime-control.md): command results, feed identity,
   configuration generations, cancellation, startup policy and lifecycle scope.
 
+- [Readiness and retained state](readiness.md): confirmation evidence, reconnect
+  epochs, book synchronization, diagnostics and authoritative queries.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are
@@ -31,6 +34,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-10 readiness](reports/live-smoke-readiness-2026-10-10.md):
+  public Trade/L2 confirmations and local book readiness on all five exchanges.
 - [2026-10-10 managed runtime](reports/live-smoke-managed-2026-10-10.md):
   public OKX add, replacement, removal and clean shutdown with event identity.
 - [2026-10-09 OKX endpoint migration](reports/live-smoke-2026-10-09.md):

@@ -283,3 +283,13 @@ drives private preparation/consumption boundaries to verify replacement,
 cancellation, busy/invalid commands, source generations, state reset, independent
 startup, admission and child drop before acknowledgement. Live evidence belongs
 in dated reports; mock sessions are not relabeled as service observations.
+
+## Readiness targets
+
+`runtime::readiness::tests` verifies protocol confirmation and epoch/state
+invariants. Session tests cover response timeout and a complete Bybit
+confirmation-to-book initialization flow; managed actor tests cover authoritative
+queries after lifecycle lag and initial failure repair. Public parity covers
+Binance explicit endpoint/topic planning. See [readiness](readiness.md) for
+criteria and separate live evidence; no passing test equates handshake or any
+market event with complete subscription confirmation.

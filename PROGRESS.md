@@ -364,3 +364,25 @@ feature boundaries.
   formatting passed. The deletion registry/ack ordering also has a multi-thread
   regression. The overall goal remains active with readiness/discovery and
   consumer/ecosystem requirements still unimplemented.
+
+## Usage alignment: retained readiness — 2026-10-10
+
+- Added independent `control.state(id)` snapshots, preserving Copy FeedInfo
+  registry entries. Snapshots include lifecycle, connection attempts, native
+  confirmation coverage, local L2 readiness and local receipt/event diagnostics.
+- Managed Binance sessions use explicit SUBSCRIBE acknowledgements on existing
+  routed endpoints. Bybit/Gate requests correlate IDs; Bitget/OKX confirmations
+  match requested arguments. Unsent/unknown/duplicate/stale replies do not advance.
+- Reconnect/resync clears relevant readiness and connection-owned book state;
+  other connection books remain intact. Stop publication cannot be followed by
+  stale Ready. Initial failed configured IDs remain queryable and repairable.
+- Offline tests cover correlation, aggregation, timeout/rejection, stale epochs,
+  book initialization, cache isolation, concurrent stop, status lag and failures.
+- Public follow-up smoke reached Ready plus Trade/L2 observations on all five
+  exchanges with exit 0; the earlier Bybit TLS failure is retained separately in
+  `docs/reports/live-smoke-readiness-2026-10-10.md`.
+- Listing reconciliation, consumer recovery/multiple handlers/candle filtering
+  and ecosystem alignment remain unfinished under the overall goal.
+- Final verification: 459 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation,
+  formatting and documentation links passed. Overall alignment remains active.

@@ -129,6 +129,26 @@ impl BinanceAdapter {
         "wss://stream.binance.com:9443/stream?streams="
     }
 
+    /// Builds the initial explicit subscription on a combined-stream endpoint.
+    /// The response must be matched to id 1; callers handle control responses
+    /// separately from market data. URL-based planning remains available.
+    pub fn explicit_subscription(plan: &BinanceConnectionPlan) -> Result<(String, String)> {
+        let mut url = url::Url::parse(&plan.websocket_url)
+            .map_err(|error| Error::InvalidConfiguration(error.to_string()))?;
+        let streams: Vec<_> = url
+            .query_pairs()
+            .find(|(key, _)| key == "streams")
+            .map(|(_, streams)| streams.split('/').map(str::to_owned).collect())
+            .ok_or_else(|| {
+                Error::InvalidConfiguration("Binance stream plan is missing topics".to_owned())
+            })?;
+        url.set_query(None);
+        Ok((
+            url.to_string(),
+            serde_json::json!({"method":"SUBSCRIBE","params":streams,"id":1}).to_string(),
+        ))
+    }
+
     pub fn connection_plans(feed: &ExchangeFeed) -> Result<Vec<BinanceConnectionPlan>> {
         let instruments = Self::instruments(feed)?;
         if feed.channels.contains(&Channel::Candles)

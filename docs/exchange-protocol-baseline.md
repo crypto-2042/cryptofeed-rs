@@ -549,3 +549,13 @@ records the exact sources and separates service limits from SDK conservative
 policies; no undocumented Gate limit is invented. Current wire shapes remain
 unchanged; Bybit spot can send multiple ten-arg subscribe frames and Gate queued
 requests refresh their time at send. Topic aliases are counted after deduplication.
+
+## Managed confirmation/readiness — 2026-10-10
+
+Managed sessions now bind current official confirmation evidence: Binance
+explicit SUBSCRIBE id/result-null on existing combined routed endpoints,
+Bybit req_id, Gate id/channel, and Bitget/OKX requested argument identity.
+Classic Binance URL subscriptions remain unchanged. [The readiness guide](readiness.md)
+records exact primary sources, timeout/correlation rules and local-book criteria.
+Synthetic control references and inline assertions were updated together;
+manual observations remain separate from protocol fixtures.

@@ -39,5 +39,6 @@ pub use cryptofeed_ticker::{Ticker, TickerHandler};
 pub use cryptofeed_trade::{Side, Trade, TradeHandler};
 
 pub use crate::feed::control::{
-    FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedState, RuntimeControl,
+    ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot, FeedState,
+    RuntimeControl,
 };

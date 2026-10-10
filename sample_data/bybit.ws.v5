@@ -19,3 +19,7 @@ send: {"op":"subscribe","args":["orderbook.1.BTCUSDT","publicTrade.BTCUSDT","ord
 wss://stream.bybit.com/v5/public/spot <-> 1791567058.000000
 send: {"op":"subscribe","args":["publicTrade.S0USDT","publicTrade.S1USDT","publicTrade.S2USDT","publicTrade.S3USDT","publicTrade.S4USDT","publicTrade.S5USDT","publicTrade.S6USDT","publicTrade.S7USDT","publicTrade.S8USDT","publicTrade.S9USDT"]}
 send: {"op":"subscribe","args":["publicTrade.S10USDT"]}
+wss://stream.bybit.com/v5/public/spot <-> 1791570000.000000
+send: {"op":"subscribe","req_id":"cf-1","args":["orderbook.50.BTCUSDT"]}
+1791570000.010000: {"op":"subscribe","success":true,"req_id":"cf-1","conn_id":"sanitized"}
+1791570000.020000: {"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1710000000123,"data":{"s":"BTCUSDT","b":[["100","1"]],"a":[["101","2"]],"u":1,"seq":1}}

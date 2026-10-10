@@ -24,3 +24,5 @@ send: {"time":1710000003,"channel":"futures.tickers","event":"subscribe","payloa
 1736371332.200000: {"channel":"futures.public_liquidates","event":"update","result":[{"contract":"BTC_USDT","price":65000.12345678901234567890,"size":-0.12345678901234567890,"time_ms":1736371332162}]}
 1791567058.010000: {"channel":"spot.order_book_update","event":"update","result":{"t":1710000000123,"s":"BTC_USDT","U":101,"u":101,"b":[["100","1"]],"a":[]}}
 1791567058.020000: {"channel":"spot.order_book_update","event":"update","result":{"t":1710000000123,"s":"BTC_USDT","U":102,"u":102,"b":[["100","1"]],"a":[]}}
+send: {"time":1791570000,"id":1,"channel":"spot.trades","event":"subscribe","payload":["BTC_USDT"]}
+1791570000.010000: {"id":1,"channel":"spot.trades","event":"subscribe","error":null,"result":{"status":"success"}}

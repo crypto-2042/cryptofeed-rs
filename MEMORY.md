@@ -320,3 +320,22 @@ Project-specific memory for `rust/cryptofeed-rs`.
   validation errors alone do not poison a healthy runtime's final result.
 - Readiness, periodic catalog reconciliation and remaining alignment phases
   remain active work; see docs/runtime-control.md and the alignment plan.
+
+## Readiness evidence
+
+- FeedInfo remains Copy registry metadata. FeedSnapshot from control.state is
+  authoritative even after lifecycle lag. Started is launch; Subscribed requires
+  all native confirmations; Ready also requires requested SDK L2 initialization.
+- Managed Binance uses explicit SUBSCRIBE/id/result-null, while legacy URL-based
+  sessions remain available. Bybit/Gate correlate request IDs; Bitget/OKX match
+  requested argument identity. Do not count arbitrary data or handshake as ack.
+- Connection IDs are scoped to configuration generation; retries increment epochs
+  and withdraw confirmations/books. Stale acknowledgements, snapshots and drops
+  cannot update current epochs. Reconnect clears only owned book caches.
+- Publish readiness transitions under the state lock to preserve stop ordering;
+  logging stays outside that lock. Metrics query is not a durable notification log.
+- Snapshot times are local diagnostic receipt/publication times, not replacements
+  for model exchange_ts/received_ts. Counts are per configuration generation.
+- Initial invalid configured IDs stay available for repair/query in managed mode;
+  rejected dynamic adds are not committed. Listing reconciliation and later
+  consumer/ecosystem phases remain active work.

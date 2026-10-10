@@ -117,5 +117,9 @@ required-features = ["orderbook", "funding", "openinterest", "index", "markprice
 name = "managed_public"
 required-features = ["trade"]
 
+[[example]]
+name = "readiness_public"
+required-features = ["trade", "orderbook"]
+
 [package.metadata.docs.rs]
 all-features = true

@@ -18,3 +18,5 @@ send: {"op":"subscribe","args":[{"channel":"books","instId":"BTC-USDT-SWAP"},{"c
 1743041250.500000: {"arg":{"channel":"open-interest","instId":"BTC-USDT-SWAP"},"data":[{"instType":"SWAP","instId":"BTC-USDT-SWAP","oi":"2216113.01000000309","oiCcy":"22161.1301000000309","oiUsd":"1939251795.54769270396321","ts":"1743041250440"}]}
 wss://ws.okx.com/ws/v5/business <-> 1710000001.500000
 send: {"op":"subscribe","args":[{"channel":"candle1m","instId":"BTC-USDT"}]}
+send: {"op":"subscribe","args":[{"channel":"books","instId":"BTC-USDT"}]}
+1791570000.010000: {"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"},"connId":"sanitized"}

@@ -334,3 +334,13 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   covers one add/replace/remove/close sequence, not the full exchange matrix.
 - Remote-ready state, automatic listing reconciliation and consumer/ecosystem
   alignment remain unfinished under the full objective.
+
+## Readiness alignment — 2026-10-10
+
+- Explicit Binance subscription planning has public parity and sanitized control
+  references. Current Bybit/Gate IDs and Bitget/OKX arguments correlate replies.
+- Retained state tests reject stale/unknown/duplicate/unsent confirmation, revoke
+  readiness on reconnect/gap, and require local L2 initialization. A Bybit
+  session double verifies confirmation before book readiness.
+- Follow-up public spot Trade/L2 evidence reached Ready on all five exchanges;
+  this is not a new all-product, rare-channel or throughput certification.

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Retained `RuntimeControl::state` snapshots with connection epochs, confirmation
+  counts, L2 readiness and observation diagnostics; Copy registry metadata remains
+  compatible. Managed Binance subscriptions now use matching explicit acks.
+- Reconnect/resync withdraw readiness and clear only connection-owned books;
+  scoped status publication preserves stopping order. Initial invalid configured
+  IDs remain queryable and replaceable.
+- Five-exchange `readiness_public` observation example and dated service evidence.
+
 - Opt-in managed runtime control for add/remove/replace/list/shutdown, stable
   logical feed IDs and configuration generations, identified event envelopes,
   independent initial startup and scoped lifecycle/failure states. Invalid

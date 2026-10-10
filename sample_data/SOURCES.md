@@ -100,3 +100,23 @@ The appended two Gate spot depth references use the official v4 delta shape
 with substituted IDs/prices/timestamps. The runtime regression buffers IDs
 101 and 102, starts one deferred REST job after the first, and preserves both.
 It does not claim a newly recorded live bootstrap failure or relax bridging.
+
+## 2026-10-10 readiness confirmation references
+
+Appended request/response pairs use current official confirmation contracts:
+[Binance Spot](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md),
+[USD-M](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Live-Subscribing-Unsubscribing-to-streams),
+[COIN-M](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/websocket-market-streams/Live-Subscribing-Unsubscribing-to-streams),
+[Bybit](https://bybit-exchange.github.io/docs/v5/ws/connect),
+[Gate](https://www.gate.com/docs/developers/apiv4/ws/) and
+[OKX](https://app.okx.com/docs-v5/en/#overview-websocket-subscribe).
+These are synthetic field-table references with substituted timestamps and
+sanitized connection IDs, not recordings from the manual smoke. Existing
+Bitget v3 arg-based acknowledgement references remain applicable.
+
+The Binance public parity test asserts explicit endpoint/topic/id planning;
+readiness unit tests assert correlated confirmations and stale/duplicate guards.
+The Bybit full-session double asserts acknowledgement before L2 initialization
+using the appended snapshot shape. Readiness never treats handshake, arbitrary
+market data, or a wrong request ID as complete subscription evidence. Manual
+service results are recorded separately in the dated readiness report.

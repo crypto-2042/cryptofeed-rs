@@ -2,6 +2,7 @@ mod budget;
 pub mod connection;
 mod control;
 pub(crate) mod planning;
+pub(crate) mod readiness;
 #[cfg(feature = "orderbook")]
 mod snapshot;
 pub mod supervisor;
@@ -201,10 +202,16 @@ where
     run_feeds_until_shutdown_tracked(feeds, shutdown, consume, None).await
 }
 
-type FeedTaskRoutes =
-    std::collections::HashMap<tokio::task::Id, (Option<crate::feed::FeedIdentity>, ExchangeId)>;
+type FeedTaskRoutes = std::collections::HashMap<
+    tokio::task::Id,
+    (Option<std::sync::Arc<readiness::FeedMonitor>>, ExchangeId),
+>;
 type FeedTaskResult = std::result::Result<
-    (Option<crate::feed::FeedIdentity>, ExchangeId, Result<()>),
+    (
+        Option<std::sync::Arc<readiness::FeedMonitor>>,
+        ExchangeId,
+        Result<()>,
+    ),
     tokio::task::JoinError,
 >;
 
@@ -228,11 +235,16 @@ where
     for feed in feeds {
         let consume = consume.clone();
         let exchange = feed.exchange;
-        let identity = if feed.managed { feed.identity } else { None };
+        let identity = if feed.managed {
+            feed.monitor.clone()
+        } else {
+            None
+        };
         let feed_shutdown = shutdown.clone();
+        let routed = identity.clone();
         let task =
             tasks.spawn(async move { (identity, exchange, consume(feed, feed_shutdown).await) });
-        routes.insert(task.id(), (identity, exchange));
+        routes.insert(task.id(), (routed, exchange));
     }
     while !tasks.is_empty() {
         tokio::select! {
@@ -279,15 +291,11 @@ fn record_feed_result(
                     exchange,
                     error: error.to_string(),
                 });
-                if let Some(identity) = identity {
-                    let _ = sender.send(crate::feed::FeedStatus::Lifecycle {
-                        identity,
-                        exchange,
-                        state: crate::feed::FeedState::Degraded {
-                            error: error.to_string(),
-                        },
-                    });
-                }
+            }
+            if let Some(monitor) = identity {
+                monitor.lifecycle(crate::feed::FeedState::Degraded {
+                    error: error.to_string(),
+                });
             }
             terminal_errors.push(format!("{exchange:?}: {error}"));
         }
@@ -297,15 +305,11 @@ fn record_feed_result(
                 let _ = sender.send(crate::feed::FeedStatus::TaskPanicked {
                     error: error.to_string(),
                 });
-                if let Some((Some(identity), exchange)) = routes.get(&error.id()) {
-                    let _ = sender.send(crate::feed::FeedStatus::Lifecycle {
-                        identity: *identity,
-                        exchange: *exchange,
-                        state: crate::feed::FeedState::Degraded {
-                            error: error.to_string(),
-                        },
-                    });
-                }
+            }
+            if let Some((Some(monitor), _)) = routes.get(&error.id()) {
+                monitor.lifecycle(crate::feed::FeedState::Degraded {
+                    error: error.to_string(),
+                });
             }
             terminal_errors.push(format!("feed task: {error}"));
         }
@@ -327,7 +331,16 @@ async fn consume_binance_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool
     let plans = BinanceAdapter::connection_plans(&feed)?;
     let mut tasks = JoinSet::new();
     for plan in plans {
-        let feed = feed.clone();
+        let mut feed = feed.clone();
+        let books = if plan.snapshot_urls.is_empty() {
+            Vec::new()
+        } else {
+            plan.instruments
+                .iter()
+                .map(|instrument| instrument.symbol.as_str().to_owned())
+                .collect()
+        };
+        readiness::track(&mut feed, &plan.websocket_url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
             let product = plan.product;
@@ -365,7 +378,20 @@ async fn consume_binance_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool
     Ok(())
 }
 
-async fn consume_bitget_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+async fn consume_bitget_feed(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
     supervisor::retry_with_backoff_until_shutdown(
         None,
         supervisor::Backoff::new(1, 8),
@@ -383,7 +409,17 @@ async fn consume_bitget_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
 async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
     let mut tasks = JoinSet::new();
     for url in BybitAdapter::subscription_urls(&feed) {
-        let planned_feed = bybit_feed_for_url(&feed, &url);
+        let mut planned_feed = bybit_feed_for_url(&feed, &url);
+        let books = if planned_feed.channels.contains(&Channel::L2Book) {
+            planned_feed
+                .symbols
+                .iter()
+                .map(|symbol| symbol.as_str().to_owned())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        readiness::track(&mut planned_feed, &url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
             supervisor::retry_with_backoff_until_shutdown(
@@ -412,6 +448,16 @@ async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -
         planned_feed.channels.retain(|channel| {
             matches!(channel, cryptofeed_core::exchange::Channel::Candles) == business
         });
+        let books = if planned_feed.channels.contains(&Channel::L2Book) {
+            planned_feed
+                .symbols
+                .iter()
+                .map(|symbol| symbol.as_str().to_owned())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        readiness::track(&mut planned_feed, &url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
             supervisor::retry_with_backoff_until_shutdown(
@@ -478,7 +524,16 @@ async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
     let plans = GateioAdapter::connection_plans(&feed)?;
     let mut tasks = JoinSet::new();
     for plan in plans {
-        let feed = feed.clone();
+        let mut feed = feed.clone();
+        let books = if plan.snapshot_urls.is_empty() {
+            Vec::new()
+        } else {
+            plan.instruments
+                .iter()
+                .map(|instrument| instrument.symbol.as_str().to_owned())
+                .collect()
+        };
+        readiness::track(&mut feed, &plan.websocket_url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
             let product = plan.product;
@@ -529,13 +584,43 @@ async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
 }
 
 async fn consume_binance_session(
-    feed: ExchangeFeed,
+    mut feed: ExchangeFeed,
     plan: BinanceConnectionPlan,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
-    let url = Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
+    let attempt = readiness::begin(&mut feed);
+    if !plan.snapshot_urls.is_empty() {
+        feed.clear_connection_books(
+            &plan
+                .instruments
+                .iter()
+                .map(|instrument| instrument.symbol.clone())
+                .collect::<Vec<_>>(),
+        );
+    }
+    let explicit = if attempt.is_some() {
+        Some(BinanceAdapter::explicit_subscription(&plan)?)
+    } else {
+        None
+    };
+    let url = match &explicit {
+        Some((url, _)) => Url::parse(url).map_err(|error| Error::Transport(error.to_string()))?,
+        None => Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?,
+    };
     let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    session.set_readiness(attempt);
+    if let Some((_, subscribe)) = explicit {
+        session.queue_subscriptions([subscribe]);
+    }
     #[cfg(feature = "orderbook")]
     let snapshot_receivers = if plan.snapshot_urls.is_empty() {
         std::collections::HashMap::new()
@@ -548,7 +633,7 @@ async fn consume_binance_session(
     #[cfg(feature = "orderbook")]
     let resnapshot_attempts: std::collections::HashMap<String, u32> =
         std::collections::HashMap::new();
-    consume_binance_session_with(
+    let result = consume_binance_session_with(
         feed,
         plan,
         shutdown,
@@ -560,7 +645,9 @@ async fn consume_binance_session(
         #[cfg(feature = "orderbook")]
         resnapshot_attempts,
     )
-    .await
+    .await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_binance_session_with<S, E>(
@@ -611,11 +698,29 @@ where
     Ok(())
 }
 
-async fn consume_bitget_session(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+async fn consume_bitget_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    if feed.channels.contains(&Channel::L2Book) {
+        feed.clear_connection_books(&feed.symbols);
+    }
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
-    consume_bitget_session_with(feed, shutdown, &mut session).await
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    session.set_readiness(attempt);
+    let result = consume_bitget_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_bitget_session_with<S, E>(
@@ -637,14 +742,29 @@ where
 }
 
 async fn consume_bybit_session(
-    feed: ExchangeFeed,
+    mut feed: ExchangeFeed,
     websocket_url: String,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    if feed.channels.contains(&Channel::L2Book) {
+        feed.clear_connection_books(&feed.symbols);
+    }
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
-    consume_bybit_session_with(feed, shutdown, &mut session).await
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    session.set_readiness(attempt);
+    let result = consume_bybit_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_bybit_session_with<S, E>(
@@ -673,14 +793,29 @@ where
 }
 
 async fn consume_okx_session(
-    feed: ExchangeFeed,
+    mut feed: ExchangeFeed,
     websocket_url: String,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    if feed.channels.contains(&Channel::L2Book) {
+        feed.clear_connection_books(&feed.symbols);
+    }
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
-    consume_okx_session_with(feed, shutdown, &mut session).await
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    session.set_readiness(attempt);
+    let result = consume_okx_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_okx_session_with<S, E>(
@@ -702,19 +837,38 @@ where
 }
 
 async fn consume_gateio_session(
-    feed: ExchangeFeed,
+    mut feed: ExchangeFeed,
     plan: GateioConnectionPlan,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    if !plan.snapshot_urls.is_empty() {
+        feed.clear_connection_books(
+            &plan
+                .instruments
+                .iter()
+                .map(|instrument| instrument.symbol.clone())
+                .collect::<Vec<_>>(),
+        );
+    }
     let url = Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    session.set_readiness(attempt);
     #[cfg(feature = "orderbook")]
     let snapshot_receivers = std::collections::HashMap::new();
     #[cfg(feature = "orderbook")]
     let pending_deltas: std::collections::HashMap<String, Vec<GateioDepthDelta>> =
         std::collections::HashMap::new();
-    consume_gateio_session_with(
+    let result = consume_gateio_session_with(
         feed,
         plan,
         shutdown,
@@ -724,7 +878,9 @@ async fn consume_gateio_session(
         #[cfg(feature = "orderbook")]
         pending_deltas,
     )
-    .await
+    .await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_gateio_session_with<S, E>(
@@ -1135,6 +1291,9 @@ async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) {
         return;
     }
     apply_orderbook_state(feed, &book);
+    if matches!(&book, L2Book::Snapshot(_)) {
+        feed.book_synchronized(book.symbol().as_str());
+    }
     feed.publish_event(crate::feed::FeedEvent::L2Book(book.clone()));
     if let Some(handler) = &feed.orderbook_handler {
         await_handler("l2_book", handler.on_l2_book(book)).await;
@@ -1489,6 +1648,7 @@ fn reset_binance_sequenced_sync_state(
     update: BinanceSequencedDepthDelta,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
 ) {
+    feed.invalidate_book_readiness(symbol_key);
     feed.binance_book_syncs
         .lock()
         .expect("binance sync lock")
@@ -1503,6 +1663,7 @@ fn reset_binance_sync_state(
     update: BinanceDepthDelta,
     pending: &mut std::collections::HashMap<String, Vec<BinanceDepthDelta>>,
 ) {
+    feed.invalidate_book_readiness(symbol_key);
     feed.binance_book_syncs
         .lock()
         .expect("binance sync lock")
@@ -1932,6 +2093,7 @@ fn reset_gateio_sync_state(
     update: GateioDepthDelta,
     pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
 ) {
+    feed.invalidate_book_readiness(symbol_key);
     feed.gateio_book_syncs
         .lock()
         .expect("gateio sync lock")
@@ -4819,6 +4981,63 @@ mod tests {
             Session::new(client, HeartbeatPolicy::for_exchange(exchange, &url)),
             server,
         )
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn bybit_managed_session_confirms_subscription_then_synchronizes_book() {
+        use crate::feed::{FeedId, FeedIdentity, FeedState};
+        let monitor = Arc::new(super::readiness::FeedMonitor::new(
+            FeedIdentity {
+                id: FeedId::allocate(),
+                generation: 1,
+            },
+            ExchangeId::Bybit,
+            None,
+        ));
+        monitor.configure(1, vec!["BTC-USDT".into()]);
+        monitor.lifecycle(FeedState::Started);
+        let mut feed = Bybit::new()
+            .l2_book()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .build();
+        feed.monitor = Some(monitor.clone());
+        super::readiness::track(
+            &mut feed,
+            "wss://stream.bybit.com/v5/public/spot",
+            vec!["BTC-USDT".into()],
+        );
+        let attempt = super::readiness::begin(&mut feed);
+        let (mut client, mut server) = duplex_session(ExchangeId::Bybit).await;
+        client.set_readiness(attempt);
+        let (stop, receiver) = watch::channel(false);
+        let task = tokio::spawn(async move {
+            super::consume_bybit_session_with(feed, receiver, &mut client).await
+        });
+        let Message::Text(request) = server.next().await.unwrap().unwrap() else {
+            panic!("subscription expected");
+        };
+        let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        server
+            .send(Message::Text(
+                serde_json::json!({"op":"subscribe","success":true,"req_id":request["req_id"]})
+                    .to_string(),
+            ))
+            .await
+            .unwrap();
+        wait_for_seen(|| monitor.snapshot().state == FeedState::Subscribed).await;
+        assert_eq!(monitor.snapshot().books_synchronized, 0);
+        server.send(Message::Text(serde_json::json!({"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1710000000123u64,"data":{"s":"BTCUSDT","b":[["100","1"]],"a":[["101","2"]],"u":1,"seq":1}}).to_string())).await.unwrap();
+        wait_for_seen(|| monitor.snapshot().is_ready()).await;
+        assert_eq!(monitor.snapshot().books_synchronized, 1);
+        assert_eq!(monitor.snapshot().observed_pairs, 1);
+        assert!(monitor.snapshot().last_event_at.is_some());
+        assert!(monitor.snapshot().connections[0].last_received_at.is_some());
+        stop.send(true).unwrap();
+        task.await.unwrap().unwrap();
+        assert!(!monitor.snapshot().is_ready());
+        assert_eq!(monitor.snapshot().books_synchronized, 0);
     }
 
     /// Polls a handler-side condition until it holds or the timeout fires.

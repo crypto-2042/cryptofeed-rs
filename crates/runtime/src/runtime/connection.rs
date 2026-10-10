@@ -107,6 +107,10 @@ impl HeartbeatPolicy {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
             return false;
         };
+        self.is_response_value(&value)
+    }
+
+    fn is_response_value(self, value: &serde_json::Value) -> bool {
         value.get("op").and_then(|value| value.as_str()) == Some("pong")
             || value.get("ret_msg").and_then(|value| value.as_str()) == Some("pong")
             || value
@@ -175,13 +179,32 @@ pub struct Session<S> {
     next_heartbeat: Option<Instant>,
     pending_subscriptions: std::collections::VecDeque<String>,
     _connection_slot: Option<tokio::sync::OwnedSemaphorePermit>,
+    readiness: Option<super::readiness::ConnectionAttempt>,
     next_subscription: Instant,
 }
 
 impl<S> Session<S> {
+    pub(crate) fn set_readiness(&mut self, readiness: Option<super::readiness::ConnectionAttempt>) {
+        if let Some(readiness) = &readiness {
+            readiness.connected();
+        }
+        self.readiness = readiness;
+    }
+
+    pub(crate) fn record_result(&self, result: &Result<()>) {
+        if let Some(readiness) = &self.readiness {
+            readiness.disconnected(result.as_ref().err().map(ToString::to_string));
+        }
+    }
+
     /// Queues paced subscriptions without blocking market reads or heartbeat.
     /// The caller must bound the batch using the connection planner first.
     pub fn queue_subscriptions(&mut self, messages: impl IntoIterator<Item = String>) {
+        let messages: Vec<_> = messages.into_iter().collect();
+        let messages = match self.readiness.as_mut() {
+            Some(readiness) => readiness.prepare_messages(messages),
+            None => messages,
+        };
         self.pending_subscriptions.extend(messages);
     }
 
@@ -198,6 +221,7 @@ impl<S> Session<S> {
             next_heartbeat,
             pending_subscriptions: std::collections::VecDeque::new(),
             _connection_slot: None,
+            readiness: None,
             next_subscription: now,
         }
     }
@@ -232,6 +256,21 @@ where
         &mut self,
         shutdown: &mut watch::Receiver<bool>,
     ) -> Result<Option<String>> {
+        let result = self.next_text_inner(shutdown).await;
+        if let Some(readiness) = &self.readiness {
+            match &result {
+                Err(error) => readiness.disconnected(Some(error.to_string())),
+                Ok(None) => readiness.disconnected(None),
+                Ok(Some(_)) => {}
+            }
+        }
+        result
+    }
+
+    async fn next_text_inner(
+        &mut self,
+        shutdown: &mut watch::Receiver<bool>,
+    ) -> Result<Option<String>> {
         loop {
             if *shutdown.borrow() {
                 self.close().await;
@@ -240,6 +279,10 @@ where
 
             let idle_deadline = self.last_received + self.heartbeat.idle_timeout;
             let heartbeat_deadline = self.next_heartbeat.unwrap_or(idle_deadline);
+            let acknowledgement_deadline = self
+                .readiness
+                .as_ref()
+                .and_then(|readiness| readiness.deadline());
             tokio::select! {
                 biased;
                 changed = shutdown.changed() => {
@@ -273,25 +316,35 @@ where
                         message = payload.to_string();
                     }
                     self.send_text(&message).await?;
+                    if let Some(readiness) = self.readiness.as_mut() { readiness.sent(&message, Instant::now()); }
                     self.next_subscription = Instant::now() + Duration::from_millis(250);
+                }
+                _ = tokio::time::sleep_until(acknowledgement_deadline.unwrap_or(idle_deadline)), if acknowledgement_deadline.is_some() => {
+                    return Err(Error::Transport("subscription acknowledgement timed out".to_owned()));
                 }
                 message = self.stream.next() => {
                     match message {
                         Some(Ok(Message::Text(text))) => {
                             self.last_received = Instant::now();
+                            if let Some(readiness) = &self.readiness { readiness.received(); }
                             let text = text.to_string();
-                            if self.heartbeat.is_response(&text) {
-                                continue;
+                            let value = serde_json::from_str::<serde_json::Value>(&text).ok();
+                            if text == "pong" && matches!(self.heartbeat.kind, HeartbeatKind::Text("ping"))
+                                || value.as_ref().is_some_and(|value| self.heartbeat.is_response_value(value)) { continue; }
+                            if let (Some(readiness), Some(value)) = (self.readiness.as_mut(), value.as_ref()) {
+                                if readiness.control(value)? { continue; }
                             }
                             return Ok(Some(text));
                         }
                         Some(Ok(Message::Ping(payload))) => {
                             self.last_received = Instant::now();
+                            if let Some(readiness) = &self.readiness { readiness.received(); }
                             self.stream.send(Message::Pong(payload)).await
                                 .map_err(|error| Error::Transport(error.to_string()))?;
                         }
                         Some(Ok(Message::Pong(_) | Message::Binary(_) | Message::Frame(_))) => {
                             self.last_received = Instant::now();
+                            if let Some(readiness) = &self.readiness { readiness.received(); }
                         }
                         Some(Ok(Message::Close(_))) | None => {
                             if *shutdown.borrow() {
@@ -329,6 +382,50 @@ mod tests {
         let client = WebSocketStream::from_raw_socket(client, Role::Client, None);
         let server = WebSocketStream::from_raw_socket(server, Role::Server, None);
         tokio::join!(client, server)
+    }
+
+    #[tokio::test]
+    async fn missing_acknowledgement_times_out_and_updates_retained_state() {
+        use crate::feed::{FeedId, FeedIdentity, FeedState};
+        let monitor = std::sync::Arc::new(crate::runtime::readiness::FeedMonitor::new(
+            FeedIdentity {
+                id: FeedId::allocate(),
+                generation: 1,
+            },
+            ExchangeId::Okx,
+            None,
+        ));
+        monitor.configure(1, vec![]);
+        monitor.lifecycle(FeedState::Started);
+        let tracker = monitor.register("wss://ws.okx.com/ws/v5/public".into(), vec![]);
+        let mut attempt = tracker.begin();
+        let messages = attempt.prepare_messages(vec![
+            serde_json::json!({"op":"subscribe","args":[{"channel":"trades","instId":"BTC-USDT"}]})
+                .to_string(),
+        ]);
+        attempt.sent(
+            &messages[0],
+            tokio::time::Instant::now() - Duration::from_secs(31),
+        );
+        let (client, _server) = websocket_pair().await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(None, Duration::from_secs(60), Duration::from_secs(90)),
+        );
+        session.set_readiness(Some(attempt));
+        let (_tx, mut rx) = watch::channel(false);
+        let error = session.next_text_or_shutdown(&mut rx).await.unwrap_err();
+        assert!(error.to_string().contains("acknowledgement timed out"));
+        let state = monitor.snapshot();
+        assert!(!state.is_ready());
+        assert!(!state.connections[0].connected);
+        assert!(
+            state.connections[0]
+                .last_error
+                .as_ref()
+                .unwrap()
+                .contains("acknowledgement timed out")
+        );
     }
 
     #[tokio::test]

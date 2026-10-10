@@ -11,3 +11,6 @@ wss://dstream.binance.com/stream?streams=btcusd_perp@bookTicker/btcusd_perp@aggT
 1710000001.241000: {"e":"trade","E":1710000000456,"s":"BTC-250627-100000-C","tradeId":"100","price":"0.0015","quantity":"1","side":-1,"tradeTime":1710000000123}
 1710000001.750000: {"id":1,"result":null}
 1562305381.000000: {"e":"markPriceUpdate","E":1562305380000,"s":"BTCUSDT","p":"11794.15000000","i":"11784.62659091","P":"11784.25641265","r":"0.00038167","T":1562306400000}
+wss://stream.binance.com:9443/stream <-> 1791570000.000000
+send: {"method":"SUBSCRIBE","params":["btcusdt@aggTrade","btcusdt@depth@100ms"],"id":1}
+1791570000.010000: {"result":null,"id":1}

@@ -3,7 +3,7 @@
 Status: active improvement plan, updated 2026-10-10 against the sibling Python
 checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing and per-channel subscriptions
 are implemented; conservative connection sizing and paced sends are now implemented.
-Phase 3 core runtime commands/identity are implemented; readiness/discovery,
+Phase 3 core runtime commands/identity and retained readiness are implemented; discovery,
 phases 4–5 and the remaining design work below remain unfinished. Exchange count and instrument-type coverage are
 excluded. Authenticated feeds and trading remain outside the 0.1 scope.
 
@@ -119,8 +119,11 @@ IDs/configuration generations, scoped events and lifecycle transitions are
 implemented. [The runtime-control guide](runtime-control.md) defines results,
 cancellation/commit points, error aggregation and remaining readiness scope.
 A manual OKX run observed generation 1 BTC trade followed by generation 2 ETH
-trade on the same feed ID, then removal and exit 0. Remote-ready state and
-periodic listing reconciliation remain unfinished.
+trade on the same feed ID, then removal and exit 0. Retained state/readiness now includes matching subscription evidence across
+all connections, synchronized L2 counts and reconnect epochs. The follow-up
+public smoke reached Ready on all five spot Trade/L2 feeds, including Bybit
+on its second attempt; the earlier TLS failure remains documented. Periodic
+listing reconciliation remains unfinished. See [readiness semantics](readiness.md).
 
 
 - Keep `run()` compatible and add a caller-retained control handle with stable
@@ -131,7 +134,7 @@ periodic listing reconciliation remain unfinished.
   the old session, and starting a fresh session with fresh L2/ticker state.
   Document the replacement gap; do not claim exchange-atomic switching or
   uninterrupted books. If new startup fails after stopping the old feed, report
-  that failure explicitly. Remote readiness needs separate status events.
+  that failure explicitly. Readiness is exposed through scoped status events and retained snapshots.
 - Define when removal completes and how already queued events are identified;
   consumers need feed/generation identity to reject events from an old session.
 - Only then add opt-in periodic catalog reconciliation with minimum intervals,

@@ -39,6 +39,43 @@ pub struct FeedInfo {
     pub exchange: ExchangeId,
 }
 
+/// Authoritative current-generation lifecycle and connection evidence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct FeedSnapshot {
+    pub identity: FeedIdentity,
+    pub exchange: ExchangeId,
+    pub state: FeedState,
+    pub connections_expected: usize,
+    pub connections: Vec<ConnectionInfo>,
+    pub books_expected: usize,
+    pub books_synchronized: usize,
+    pub observed_pairs: usize,
+    pub observed_events: u64,
+    pub last_event_at: Option<std::time::SystemTime>,
+}
+
+impl FeedSnapshot {
+    pub fn is_ready(&self) -> bool {
+        matches!(self.state, FeedState::Ready)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct ConnectionInfo {
+    pub id: u64,
+    pub epoch: u64,
+    pub url: String,
+    pub connected: bool,
+    pub subscriptions_expected: usize,
+    pub subscriptions_confirmed: usize,
+    pub books_expected: usize,
+    pub books_synchronized: usize,
+    pub last_error: Option<String>,
+    pub last_received_at: Option<std::time::SystemTime>,
+}
+
 /// An event tagged with its logical source and configuration-generation scope.
 /// Already buffered events are not removed on replacement; compare identity.
 #[derive(Clone, Debug)]
@@ -53,6 +90,10 @@ pub enum FeedState {
     Preparing,
     /// Configuration is validated and session tasks launched, not remote-ready.
     Started,
+    Connecting,
+    Subscribed,
+    Ready,
+    Reconnecting,
     Stopping,
     Stopped {
         forced: bool,
@@ -89,6 +130,10 @@ pub(crate) enum Command {
     },
     List {
         reply: Reply<Vec<FeedInfo>>,
+    },
+    State {
+        id: FeedId,
+        reply: Reply<FeedSnapshot>,
     },
 }
 
@@ -139,6 +184,11 @@ impl RuntimeControl {
         self.request(|reply| Command::List { reply }).await
     }
 
+    /// Queries current state even when lifecycle broadcast notifications lag.
+    pub async fn state(&self, id: FeedId) -> Result<FeedSnapshot> {
+        self.request(|reply| Command::State { id, reply }).await
+    }
+
     pub async fn shutdown(&self) -> Result<()> {
         self.request(|reply| Command::Shutdown { reply }).await
     }
@@ -156,22 +206,24 @@ impl ControlContext {
     pub fn attach(&self, feed: &mut ExchangeFeed, identity: FeedIdentity) {
         feed.identity = Some(identity);
         feed.managed = false;
+        feed.monitor = None;
+        feed.connection_tracker = None;
+        feed.connection_epoch = None;
         feed.event_sender = self.event_sender.clone();
         feed.envelope_sender = self.envelope_sender.clone();
         feed.status_sender = self.status_sender.clone();
         feed.event_counts = Some(self.counters.clone());
         feed.fresh_runtime_state();
     }
-    pub fn emit(&self, identity: FeedIdentity, exchange: ExchangeId, state: FeedState) {
-        if let FeedState::Failed { error } = &state {
-            tracing::error!(?identity, ?exchange, %error, "managed feed failed");
-        }
-        if let Some(sender) = &self.status_sender {
-            let _ = sender.send(FeedStatus::Lifecycle {
-                identity,
-                exchange,
-                state,
-            });
-        }
+    pub fn monitor(
+        &self,
+        identity: FeedIdentity,
+        exchange: ExchangeId,
+    ) -> Arc<crate::runtime::readiness::FeedMonitor> {
+        Arc::new(crate::runtime::readiness::FeedMonitor::new(
+            identity,
+            exchange,
+            self.status_sender.clone(),
+        ))
     }
 }

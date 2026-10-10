@@ -26,7 +26,7 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
         }
         ExchangeId::Bybit => Ok(BybitAdapter::subscription_urls(feed).iter().all(|url| {
             let planned = super::bybit_feed_for_url(feed, url);
-            BybitAdapter::subscription_message(&planned).len() <= 21000
+            BybitAdapter::subscription_message(&planned).len() + 64 <= 21000
         })),
         ExchangeId::Okx => Ok(OkxAdapter::subscription_urls(feed).iter().all(|url| {
             let mut planned = feed.clone();
@@ -41,7 +41,7 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
                 && plan
                     .subscription_messages
                     .iter()
-                    .all(|message| message.len() <= 64 * 1024)
+                    .all(|message| message.len() + 64 <= 64 * 1024)
         })),
         _ => Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
     }

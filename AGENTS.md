@@ -95,7 +95,9 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
    Terminal failure of one feed is recorded and reported without cancelling
    healthy feeds. Opt-in managed control owns logical feed workers and retained
    IDs/configuration generations; candidates hydrate before old tasks stop.
-   Started acknowledges launch, not remote-ready state. Default startup remains
+   Started acknowledges launch. Managed state snapshots distinguish correlated
+   subscription confirmations, SDK book initialization and reconnect epochs;
+   remote Ready is separate from task startup. Default startup remains
    strict; controlled initial startup isolates failures.
 3. **Per-exchange consumers** (`consume_*_feed`) — build connection plans
    (URL per product when an exchange splits by product, e.g. Binance
@@ -193,6 +195,7 @@ the HTTP catalog fetchers per exchange.
 - `docs/README.md` — public documentation index.
 - `docs/harness.md` — fixture formats and parity behavior.
 - `docs/runtime-control.md` — command results, cancellation and identity scope.
+- `docs/readiness.md` — confirmation evidence, query semantics and epoch guards.
 - `docs/reports/` — dated, sanitized live-validation evidence.
 - `docs/ai-coding.md` — the AI-assisted workflow agreement.
 - `docs/exchange-protocol-baseline.md` — current official protocol facts.

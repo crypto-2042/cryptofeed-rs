@@ -111,13 +111,16 @@ impl FeedCommand {
     }
 }
 
+type WorkerInfo = Arc<Mutex<Arc<super::readiness::FeedMonitor>>>;
+
 struct Entry {
     removal_reply: Option<Reply<()>>,
     sender: mpsc::Sender<FeedCommand>,
-    info: Arc<Mutex<(FeedIdentity, ExchangeId)>>,
+    info: WorkerInfo,
 }
 
 struct Preparing {
+    monitor: Arc<super::readiness::FeedMonitor>,
     identity: FeedIdentity,
     exchange: ExchangeId,
     future: BoxFuture<'static, Result<Vec<ExchangeFeed>>>,
@@ -128,17 +131,20 @@ struct Preparing {
 impl Preparing {
     fn new(
         mut feed: ExchangeFeed,
-        identity: FeedIdentity,
+        monitor: Arc<super::readiness::FeedMonitor>,
         reply: Option<Reply<FeedIdentity>>,
         initial: bool,
         context: &ControlContext,
         services: Services,
     ) -> Self {
         let exchange = feed.exchange;
+        let identity = monitor.identity;
         context.attach(&mut feed, identity);
         feed.managed = true;
-        context.emit(identity, exchange, FeedState::Preparing);
+        feed.monitor = Some(monitor.clone());
+        monitor.lifecycle(FeedState::Preparing);
         Self {
+            monitor,
             identity,
             exchange,
             future: (services.prepare)(feed),
@@ -146,14 +152,10 @@ impl Preparing {
             initial,
         }
     }
-    fn cancel(self, message: &str, context: &ControlContext) {
-        context.emit(
-            self.identity,
-            self.exchange,
-            FeedState::Cancelled {
-                reason: message.to_owned(),
-            },
-        );
+    fn cancel(self, message: &str) {
+        self.monitor.lifecycle(FeedState::Cancelled {
+            reason: message.to_owned(),
+        });
         if let Some(reply) = self.reply {
             let _ = reply.send(Err(Error::Transport(message.to_owned())));
         }
@@ -161,6 +163,7 @@ impl Preparing {
 }
 
 struct Prepared {
+    monitor: Arc<super::readiness::FeedMonitor>,
     connections: usize,
     initial: bool,
     identity: FeedIdentity,
@@ -170,14 +173,10 @@ struct Prepared {
 }
 
 impl Prepared {
-    fn cancel(self, message: &str, context: &ControlContext) {
-        context.emit(
-            self.identity,
-            self.exchange,
-            FeedState::Cancelled {
-                reason: message.to_owned(),
-            },
-        );
+    fn cancel(self, message: &str) {
+        self.monitor.lifecycle(FeedState::Cancelled {
+            reason: message.to_owned(),
+        });
         if let Some(reply) = self.reply {
             let _ = reply.send(Err(Error::Transport(message.to_owned())));
         }
@@ -185,8 +184,8 @@ impl Prepared {
 }
 
 struct Running {
+    monitor: Arc<super::readiness::FeedMonitor>,
     connections: usize,
-    identity: FeedIdentity,
     exchange: ExchangeId,
     shutdown: watch::Sender<bool>,
     task: JoinHandle<Result<()>>,
@@ -195,22 +194,32 @@ struct Running {
 }
 
 impl Running {
-    fn start(prepared: Prepared, context: &ControlContext, services: Services) -> Self {
+    fn start(prepared: Prepared, services: Services) -> Self {
         let (shutdown, receiver) = watch::channel(false);
         let forced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let books = prepared
+            .feeds
+            .iter()
+            .filter(|feed| {
+                feed.channels
+                    .contains(&cryptofeed_core::exchange::Channel::L2Book)
+            })
+            .flat_map(|feed| feed.symbols.iter().map(|symbol| symbol.as_str().to_owned()))
+            .collect();
+        prepared.monitor.configure(prepared.connections, books);
+        prepared.monitor.lifecycle(FeedState::Started);
         let task = tokio::spawn(super::run_feeds_until_shutdown_tracked(
             prepared.feeds,
             receiver,
             services.consume,
             Some(forced.clone()),
         ));
-        context.emit(prepared.identity, prepared.exchange, FeedState::Started);
         if let Some(reply) = prepared.reply {
             let _ = reply.send(Ok(prepared.identity));
         }
         Self {
+            monitor: prepared.monitor,
             connections: prepared.connections,
-            identity: prepared.identity,
             exchange: prepared.exchange,
             shutdown,
             task,
@@ -219,9 +228,9 @@ impl Running {
         }
     }
 
-    fn request_stop(&mut self, context: &ControlContext) {
+    fn request_stop(&mut self) {
         if self.stop_at.is_none() {
-            context.emit(self.identity, self.exchange, FeedState::Stopping);
+            self.monitor.lifecycle(FeedState::Stopping);
             let _ = self.shutdown.send(true);
             self.stop_at = Some(
                 Instant::now()
@@ -230,11 +239,8 @@ impl Running {
             );
         }
     }
-    async fn stop(
-        &mut self,
-        context: &ControlContext,
-    ) -> std::result::Result<Result<()>, tokio::task::JoinError> {
-        self.request_stop(context);
+    async fn stop(&mut self) -> std::result::Result<Result<()>, tokio::task::JoinError> {
+        self.request_stop();
         match tokio::time::timeout_at(self.stop_at.expect("stop deadline"), &mut self.task).await {
             Ok(result) => result,
             Err(_) => {
@@ -257,44 +263,29 @@ impl Drop for Running {
 fn record_exit(
     running: &Running,
     result: std::result::Result<Result<()>, tokio::task::JoinError>,
-    context: &ControlContext,
     errors: &mut Vec<String>,
 ) {
     match result {
-        Ok(Ok(())) => context.emit(
-            running.identity,
-            running.exchange,
-            FeedState::Stopped {
-                forced: running.forced.load(std::sync::atomic::Ordering::Relaxed),
-            },
-        ),
-        Err(error) if running.stop_at.is_some() && error.is_cancelled() => context.emit(
-            running.identity,
-            running.exchange,
-            FeedState::Stopped { forced: true },
-        ),
+        Ok(Ok(())) => running.monitor.lifecycle(FeedState::Stopped {
+            forced: running.forced.load(std::sync::atomic::Ordering::Relaxed),
+        }),
+        Err(error) if running.stop_at.is_some() && error.is_cancelled() => running
+            .monitor
+            .lifecycle(FeedState::Stopped { forced: true }),
         result => {
             let error = match result {
                 Ok(Err(error)) => error.to_string(),
                 Err(error) => error.to_string(),
                 _ => unreachable!(),
             };
-            context.emit(
-                running.identity,
-                running.exchange,
-                FeedState::Failed {
-                    error: error.clone(),
-                },
-            );
+            running.monitor.lifecycle(FeedState::Failed {
+                error: error.clone(),
+            });
             errors.push(error);
             if running.stop_at.is_some() {
-                context.emit(
-                    running.identity,
-                    running.exchange,
-                    FeedState::Stopped {
-                        forced: running.forced.load(std::sync::atomic::Ordering::Relaxed),
-                    },
-                );
+                running.monitor.lifecycle(FeedState::Stopped {
+                    forced: running.forced.load(std::sync::atomic::Ordering::Relaxed),
+                });
             }
         }
     }
@@ -306,13 +297,19 @@ async fn worker(
     context: ControlContext,
     mut commands: mpsc::Receiver<FeedCommand>,
     mut shutdown: watch::Receiver<bool>,
-    info: Arc<Mutex<(FeedIdentity, ExchangeId)>>,
+    info: WorkerInfo,
     resources: Resources,
 ) -> Result<()> {
     let services = resources.services;
-    let identity = info.lock().expect("feed info lock").0;
+    let initial_monitor = info.lock().expect("feed info lock").clone();
+    let identity = initial_monitor.identity;
     let mut preparing = Some(Preparing::new(
-        feed, identity, reply, true, &context, services,
+        feed,
+        initial_monitor,
+        reply,
+        true,
+        &context,
+        services,
     ));
     let mut prepared: Option<Prepared> = None;
     let mut running: Option<Running> = None;
@@ -328,7 +325,7 @@ async fn worker(
                         .as_ref()
                         .is_some_and(|reply| reply.is_closed())
                 {
-                    candidate.cancel("command caller disappeared before startup", &context);
+                    candidate.cancel("command caller disappeared before startup");
                     return super::terminal_result(errors);
                 } else {
                     resources
@@ -340,9 +337,8 @@ async fn worker(
                         )
                         .expect("candidate already admitted");
                     generation = candidate.identity.generation;
-                    *info.lock().expect("feed info lock") =
-                        (candidate.identity, candidate.exchange);
-                    running = Some(Running::start(candidate, &context, services));
+                    *info.lock().expect("feed info lock") = candidate.monitor.clone();
+                    running = Some(Running::start(candidate, services));
                 }
             }
             if removing {
@@ -361,18 +357,18 @@ async fn worker(
             biased;
             changed = shutdown.changed() => {
                 if changed.is_ok() && !*shutdown.borrow() { continue; }
-                if let Some(candidate) = preparing.take() { candidate.cancel("runtime is shutting down", &context); }
-                if let Some(candidate) = prepared.take() { candidate.cancel("runtime is shutting down", &context); }
+                if let Some(candidate) = preparing.take() { candidate.cancel("runtime is shutting down"); }
+                if let Some(candidate) = prepared.take() { candidate.cancel("runtime is shutting down"); }
                 if let Some(mut active) = running.take() {
-                    let result = active.stop(&context).await;
-                    record_exit(&active, result, &context, &mut errors);
+                    let result = active.stop().await;
+                    record_exit(&active, result, &mut errors);
                 }
                 return super::terminal_result(errors);
             }
             _ = async { match reply { Some(reply) => reply.closed().await, None => std::future::pending().await } } => {
                 let candidate = preparing.take().expect("closed preparation reply");
                 let initial = candidate.initial;
-                candidate.cancel("command cancelled", &context);
+                candidate.cancel("command cancelled");
                 if initial && running.is_none() { return super::terminal_result(errors); }
             }
             result = async { match future { Some(future) => future.await, None => std::future::pending().await } } => {
@@ -384,14 +380,17 @@ async fn worker(
                 });
                 match result {
                     Ok((feeds, connections)) => {
-                        prepared = Some(Prepared { connections, initial: candidate.initial, identity: candidate.identity, exchange: candidate.exchange, feeds, reply: candidate.reply });
-                        if let Some(active) = running.as_mut() { active.request_stop(&context); }
+                        prepared = Some(Prepared { monitor: candidate.monitor, connections, initial: candidate.initial, identity: candidate.identity, exchange: candidate.exchange, feeds, reply: candidate.reply });
+                        if let Some(active) = running.as_mut() { active.request_stop(); }
                     }
                     Err(error) => {
-                        context.emit(candidate.identity, candidate.exchange, FeedState::Failed { error: error.to_string() });
+                        candidate.monitor.lifecycle(FeedState::Failed { error: error.to_string() });
+                        let dynamic = candidate.reply.is_some();
                         if let Some(reply) = candidate.reply { let _ = reply.send(Err(error)); }
                         else { errors.push(error.to_string()); }
-                        if candidate.initial { return super::terminal_result(errors); }
+                        // Initial configured IDs remain queryable/recoverable.
+                        // A rejected dynamic add was never committed.
+                        if candidate.initial && dynamic { return super::terminal_result(errors); }
                     }
                 }
             }
@@ -403,7 +402,7 @@ async fn worker(
             }
             result = async { match running.as_mut() { Some(active) => (&mut active.task).await, None => std::future::pending().await } } => {
                 let active = running.take().expect("completed feed task");
-                record_exit(&active, result, &context, &mut errors);
+                record_exit(&active, result, &mut errors);
                 resources.admission.reserve(identity.id, None, prepared.as_ref().map(|candidate| (candidate.exchange, candidate.connections))).expect("releasing old admission");
             }
             command = commands.recv() => {
@@ -413,17 +412,17 @@ async fn worker(
                             let _ = reply.send(Err(Error::InvalidConfiguration("another feed update is in progress".to_owned())));
                         } else {
                             generation += 1;
-                            preparing = Some(Preparing::new(*feed, FeedIdentity { id: identity.id, generation }, Some(reply), false, &context, services));
+                            let monitor = context.monitor(FeedIdentity { id: identity.id, generation }, feed.exchange);
+                            preparing = Some(Preparing::new(*feed, monitor, Some(reply), false, &context, services));
                         }
                     }
                     Some(FeedCommand::Remove) => {
                         if removing { continue; }
-                        if let Some(candidate) = preparing.take() { candidate.cancel("feed removed during preparation", &context); }
-                        if let Some(candidate) = prepared.take() { candidate.cancel("feed removed before replacement startup", &context); }
-                        if let Some(active) = running.as_mut() { active.request_stop(&context); }
+                        if let Some(candidate) = preparing.take() { candidate.cancel("feed removed during preparation"); }
+                        if let Some(candidate) = prepared.take() { candidate.cancel("feed removed before replacement startup"); }
+                        if let Some(active) = running.as_mut() { active.request_stop(); }
                         else {
-                            let (identity, exchange) = *info.lock().expect("feed info lock");
-                            context.emit(identity, exchange, FeedState::Stopped { forced: false });
+                            info.lock().expect("feed info lock").clone().lifecycle(FeedState::Stopped { forced: false });
                         }
                         resources.admission.reserve(identity.id, running.as_ref().map(|active| (active.exchange, active.connections)), None).expect("releasing candidate admission");
                         removing = true;
@@ -453,7 +452,7 @@ impl Manager {
         identity: FeedIdentity,
         reply: Option<Reply<FeedIdentity>>,
     ) {
-        let info = Arc::new(Mutex::new((identity, feed.exchange)));
+        let info = Arc::new(Mutex::new(self.context.monitor(identity, feed.exchange)));
         let (sender, receiver) = mpsc::channel(4);
         let context = self.context.clone();
         let shutdown = self.shutdown.clone();
@@ -514,14 +513,14 @@ impl Manager {
                         if let Some(reply) = entry.removal_reply {
                             let _ = reply.send(Err(Error::Transport(error.to_string())));
                         }
-                        let (identity, exchange) = *entry.info.lock().expect("feed info lock");
-                        self.context.emit(
-                            identity,
-                            exchange,
-                            FeedState::Failed {
+                        entry
+                            .info
+                            .lock()
+                            .expect("feed info lock")
+                            .clone()
+                            .lifecycle(FeedState::Failed {
                                 error: error.to_string(),
-                            },
-                        );
+                            });
                     }
                 }
                 self.errors.push(error.to_string());
@@ -615,10 +614,16 @@ async fn run_with(
                     Some(Command::Remove { id, reply }) => manager.remove(id, reply),
                     Some(Command::Replace { id, feed, reply }) => manager.route(id, FeedCommand::Replace { feed, reply }),
                     Some(Command::Shutdown { reply }) => { shutdown_reply = Some(reply); break; }
+                    Some(Command::State { id, reply }) => {
+                        let result = manager.entries.get(&id)
+                            .map(|entry| entry.info.lock().expect("feed info lock").clone().snapshot())
+                            .ok_or_else(|| Error::InvalidConfiguration("unknown or removed feed ID".to_owned()));
+                        let _ = reply.send(result);
+                    }
                     Some(Command::List { reply }) => {
                         let mut feeds: Vec<_> = manager.entries.values().map(|entry| {
-                            let (identity, exchange) = *entry.info.lock().expect("feed info lock");
-                            FeedInfo { identity, exchange }
+                            let snapshot = entry.info.lock().expect("feed info lock").clone().snapshot();
+                            FeedInfo { identity: snapshot.identity, exchange: snapshot.exchange }
                         }).collect();
                         feeds.sort_by_key(|feed| feed.identity.id.as_u64());
                         let _ = reply.send(Ok(feeds));
@@ -1003,6 +1008,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn state_queries_survive_lifecycle_lag_and_observed_data_is_not_ready() {
+        let (control, mut events, mut statuses, running, _stop) = start(FeedHandler::new());
+        let mut current = control.add_feed(input("BTC")).await.unwrap();
+        for _ in 0..20 {
+            current = control
+                .replace_feed(current.id, input("ETH"))
+                .await
+                .unwrap();
+        }
+        event_for(&mut events, current).await;
+        assert!(matches!(
+            statuses.try_recv(),
+            Err(broadcast::error::TryRecvError::Lagged(_))
+        ));
+        let state = control.state(current.id).await.unwrap();
+        assert_eq!(state.identity, current);
+        assert_eq!(state.state, FeedState::Started);
+        assert!(state.observed_events > 0);
+        assert!(!state.is_ready()); // Private fake transport emitted data, not remote acknowledgement.
+        control.remove_feed(current.id).await.unwrap();
+        assert!(control.state(current.id).await.is_err());
+        control.shutdown().await.unwrap();
+        running.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn independent_initial_startup_keeps_healthy_feeds_running() {
         let mut handler = FeedHandler::new();
         let bad = handler.add_feed_with_id(Binance::new().build());
@@ -1020,6 +1051,26 @@ mod tests {
             },
         )
         .await;
+        assert!(control.shutdown().await.is_err());
+        assert!(running.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn initial_validation_failure_remains_queryable_and_replaceable() {
+        let mut handler = FeedHandler::new();
+        let id = handler.add_feed_with_id(Binance::new().build());
+        let (control, mut events, mut statuses, running, _stop) = start(handler);
+        state_for(&mut statuses, id, |state| {
+            matches!(state, FeedState::Failed { .. })
+        })
+        .await;
+        let state = control.state(id).await.unwrap();
+        assert!(matches!(state.state, FeedState::Failed { .. }));
+        assert!(!state.is_ready());
+        let replacement = control.replace_feed(id, input("BTC")).await.unwrap();
+        assert_eq!(replacement.id, id);
+        event_for(&mut events, replacement).await;
+        assert_eq!(control.state(id).await.unwrap().identity, replacement);
         assert!(control.shutdown().await.is_err());
         assert!(running.await.unwrap().is_err());
     }
@@ -1102,6 +1153,22 @@ mod tests {
             FeedIdentity { id, generation: 1 }
         );
         assert_eq!(handler.event_count(Channel::Trade), 1);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn reconnect_clears_only_the_books_owned_by_that_connection() {
+        let feed = input("BTC");
+        for base in ["BTC", "ETH"] {
+            feed.orderbook_states.lock().unwrap().insert(
+                format!("{base}-USDT"),
+                cryptofeed_orderbook::L2BookState::new(Symbol::spot(base, "USDT")),
+            );
+        }
+        feed.clear_connection_books(&[Symbol::spot("BTC", "USDT")]);
+        let books = feed.orderbook_states.lock().unwrap();
+        assert!(!books.contains_key("BTC-USDT"));
+        assert!(books.contains_key("ETH-USDT"));
     }
 
     #[cfg(feature = "orderbook")]

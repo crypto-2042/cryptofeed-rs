@@ -319,7 +319,10 @@ Control mode starts initial logical feeds independently.
 `subscribe_identified()` emits `FeedEnvelope { identity, event }`. Replacement
 keeps the feed ID and advances its configuration generation; stale queued events
 remain identifiable. Candidate validation failure leaves the old feed running.
-A successful command acknowledges validated task launch, not remote readiness.
+A successful command acknowledges validated task launch. Query
+`control.state(id).await?` for a retained `FeedSnapshot`; `.is_ready()` requires
+all connection subscriptions confirmed and requested L2 books initialized.
+State queries also work after lifecycle notifications lag.
 
 See [managed runtime control](docs/runtime-control.md) for cancellation, command
 queues, graceful/forced removal, lifecycle states, event lag and remaining scope.
@@ -328,6 +331,10 @@ Run the public add/replace/remove example with:
 ```bash
 cargo run -p cryptofeed-rs --example managed_public
 ```
+
+[Readiness semantics](docs/readiness.md) distinguish confirmations, local book
+state, data observations, reconnect epochs and stopping. Run the five-exchange
+public Trade/L2 observation with `cargo run -p cryptofeed-rs --example readiness_public`.
 
 ## Symbol discovery and service shutdown
 
@@ -368,7 +375,8 @@ For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
 repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 `run_with_shutdown` uses your watch signal and installs no signal handler.
 Managed add/remove/replace is available through a retained control handle.
-Readiness, listing reconciliation and remaining policy work are tracked in the
+Readiness is available through the managed state API; listing reconciliation
+and remaining policy work are tracked in the
 [Python usage alignment plan](docs/python-usage-alignment.md).
 
 ## Development

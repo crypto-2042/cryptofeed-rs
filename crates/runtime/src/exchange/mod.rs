@@ -7,17 +7,6 @@ pub mod kraken;
 pub mod okx;
 
 use std::collections::{HashMap, HashSet};
-#[cfg(any(
-    feature = "ticker",
-    feature = "trade",
-    feature = "orderbook",
-    feature = "candles",
-    feature = "funding",
-    feature = "liquidations",
-    feature = "markprice",
-    feature = "openinterest",
-    feature = "index"
-))]
 use std::sync::Arc;
 #[cfg(feature = "orderbook")]
 use std::sync::Mutex;
@@ -112,12 +101,67 @@ pub struct ExchangeFeed {
     pub(crate) event_counts: Option<std::sync::Arc<crate::feed::EventCounters>>,
     pub(crate) identity: Option<crate::feed::FeedIdentity>,
     pub(crate) managed: bool,
+    pub(crate) monitor: Option<Arc<crate::runtime::readiness::FeedMonitor>>,
+    pub(crate) connection_tracker: Option<crate::runtime::readiness::ConnectionTracker>,
+    pub(crate) connection_epoch: Option<u64>,
     pub(crate) envelope_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedEnvelope>>,
 }
 
 impl ExchangeFeed {
     pub fn identity(&self) -> Option<crate::feed::FeedIdentity> {
         self.identity
+    }
+
+    pub(crate) fn clear_connection_books(&self, symbols: &[Symbol]) {
+        #[cfg(feature = "orderbook")]
+        for symbol in symbols {
+            let key = symbol.as_str();
+            self.orderbook_states
+                .lock()
+                .expect("book state lock")
+                .remove(key);
+            self.binance_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.bitget_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.bybit_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.gateio_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.okx_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.invalidate_book_readiness(key);
+        }
+    }
+
+    pub(crate) fn invalidate_book_readiness(&self, symbol: &str) {
+        if let (Some(monitor), Some(tracker), Some(epoch)) = (
+            &self.monitor,
+            &self.connection_tracker,
+            self.connection_epoch,
+        ) {
+            monitor.invalidate_book(tracker.id, epoch, symbol);
+        }
+    }
+
+    pub(crate) fn book_synchronized(&self, symbol: &str) {
+        if let (Some(monitor), Some(tracker), Some(epoch)) = (
+            &self.monitor,
+            &self.connection_tracker,
+            self.connection_epoch,
+        ) {
+            monitor.book_synced(tracker.id, epoch, symbol);
+        }
     }
 
     pub(crate) fn fresh_runtime_state(&mut self) {
@@ -212,6 +256,27 @@ impl ExchangeFeed {
     /// lose the oldest events by design.
     pub(crate) fn publish_event(&self, event: crate::feed::FeedEvent) {
         let channel = event.channel();
+        #[cfg(any(
+            feature = "ticker",
+            feature = "trade",
+            feature = "orderbook",
+            feature = "candles",
+            feature = "funding",
+            feature = "liquidations",
+            feature = "markprice",
+            feature = "openinterest",
+            feature = "index"
+        ))]
+        if let Some(monitor) = &self.monitor {
+            monitor.observe(
+                channel,
+                event.symbol(),
+                self.connection_tracker
+                    .as_ref()
+                    .zip(self.connection_epoch)
+                    .map(|(tracker, epoch)| (tracker.id, epoch)),
+            );
+        }
         if let Some(sender) = &self.event_sender {
             let _ = sender.send(event.clone());
         }
@@ -736,6 +801,9 @@ impl ExchangeFeedBuilder {
             event_counts: None,
             identity: None,
             managed: false,
+            monitor: None,
+            connection_tracker: None,
+            connection_epoch: None,
             envelope_sender: None,
         }
     }
