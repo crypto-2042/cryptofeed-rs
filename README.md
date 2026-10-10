@@ -364,7 +364,8 @@ input or any unmatched pattern. It uses the existing 24-hour catalog cache;
 use `MarketCatalog::refresh(exchange, product).await` to bypass cached responses,
 including paginated catalogs. Concurrent requests for the same URL share
 in-flight work. Refresh does not change existing catalog snapshots or running
-subscriptions, and automatic listing discovery is not implemented. Patterns
+subscriptions. Optional `DiscoveryFeed` periodically refreshes and reconciles a
+managed feed; see [automatic symbol reconciliation](docs/discovery.md). Patterns
 are expanded explicitly before building a feed, not by `.symbol("*-USDT")`.
 Broad matches are split by native subscription budgets; configurations exceeding
 100 planned physical connections per exchange are rejected before WS startup.
@@ -375,8 +376,7 @@ For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
 repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 `run_with_shutdown` uses your watch signal and installs no signal handler.
 Managed add/remove/replace is available through a retained control handle.
-Readiness is available through the managed state API; listing reconciliation
-and remaining policy work are tracked in the
+Readiness is available through the managed state API; remaining policy work is tracked in the
 [Python usage alignment plan](docs/python-usage-alignment.md).
 
 ## Development

@@ -12,6 +12,7 @@ use cryptofeed_core::{
 #[derive(Debug)]
 pub struct MarketCatalog {
     symbols: Vec<Symbol>,
+    native: std::collections::HashMap<Symbol, String>,
 }
 
 impl MarketCatalog {
@@ -44,9 +45,23 @@ impl MarketCatalog {
         }
         let registry =
             crate::markets::fetch_symbol_registry_with_refresh(exchange, product, refresh).await?;
-        Ok(Self {
-            symbols: registry.into_symbols(),
-        })
+        Ok(Self::from_registry(registry))
+    }
+
+    pub(crate) fn from_registry(registry: crate::markets::SymbolRegistry) -> Self {
+        let entries = registry.into_entries();
+        Self {
+            symbols: entries.iter().map(|(symbol, _)| symbol.clone()).collect(),
+            native: entries.into_iter().collect(),
+        }
+    }
+
+    /// Native name from this exact directory snapshot, without guessing quotes.
+    pub fn exchange_symbol(&self, symbol: &Symbol) -> Result<&str> {
+        self.native
+            .get(symbol)
+            .map(String::as_str)
+            .ok_or_else(|| Error::UnsupportedSymbol(symbol.as_str().to_owned()))
     }
 
     /// All discovered symbols, sorted by normalized name.
@@ -60,6 +75,14 @@ impl MarketCatalog {
     /// classes and escaping are not supported. Each pattern must match at
     /// least one symbol, and an empty pattern list is an error.
     pub fn select(&self, patterns: &[&str]) -> Result<Vec<Symbol>> {
+        self.select_with_policy(patterns, true)
+    }
+
+    pub(crate) fn select_discovered(&self, patterns: &[&str]) -> Result<Vec<Symbol>> {
+        self.select_with_policy(patterns, false)
+    }
+
+    fn select_with_policy(&self, patterns: &[&str], require_each: bool) -> Result<Vec<Symbol>> {
         if patterns.is_empty() {
             return Err(Error::InvalidConfiguration(
                 "at least one symbol pattern is required".to_owned(),
@@ -75,7 +98,7 @@ impl MarketCatalog {
                     matched = true;
                 }
             }
-            if !matched {
+            if !matched && require_each {
                 return Err(Error::UnsupportedSymbol(pattern));
             }
         }
@@ -134,9 +157,30 @@ mod tests {
                 .insert(Symbol::spot(base, quote), &format!("{base}{quote}"))
                 .unwrap();
         }
-        MarketCatalog {
-            symbols: registry.into_symbols(),
-        }
+        MarketCatalog::from_registry(registry)
+    }
+
+    #[test]
+    fn native_lookup_uses_the_snapshot_mapping_and_periodic_union_allows_removals() {
+        let catalog = catalog();
+        assert_eq!(
+            catalog
+                .exchange_symbol(&Symbol::spot("BTC", "USDT"))
+                .unwrap(),
+            "BTCUSDT"
+        );
+        assert!(
+            catalog
+                .exchange_symbol(&Symbol::spot("OTHER", "USDT"))
+                .is_err()
+        );
+        assert!(catalog.select(&["BTC-USDT", "REMOVED-*"]).is_err());
+        assert_eq!(
+            catalog
+                .select_discovered(&["BTC-USDT", "REMOVED-*"])
+                .unwrap(),
+            [Symbol::spot("BTC", "USDT")]
+        );
     }
 
     #[test]

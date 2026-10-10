@@ -261,7 +261,19 @@ pub fn validate_feed(feed: &ExchangeFeed) -> Result<InstrumentKind> {
     }
 
     let product = feed.product_kind()?;
+    validate_product_channels(feed, product)?;
+    Ok(product)
+}
 
+pub(crate) fn validate_product_channels(
+    feed: &ExchangeFeed,
+    product: InstrumentKind,
+) -> Result<()> {
+    if feed.channels.is_empty() {
+        return Err(Error::InvalidConfiguration(
+            "a feed must contain at least one channel".to_owned(),
+        ));
+    }
     let capability = CAPABILITIES
         .iter()
         .find(|capability| capability.exchange == feed.exchange && capability.product == product)
@@ -281,7 +293,7 @@ pub fn validate_feed(feed: &ExchangeFeed) -> Result<InstrumentKind> {
     validate_l2_book_depth(feed, product)?;
     validate_l2_book_interval(feed, product)?;
 
-    Ok(product)
+    Ok(())
 }
 
 fn validate_candle_interval(feed: &ExchangeFeed) -> Result<()> {
@@ -422,10 +434,10 @@ pub struct SymbolRegistry {
 }
 
 impl SymbolRegistry {
-    pub(crate) fn into_symbols(self) -> Vec<Symbol> {
-        let mut symbols: Vec<_> = self.normalized_to_exchange.into_keys().collect();
-        symbols.sort_by(|left, right| left.as_str().cmp(right.as_str()));
-        symbols
+    pub(crate) fn into_entries(self) -> Vec<(Symbol, String)> {
+        let mut entries: Vec<_> = self.normalized_to_exchange.into_iter().collect();
+        entries.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
+        entries
     }
 
     pub fn insert(&mut self, symbol: Symbol, exchange_symbol: &str) -> Result<()> {
@@ -537,14 +549,7 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
             if product == InstrumentKind::Spot {
                 let payload =
                     fetch_json("https://api.binance.com/api/v3/exchangeInfo", refresh).await?;
-                for item in array_at(&payload, &["symbols"])? {
-                    add_spot_market(
-                        &mut registry,
-                        str_at(item, &["symbol"]),
-                        str_at(item, &["baseAsset"]),
-                        str_at(item, &["quoteAsset"]),
-                    )?;
-                }
+                add_spot_catalog(&mut registry, &payload, ExchangeId::Binance)?;
             } else if product == InstrumentKind::Option {
                 let payload =
                     fetch_json("https://eapi.binance.com/eapi/v1/exchangeInfo", refresh).await?;
@@ -572,14 +577,7 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
                     format!("https://api.bitget.com/api/v3/market/instruments?category={category}");
                 let payload = fetch_json(&url, refresh).await?;
                 if product == InstrumentKind::Spot {
-                    for item in array_at(&payload, &["data"])? {
-                        add_spot_market(
-                            &mut registry,
-                            str_at(item, &["symbol"]),
-                            str_at(item, &["baseCoin"]),
-                            str_at(item, &["quoteCoin"]),
-                        )?;
-                    }
+                    add_spot_catalog(&mut registry, &payload, ExchangeId::Bitget)?;
                 } else {
                     add_bitget_markets(&mut registry, &payload, product)?;
                 }
@@ -588,18 +586,11 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
         ExchangeId::Bybit => {
             if product == InstrumentKind::Spot {
                 let payload = fetch_json(
-                    "https://api.bybit.com/v5/market/instruments-info?category=spot",
+                    "https://api.bybit.com/v5/market/instruments-info?category=spot&status=Trading",
                     refresh,
                 )
                 .await?;
-                for item in array_at(&payload, &["result", "list"])? {
-                    add_spot_market(
-                        &mut registry,
-                        str_at(item, &["symbol"]),
-                        str_at(item, &["baseCoin"]),
-                        str_at(item, &["quoteCoin"]),
-                    )?;
-                }
+                add_spot_catalog(&mut registry, &payload, ExchangeId::Bybit)?;
             } else if product == InstrumentKind::Option {
                 // Verified live 2026-08-07: `tickers?category=option`
                 // requires a `baseCoin` parameter (PARAMS_ERROR otherwise);
@@ -616,14 +607,7 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
             InstrumentKind::Spot => {
                 let payload =
                     fetch_json("https://api.gateio.ws/api/v4/spot/currency_pairs", refresh).await?;
-                for item in gateio_contracts(&payload)? {
-                    add_spot_market(
-                        &mut registry,
-                        str_at(item, &["id"]),
-                        str_at(item, &["base"]),
-                        str_at(item, &["quote"]),
-                    )?;
-                }
+                add_spot_catalog(&mut registry, &payload, ExchangeId::Gateio)?;
             }
             InstrumentKind::Perpetual => {
                 for settle in ["usdt", "btc"] {
@@ -737,6 +721,14 @@ fn add_binance_markets(
     product: InstrumentKind,
 ) -> Result<()> {
     for item in array_at(payload, &["symbols"])? {
+        let status = if item.get("contractStatus").is_some() {
+            "contractStatus"
+        } else {
+            "status"
+        };
+        if !catalog_status(item, status, &["TRADING"])? {
+            continue;
+        }
         let contract_type = required_str(item, "contractType")?;
         let item_product = if contract_type == "PERPETUAL" {
             InstrumentKind::Perpetual
@@ -771,6 +763,9 @@ fn add_bitget_markets(
     product: InstrumentKind,
 ) -> Result<()> {
     for item in array_at(payload, &["data"])? {
+        if !catalog_status(item, "status", &["online", "limit_open", "limit_close"])? {
+            continue;
+        }
         let contract_type = required_str(item, "type")?;
         let item_product = match contract_type {
             "perpetual" => InstrumentKind::Perpetual,
@@ -814,6 +809,7 @@ async fn fetch_bybit_category(
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("category", category);
+            query.append_pair("status", "Trading");
             query.append_pair("limit", "1000");
             if let Some(cursor) = &cursor {
                 query.append_pair("cursor", cursor);
@@ -930,6 +926,9 @@ fn add_bybit_page(
     product: InstrumentKind,
 ) -> Result<Option<String>> {
     for item in array_at(payload, &["result", "list"])? {
+        if !catalog_status(item, "status", &["Trading"])? {
+            continue;
+        }
         let contract_type = required_str(item, "contractType")?;
         let item_product = if contract_type.ends_with("Perpetual") {
             InstrumentKind::Perpetual
@@ -1232,6 +1231,66 @@ fn required_str<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
     str_at(value, &[field])
         .filter(|value| !value.is_empty())
         .ok_or_else(|| Error::MalformedData(format!("instrument is missing {field}")))
+}
+
+fn catalog_status(item: &Value, field: &str, eligible: &[&str]) -> Result<bool> {
+    match item.get(field) {
+        None => Ok(true), // Minimal sanitized references omit optional status.
+        Some(Value::String(status)) => Ok(eligible.contains(&status.as_str())),
+        Some(_) => Err(Error::MalformedData(format!(
+            "catalog {field} must be a string"
+        ))),
+    }
+}
+
+fn add_spot_catalog(
+    registry: &mut SymbolRegistry,
+    payload: &Value,
+    exchange: ExchangeId,
+) -> Result<()> {
+    let (rows, keys, field, eligible): (&[Value], [&str; 3], &str, &[&str]) = match exchange {
+        ExchangeId::Binance => (
+            array_at(payload, &["symbols"])?,
+            ["symbol", "baseAsset", "quoteAsset"],
+            "status",
+            &["TRADING"],
+        ),
+        ExchangeId::Bitget => (
+            array_at(payload, &["data"])?,
+            ["symbol", "baseCoin", "quoteCoin"],
+            "status",
+            &["online", "limit_open", "limit_close"],
+        ),
+        ExchangeId::Bybit => (
+            array_at(payload, &["result", "list"])?,
+            ["symbol", "baseCoin", "quoteCoin"],
+            "status",
+            &["Trading"],
+        ),
+        ExchangeId::Gateio => (
+            gateio_contracts(payload)?,
+            ["id", "base", "quote"],
+            "trade_status",
+            &["tradable", "buyable", "sellable"],
+        ),
+        _ => {
+            return Err(Error::UnsupportedExchange(format!(
+                "{exchange:?} spot catalog"
+            )));
+        }
+    };
+    for item in rows {
+        if !catalog_status(item, field, eligible)? {
+            continue;
+        }
+        add_spot_market(
+            registry,
+            str_at(item, &[keys[0]]),
+            str_at(item, &[keys[1]]),
+            str_at(item, &[keys[2]]),
+        )?;
+    }
+    Ok(())
 }
 
 fn add_spot_market(
@@ -1572,13 +1631,90 @@ mod tests {
     }
 
     #[test]
+    fn spot_catalog_eligibility_filters_unavailable_markets_without_guessing() {
+        for (exchange, payload) in [
+            (
+                ExchangeId::Binance,
+                json!({"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING"},{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","status":"HALT"}]}),
+            ),
+            (
+                ExchangeId::Bitget,
+                json!({"data":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"online"},{"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","status":"offline"}]}),
+            ),
+            (
+                ExchangeId::Bybit,
+                json!({"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"Trading"},{"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","status":"PendingOpen"}]}}),
+            ),
+            (
+                ExchangeId::Gateio,
+                json!([{"id":"BTC_USDT","base":"BTC","quote":"USDT","trade_status":"tradable"},{"id":"OLD_USDT","base":"OLD","quote":"USDT","trade_status":"untradable"}]),
+            ),
+        ] {
+            let mut registry = SymbolRegistry::default();
+            super::add_spot_catalog(&mut registry, &payload, exchange).unwrap();
+            assert_eq!(
+                registry
+                    .into_entries()
+                    .iter()
+                    .map(|(symbol, _)| symbol.as_str())
+                    .collect::<Vec<_>>(),
+                ["BTC-USDT"],
+                "{exchange:?}"
+            );
+        }
+        assert!(super::catalog_status(&json!({"status": 42}), "status", &["Trading"]).is_err());
+    }
+
+    #[test]
+    fn derivative_catalogs_exclude_inactive_and_pending_instruments() {
+        for (coin_margin, field) in [(false, "status"), (true, "contractStatus")] {
+            let mut rows = json!({"symbols":[
+                {"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","contractType":"PERPETUAL"},
+                {"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","contractType":"PERPETUAL"}
+            ]});
+            rows["symbols"][0][field] = json!("TRADING");
+            rows["symbols"][1][field] = json!("SETTLING");
+            if coin_margin {
+                rows["symbols"][0]["status"] = json!("SETTLING"); // contractStatus is authoritative.
+            }
+            let mut registry = SymbolRegistry::default();
+            add_binance_markets(&mut registry, &rows, InstrumentKind::Perpetual).unwrap();
+            assert_eq!(registry.into_entries().len(), 1);
+        }
+        let mut registry = SymbolRegistry::default();
+        add_bitget_markets(&mut registry, &json!({"data":[
+            {"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","type":"perpetual","status":"limit_open"},
+            {"symbol":"ETHUSDT","baseCoin":"ETH","quoteCoin":"USDT","type":"perpetual","status":"limit_close"},
+            {"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","type":"perpetual","status":"restrictedAPI"}
+        ]}), InstrumentKind::Perpetual).unwrap();
+        assert_eq!(registry.into_entries().len(), 2);
+        let mut registry = SymbolRegistry::default();
+        let cursor = add_bybit_page(&mut registry, &json!({"result":{"list":[
+            {"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"Trading"},
+            {"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"PendingOpen"}
+        ],"nextPageCursor":"next"}}), InstrumentKind::Perpetual).unwrap();
+        assert_eq!(cursor.as_deref(), Some("next"));
+        assert_eq!(
+            registry.into_entries()[0].0,
+            Symbol::perpetual("BTC", "USDT")
+        );
+    }
+
+    #[test]
     fn okx_spot_catalog_skips_preopen_identity_without_guessing() {
         let mut registry = super::SymbolRegistry::default();
         super::add_okx_spot_markets(&mut registry, &json!({"data": [
             {"instId":"XBB-USDT","instType":"SPOT","state":"preopen","baseCcy":"","quoteCcy":""},
             {"instId":"BTC-USDT","instType":"SPOT","state":"live","baseCcy":"BTC","quoteCcy":"USDT"}
         ]})).unwrap();
-        assert_eq!(registry.into_symbols(), [Symbol::spot("BTC", "USDT")]);
+        assert_eq!(
+            registry
+                .into_entries()
+                .into_iter()
+                .map(|(symbol, _)| symbol)
+                .collect::<Vec<_>>(),
+            [Symbol::spot("BTC", "USDT")]
+        );
         assert!(
             super::add_okx_spot_markets(
                 &mut super::SymbolRegistry::default(),

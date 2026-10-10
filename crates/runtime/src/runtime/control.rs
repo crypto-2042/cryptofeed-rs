@@ -95,6 +95,7 @@ struct Resources {
 enum FeedCommand {
     Remove,
     Replace {
+        expected: Option<FeedIdentity>,
         feed: Box<ExchangeFeed>,
         reply: Reply<FeedIdentity>,
     },
@@ -407,7 +408,11 @@ async fn worker(
             }
             command = commands.recv() => {
                 match command {
-                    Some(FeedCommand::Replace { feed, reply }) => {
+                    Some(FeedCommand::Replace { expected, feed, reply }) => {
+                        if expected.is_some_and(|expected| info.lock().expect("feed info lock").identity != expected) {
+                            let _ = reply.send(Err(Error::InvalidConfiguration("feed configuration identity changed".to_owned())));
+                            continue;
+                        }
                         if preparing.is_some() || prepared.is_some() || removing {
                             let _ = reply.send(Err(Error::InvalidConfiguration("another feed update is in progress".to_owned())));
                         } else {
@@ -612,7 +617,7 @@ async fn run_with(
                 match command {
                     Some(Command::Add { identity, feed, reply }) => manager.launch(*feed, identity, Some(reply)),
                     Some(Command::Remove { id, reply }) => manager.remove(id, reply),
-                    Some(Command::Replace { id, feed, reply }) => manager.route(id, FeedCommand::Replace { feed, reply }),
+                    Some(Command::Replace { id, expected, feed, reply }) => manager.route(id, FeedCommand::Replace { expected, feed, reply }),
                     Some(Command::Shutdown { reply }) => { shutdown_reply = Some(reply); break; }
                     Some(Command::State { id, reply }) => {
                         let result = manager.entries.get(&id)
@@ -658,7 +663,7 @@ async fn run_with(
 }
 
 #[cfg(all(test, feature = "trade"))]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::prelude::*;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -716,6 +721,10 @@ mod tests {
             if !feed.channels.contains(&Channel::Trade) {
                 return Err(Error::Protocol("fake book failure".to_owned()));
             }
+            if feed.symbols[0].as_str() == "SLOW-USDT" {
+                emit(&feed);
+                std::future::pending::<()>().await;
+            }
             if feed.symbols[0].as_str() == "STUCK-USDT" {
                 let _flag = DropFlag;
                 emit(&feed);
@@ -733,7 +742,7 @@ mod tests {
         }
         .boxed()
     }
-    type TestRuntime = (
+    pub(crate) type TestRuntime = (
         RuntimeControl,
         broadcast::Receiver<FeedEnvelope>,
         broadcast::Receiver<FeedStatus>,
@@ -741,7 +750,7 @@ mod tests {
         watch::Sender<bool>,
     );
 
-    fn start(mut handler: FeedHandler) -> TestRuntime {
+    pub(crate) fn start(mut handler: FeedHandler) -> TestRuntime {
         let control = handler.control_handle();
         let events = handler.subscribe_identified();
         let statuses = handler.subscribe_status();

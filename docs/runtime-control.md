@@ -138,6 +138,9 @@ before removal acknowledgement. Existing protocol/session tests remain enabled.
 The public [managed smoke report](reports/live-smoke-managed-2026-10-10.md)
 records one real OKX replacement and clean removal/shutdown.
 
-Next lifecycle work includes opt-in listing reconciliation. Multi-handler delivery, closed-only candles, recoverable L2
+Opt-in [listing reconciliation](discovery.md) now uses
+`replace_feed_if_current(expected_identity, candidate)` to reject stale owners
+before preparing a candidate. Other replacement semantics remain the same.
+Multi-handler delivery, closed-only candles, recoverable L2
 consumption, public REST/history and ecosystem tooling remain separate unfinished
 alignment work. This control increment is not completion of the overall goal.

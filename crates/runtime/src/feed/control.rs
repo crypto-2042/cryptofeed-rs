@@ -122,6 +122,7 @@ pub(crate) enum Command {
     },
     Replace {
         id: FeedId,
+        expected: Option<FeedIdentity>,
         feed: Box<ExchangeFeed>,
         reply: Reply<FeedIdentity>,
     },
@@ -174,11 +175,27 @@ impl RuntimeControl {
     pub async fn replace_feed(&self, id: FeedId, feed: ExchangeFeed) -> Result<FeedIdentity> {
         self.request(|reply| Command::Replace {
             id,
+            expected: None,
             feed: Box::new(feed),
             reply,
         })
         .await
     }
+    /// Replaces only if the committed configuration identity still matches.
+    pub async fn replace_feed_if_current(
+        &self,
+        expected: FeedIdentity,
+        feed: ExchangeFeed,
+    ) -> Result<FeedIdentity> {
+        self.request(|reply| Command::Replace {
+            id: expected.id,
+            expected: Some(expected),
+            feed: Box::new(feed),
+            reply,
+        })
+        .await
+    }
+
     /// Lists registered logical feeds, including preparing or failed workers.
     pub async fn feeds(&self) -> Result<Vec<FeedInfo>> {
         self.request(|reply| Command::List { reply }).await

@@ -293,3 +293,14 @@ queries after lifecycle lag and initial failure repair. Public parity covers
 Binance explicit endpoint/topic planning. See [readiness](readiness.md) for
 criteria and separate live evidence; no passing test equates handshake or any
 market event with complete subscription confirmation.
+
+## Directory reconciliation targets
+
+`cargo test -p cryptofeed-rs discovery::tests` drives the real managed command
+actor with scripted directory snapshots and private consumer doubles. It covers
+additions/removals/native aliases, unchanged-cycle stability, empty selections,
+HTTP failure/backoff/recovery, stop/drop, accepted replacement completion and
+manual-owner protection. Catalog unit tests assert mixed active/inactive rows
+alongside sanitized HTTP references. No default test requires network access.
+`discovery_public` separately observes a real periodic refresh and cleanup; it
+cannot prove a new listing occurred during its observation window.

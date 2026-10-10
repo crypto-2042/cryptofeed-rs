@@ -7,3 +7,5 @@ https://api.gateio.ws/api/v4/futures/usdt/order_book?contract=BTC_USDT&limit=100
 https://api.gateio.ws/api/v4/futures/btc/order_book?contract=BTC_USD&limit=100&with_id=true -> 1710000001.700000: {"id":250,"current":1710000001.7,"update":1710000001.65,"bids":[{"p":"64998.00","s":"4"}],"asks":[{"p":"65001.00","s":"5"}]}
 https://api.gateio.ws/api/v4/delivery/usdt/order_book?contract=BTC_USDT_20260925&limit=100&with_id=true -> 1710000001.800000: {"id":300,"current":1710000001.8,"update":1710000001.75,"bids":[{"p":"65010.00","s":"6"}],"asks":[{"p":"65020.00","s":"7"}]}
 configuration: {"spot":{"l2_book":["BTC-USDT"],"ticker":["BTC-USDT"],"trades":["BTC-USDT"],"candles":["BTC-USDT"]},"usdt_perp":{"l2_book":["BTC-USDT-PERP"]},"btc_perp":{"l2_book":["BTC-USD-PERP"]},"usdt_delivery":{"l2_book":["BTC-USDT-20260925"]}}
+
+https://api.gateio.ws/api/v4/spot/currency_pairs -> 1791580000.000000: [{"id":"BTC_USDT","base":"BTC","quote":"USDT","trade_status":"tradable"},{"id":"OLD_USDT","base":"OLD","quote":"USDT","trade_status":"untradable"}]

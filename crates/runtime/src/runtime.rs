@@ -1,6 +1,8 @@
 mod budget;
 pub mod connection;
 mod control;
+#[cfg(all(test, feature = "trade"))]
+pub(crate) use control::tests::start as test_managed_runtime;
 pub(crate) mod planning;
 pub(crate) mod readiness;
 #[cfg(feature = "orderbook")]

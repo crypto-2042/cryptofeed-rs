@@ -386,3 +386,25 @@ feature boundaries.
 - Final verification: 459 workspace tests, strict all-target Clippy, rustdoc,
   Rust 1.85, all nine feature checks/tests, no-default test compilation,
   formatting and documentation links passed. Overall alignment remains active.
+
+
+## Usage alignment: automatic directory reconciliation — 2026-10-10
+
+- Added opt-in DiscoveryFeed/Handle with product-qualified per-channel patterns,
+  forced sequential refresh, SDK one-minute minimum and exponential backoff.
+  Native mappings come from the exact catalog snapshot; unchanged healthy
+  selections do not restart. Directory success remains distinct from readiness.
+- Listing/removal/native alias changes replace the managed configuration;
+  empty total selection/failures preserve the last nonempty feed. Worker-side
+  compare-and-replace protects concurrent manual changes. Stop/drop ends future
+  polling; explicit stop waits for accepted replacement and retains the feed.
+- Current official catalog statuses filter unavailable Binance/Bitget/Bybit/Gate
+  entries with matching sanitized references and inline regressions. Existing
+  OKX live and Gate derivative delisting rules remain intact.
+- Public OKX smoke observed two refreshes, no replacement, generation 1 Ready,
+  27 events, explicit stop/removal and process exit 0. New listing/removal paths
+  were scripted offline, not falsely attributed to a real listing event.
+- Final verification: 471 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation and
+  formatting passed. Consumer semantics/recovery, needed runtime policy,
+  market metadata and optional ecosystem work remain under the active goal.

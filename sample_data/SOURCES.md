@@ -120,3 +120,27 @@ The Bybit full-session double asserts acknowledgement before L2 initialization
 using the appended snapshot shape. Readiness never treats handshake, arbitrary
 market data, or a wrong request ID as complete subscription evidence. Manual
 service results are recorded separately in the dated readiness report.
+
+## 2026-10-10 catalog eligibility
+
+Appended HTTP references exercise active/inactive statuses in inline markets
+unit tests, using substituted symbols and timestamps. They are not live listings:
+
+- Binance [Spot exchangeInfo](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md),
+  [USD-M market data](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data),
+  and [COIN-M exchange information](https://developers.binance.com/docs/derivatives/coin-margined-futures/market-data/rest-api/Exchange-Information):
+  `TRADING` versus inactive statuses. The COIN-M reference intentionally adds a
+  contradictory legacy `status` field to test that `contractStatus` takes precedence;
+  this extra field is a synthetic compatibility guard, not an official response claim.
+- [Bitget v3 instruments](https://www.bitget.com/docs/catalog/market-market-data/market-instruments):
+  `online`, `limit_open`, `limit_close`, `offline`, and `restrictedAPI`.
+- [Bybit instruments](https://bybit-exchange.github.io/docs/v5/market/instrument):
+  `Trading` versus `PendingOpen`, with cursor retention. Requests explicitly
+  select Trading; mixed-response references are defensive filtering tests.
+- [Gate spot pairs](https://www.gate.com/docs/developers/apiv4/en/spot/):
+  `tradable` versus `untradable`; buyable/sellable remain public-data eligible.
+
+The discovery engine uses scripted MarketCatalog snapshots to exercise additions,
+removals and native aliases. These scripts are SDK policy tests, not exchange
+wire fixtures. Existing OKX live/preopen and Gate derivative delisting references
+remain applicable.

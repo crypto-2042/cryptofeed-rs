@@ -339,3 +339,22 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Initial invalid configured IDs stay available for repair/query in managed mode;
   rejected dynamic adds are not committed. Listing reconciliation and later
   consumer/ecosystem phases remain active work.
+
+
+## Automatic directory reconciliation
+
+- DiscoveryFeed is opt-in and owns one managed feed identity. Use a symbol-free
+  channel template and product-qualified per-channel patterns; default five
+  minutes, SDK minimum one minute. Force refresh each sequential cycle.
+- Initial patterns are strict; later disappeared patterns/channels may be omitted.
+  Total empty selection and fetch/validation failures preserve the last nonempty
+  feed and back off. Native mappings must come from the exact catalog snapshot.
+- Replace only through compare-and-replace inside the feed worker. Manual
+  replacement/removal terminates discovery ownership; state-query-then-replace
+  alone races. Unchanged healthy selections avoid restarts.
+- Stop/drop cancels future polling; accepted replacements settle. Explicit stop
+  returns the final owned identity and leaves the feed registered. Current means
+  directory success; query runtime readiness independently. No OI polling fallback.
+- Catalog eligibility is public-data policy, not order permission. Preserve
+  Bitget limit_open/limit_close and Gate buyable/sellable; exclude explicit
+  unavailable statuses. Precision/full metadata and phases 4–5 remain pending.

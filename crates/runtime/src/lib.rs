@@ -20,6 +20,7 @@
 )]
 
 pub mod catalog;
+pub mod discovery;
 pub mod exchange;
 pub mod feed;
 pub mod handler;
@@ -36,3 +37,5 @@ pub use crate::feed::control::{
     ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot, FeedState,
     RuntimeControl,
 };
+
+pub use discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};

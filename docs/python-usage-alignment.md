@@ -3,7 +3,7 @@
 Status: active improvement plan, updated 2026-10-10 against the sibling Python
 checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing and per-channel subscriptions
 are implemented; conservative connection sizing and paced sends are now implemented.
-Phase 3 core runtime commands/identity and retained readiness are implemented; discovery,
+Phase 3 core runtime commands/identity, retained readiness and opt-in directory reconciliation are implemented;
 phases 4–5 and the remaining design work below remain unfinished. Exchange count and instrument-type coverage are
 excluded. Authenticated feeds and trading remain outside the 0.1 scope.
 
@@ -22,7 +22,7 @@ local checkout, not claims about every upstream version.
 
 | Workflow | Python evidence | Rust assessment / treatment |
 | --- | --- | --- |
-| Symbol discovery | `exchange.py`: `symbols`, `info`, `symbol_mapping(refresh=...)` | `MarketCatalog::load` exposes sorted symbols; `refresh` bypasses cached responses, including pagination. Public market metadata remains pending. |
+| Symbol discovery | `exchange.py`: `symbols`, `info`, `symbol_mapping(refresh=...)` | `MarketCatalog::load` exposes sorted symbols; `refresh` bypasses cached responses, including pagination. Exact native lookup is available; precision/full market metadata remains pending. |
 | Pattern selection | `feed.py` resolves each supplied name by exact mapping; no general glob expansion found | Phase 1 adds explicit catalog `select` with `*` and `?` as a convenience extension, not Python parity. |
 | Batch configuration | `feed.py`: `symbols` plus `channels` | Multi-symbol feeds already work; phase 1 adds bulk `.symbols` and typed `.instruments`. |
 | Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Implemented `.subscription` / `.subscription_instruments`; equal symbol sets share a concrete group. Distinct sets may use more connections until packing is optimized. |
@@ -30,7 +30,7 @@ local checkout, not claims about every upstream version.
 | Embedding and shutdown | `feedhandler.py`: `run(start_loop=False, install_signal_handlers=False)`, `stop_async` | Existing `runtime::run_with_shutdown` supports a caller-owned watch signal. Phase 1 adds a `FeedHandler` facade; it installs no Ctrl-C handler. |
 | Runtime additions | `feedhandler.py`: `add_feed` starts a new feed when running; `examples/demo_loop.py` | Implemented opt-in RuntimeControl; retained handles can add feeds after startup. Legacy strict startup remains available. |
 | Updating an existing subscription | No general public update/unsubscribe API found in the inspected Python core | Implemented controlled remove/replace with candidate validation and old-task drain. In-place exchange WS updates remain a separate optimization. |
-| Automatically following listings | Python catalog refresh is explicit; no core periodic discover-and-resubscribe loop found | Neither implementation guarantees this. Optional discovery reconciliation comes after runtime controls and force refresh. |
+| Automatically following listings | Python catalog refresh is explicit; no core periodic discover-and-resubscribe loop found | Rust now offers opt-in DiscoveryFeed with forced refresh, per-channel patterns, replacement, backoff and ownership guards; this extends the inspected Python core. |
 | Callback fan-out | `feed.py`: callback lists; `callback.py`: async/sync callback wrappers | Rust registers one handler per category. Broadcast offers fan-out with loss on lag; multiple reliable handlers need separate semantics. Phase 4. |
 | Candle completion | `feed.py`: `candle_closed_only`; Binance applies the flag | Rust exposes `Candle.closed` but lacks a builder-level closed-only filter. Phase 4, with an explicit policy for unknown completion. |
 | Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Rust has normalized snapshots/deltas and exchange sync, but a lagged broadcast consumer cannot request a synchronized recovery snapshot. Phase 4 prioritizes recovery and documents native-unit differences. |
@@ -112,7 +112,7 @@ reads during queued sends. Full-session doubles still cover all five exchanges.
 Future policy changes must retain these checks and refresh-failure regressions. Each exchange protocol change requires sourced fixtures and official
 verification; limits must not be inferred from old Python constants.
 
-## Phase 3 — runtime control and symbol updates (in progress)
+## Phase 3 — runtime control and symbol updates (implemented core)
 
 Core add/remove/replace/list/shutdown commands, independent initial startup,
 IDs/configuration generations, scoped events and lifecycle transitions are
@@ -123,7 +123,7 @@ trade on the same feed ID, then removal and exit 0. Retained state/readiness now
 all connections, synchronized L2 counts and reconnect epochs. The follow-up
 public smoke reached Ready on all five spot Trade/L2 feeds, including Bybit
 on its second attempt; the earlier TLS failure remains documented. Periodic
-listing reconciliation remains unfinished. See [readiness semantics](readiness.md).
+listing reconciliation is now opt-in through [DiscoveryFeed](discovery.md). See [readiness semantics](readiness.md).
 
 
 - Keep `run()` compatible and add a caller-retained control handle with stable
@@ -137,9 +137,10 @@ listing reconciliation remains unfinished. See [readiness semantics](readiness.m
   that failure explicitly. Readiness is exposed through scoped status events and retained snapshots.
 - Define when removal completes and how already queued events are identified;
   consumers need feed/generation identity to reject events from an old session.
-- Only then add opt-in periodic catalog reconciliation with minimum intervals,
-  backoff, listing/removal policy, and bounded bootstrap concurrency. No polling
-  by default and no Binance OI polling fallback.
+- Implemented opt-in periodic catalog reconciliation with a one-minute minimum,
+  exponential backoff, explicit listing/removal/empty-selection policy, and shared
+  bootstrap budgets. Unchanged directories avoid restarts; compare-and-replace
+  ownership guards protect manual updates. No polling by default or Binance OI fallback.
 
 Acceptance: doubles cover commands during hydration/retry, invalid replacement,
 concurrent shutdown, pending snapshots, stale generations, state reset, and

@@ -559,3 +559,19 @@ Classic Binance URL subscriptions remain unchanged. [The readiness guide](readin
 records exact primary sources, timeout/correlation rules and local-book criteria.
 Synthetic control references and inline assertions were updated together;
 manual observations remain separate from protocol fixtures.
+
+## Catalog eligibility review — 2026-10-10
+
+Directory reconciliation uses the current official status fields, rather than
+Python-era endpoints or order-permission assumptions. Binance Spot/USD-M
+`status` and COIN-M `contractStatus` retain `TRADING`; Bybit queries explicitly
+request `status=Trading` and filter pending/non-Trading rows. Bitget v3 retains
+`online/limit_open/limit_close` for public data and excludes unavailable/restricted
+API states. Gate spot retains `tradable/buyable/sellable`, excluding `untradable`.
+Existing OKX `live` and Gate derivative delisting filters are unchanged. Missing
+optional status in minimal references retains compatibility; explicit invalid
+status types fail. Full market metadata and order eligibility are not implied.
+Official sources and synthetic mixed-status references are recorded in
+[fixture provenance](../sample_data/SOURCES.md#2026-10-10-catalog-eligibility),
+with matching inline markets regressions. This review changes catalog filtering,
+not market-data wire normalization or enabled coverage.

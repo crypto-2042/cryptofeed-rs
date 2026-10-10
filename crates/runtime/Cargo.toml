@@ -121,5 +121,9 @@ required-features = ["trade"]
 name = "readiness_public"
 required-features = ["trade", "orderbook"]
 
+[[example]]
+name = "discovery_public"
+required-features = ["trade"]
+
 [package.metadata.docs.rs]
 all-features = true

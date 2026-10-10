@@ -27,6 +27,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Readiness and retained state](readiness.md): confirmation evidence, reconnect
   epochs, book synchronization, diagnostics and authoritative queries.
 
+- [Automatic symbol reconciliation](discovery.md): opt-in patterns, listing/removal
+  policy, refresh backoff, ownership and stopping.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are
@@ -34,6 +37,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-10 directory reconciliation](reports/live-smoke-discovery-2026-10-10.md):
+  real OKX periodic directory refresh without replacement, data and cleanup.
 - [2026-10-10 readiness](reports/live-smoke-readiness-2026-10-10.md):
   public Trade/L2 confirmations and local book readiness on all five exchanges.
 - [2026-10-10 managed runtime](reports/live-smoke-managed-2026-10-10.md):

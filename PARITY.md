@@ -1,6 +1,6 @@
 # Python Baseline vs Rust Parity Checklist
 
-Last updated: 2026-10-08
+Last updated: 2026-10-10
 
 ## Goal
 
@@ -37,7 +37,10 @@ Phase 1 exposes product-qualified catalog discovery, explicit `*`/`?` selection,
 bulk symbol configuration, and the existing watch-signal shutdown via
 `FeedHandler`. Deterministic catalog tests cover ordering, overlaps, unmatched
 patterns, unsupported products, and typed configuration. Exchange/channel
-capabilities are unchanged. Remaining workflow gaps and acceptance criteria are
+capabilities are unchanged. Managed runtime controls/readiness and opt-in
+[automatic directory reconciliation](docs/discovery.md) are implemented.
+Scripted regressions cover listings/removals, native-name changes, empty/failing
+refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
 tracked in [the usage alignment plan](docs/python-usage-alignment.md).
 
 ## Capability Matrix

@@ -42,3 +42,5 @@ pub use crate::feed::control::{
     ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot, FeedState,
     RuntimeControl,
 };
+
+pub use crate::discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};
