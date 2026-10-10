@@ -384,3 +384,22 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Manual four-product public smoke: first and JSON resume each returned 10 bars
   over 2 pages, no repeated open times, all BudgetReached with cursors; exit 0.
   See [evidence](docs/reports/live-smoke-candle-history-2026-10-10.md).
+
+## Five-venue candle history — 2026-10-10
+
+- Extended current public candle-history queries to Bitget v3, OKX v5 and Gate
+  v4 Spot/perpetual. Gate delivery has no documented candle endpoint and remains
+  explicitly rejected, including REST capability reporting.
+- Bitget aligns native end boundaries, limits requests to 90 days and accepts
+  exactly one documented earlier overlap, counted against raw scan limits.
+  Gate sends the first legal bar open, second-valued from/to, no conflicting
+  limit; Spot base volume/completion and perpetual contracts stay distinct.
+- OKX calendar months/quarters use UTC+8, native confirm is preserved; Gate 30d
+  is a calendar month. Gate perpetual and Bitget finality stay unknown.
+- Offline regressions cover all new row families and JSON continuation, native
+  request routing/units, 90-day caps, UTC+8 quarters, completion/volume shapes,
+  Gate empty subsecond windows/delivery rejection and Bitget overlap continuity.
+- Final ten-product Spot/perpetual public first/resume smoke passed: 10+10 bars,
+  2+2 pages per product, no duplicate opens, BudgetReached/next=true; 40 pages
+  and 200 per-product records, exit 0. Earlier Gate/Bitget failures remain in
+  the [dated report](docs/reports/live-smoke-candle-history-2026-10-10.md).

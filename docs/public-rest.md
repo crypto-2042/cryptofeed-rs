@@ -5,8 +5,9 @@ queries for the five active exchanges' existing Spot/Perpetual/Futures profiles.
 It is independent of FeedHandler and creates no subscription, polling task,
 callback or recovery anchor. Ticker means the SDK's best bid/ask model, not all
 native 24-hour statistics. Bounded [funding history](funding-history.md) and
-[Binance/Bybit candle history](candle-history.md) are also implemented; other
-candle venues and trade history remain unfinished. `supported_channels()` reports
+[five-venue candle history](candle-history.md) are also implemented. Trade history
+remains unfinished; Gate delivery candles remain unsupported.
+`supported_channels()` reports
 implemented REST methods in the current Cargo build, separately from
 MarketCatalog's WS capabilities.
 

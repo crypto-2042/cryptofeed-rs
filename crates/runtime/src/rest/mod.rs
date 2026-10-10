@@ -97,10 +97,8 @@ impl PublicRestClient {
         .filter(|channel| self.catalog.supported_channels().contains(channel))
         .filter(|channel| {
             *channel != Channel::Candles
-                || matches!(
-                    self.catalog.exchange(),
-                    ExchangeId::Binance | ExchangeId::Bybit
-                )
+                || self.catalog.exchange() != ExchangeId::Gateio
+                || self.catalog.product() != InstrumentKind::Futures
         })
         .collect()
     }
@@ -194,6 +192,34 @@ mod tests {
             channels.contains(&Channel::Candles),
             cfg!(feature = "candles")
         );
+    }
+    #[test]
+    fn candle_rest_capabilities_exclude_undocumented_gate_delivery() {
+        for exchange in [
+            ExchangeId::Binance,
+            ExchangeId::Bitget,
+            ExchangeId::Bybit,
+            ExchangeId::Okx,
+            ExchangeId::Gateio,
+        ] {
+            let catalog = MarketCatalog::from_registry(
+                exchange,
+                InstrumentKind::Spot,
+                crate::markets::SymbolRegistry::default(),
+            );
+            let client = PublicRestClient::from_catalog(catalog, TransportConfig::direct());
+            assert_eq!(
+                client.supported_channels().contains(&Channel::Candles),
+                cfg!(feature = "candles")
+            );
+        }
+        let catalog = MarketCatalog::from_registry(
+            ExchangeId::Gateio,
+            InstrumentKind::Futures,
+            crate::markets::SymbolRegistry::default(),
+        );
+        let client = PublicRestClient::from_catalog(catalog, TransportConfig::direct());
+        assert!(!client.supported_channels().contains(&Channel::Candles));
     }
     #[cfg(all(feature = "ticker", feature = "orderbook"))]
     #[tokio::test]

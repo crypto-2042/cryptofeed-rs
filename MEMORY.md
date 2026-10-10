@@ -561,3 +561,22 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - REST scheduled candle end is not finality: both venues retain closed=None.
   Native volume units and Binance count/inclusive end are preserved. Bybit end
   is next UTC interval/calendar boundary minus 1ms; exchange_ts is open time.
+
+## Remaining candle-history venues
+
+- Bitget/OKX/Gate Spot+perpetual now join Binance/Bybit. Gate delivery REST candles
+  are undocumented and rejected, despite its WS capability.
+- Bitget v3 history has 90-day ranges and aligned end bounds. Exactly one earlier
+  overlap is allowed/counts against scan budget, then filtered for next window;
+  never relax all-venue boundary/duplicate rules.
+- Gate from rounds down to a candle open; send first legal open, omit limit with
+  from/to, use seconds. Spot eight-field rows use base volume plus close flag;
+  perpetual v uses contracts, no completion flag. 30d is calendar, not fixed days.
+- OKX unsuffixed monthly/quarterly boundaries use UTC+8 and native confirm.
+
+Gate weekly boundary verification: current Spot `7d` bars open Monday (epoch
+remainder four days), while perpetual `7d` bars are epoch-aligned, as documented
+for futures. Request rounding uses the product-specific anchor. Public September
+2026 probes confirmed both grids and UTC-midnight daily opens. Monthly Spot and
+perpetual `30d` probes each returned the September 1 UTC open. These observations
+are separate from the ten-product 1m smoke; offline tests assert both week grids.

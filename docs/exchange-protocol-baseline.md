@@ -639,3 +639,28 @@ an explicit completion flag. Bybit inverse volume is quote currency and Binance
 COIN-M volume is contracts. CM start/end ranges cannot exceed 200 days. Rust uses
 bounded backward windows and a common 100-row cap, not a copied Python API path.
 Other venues' candle-history APIs are still pending implementation.
+
+## Remaining candle-history APIs — 2026-10-10
+
+Verified current primary sources linked in [candle history](candle-history.md).
+Bitget uses v3 history-candles, maximum 100 rows/90-day request range and seven
+fields; its documented extra earlier interval was observed even with aligned
+start when the newest bar was unavailable. EndTime at a cycle boundary avoids
+shifting one older interval compared with boundary-minus-1ms.
+
+OKX history-candles accepts after (earlier) and before (newer), 300 rows maximum;
+nine-field rows carry confirm. Unsuffixed 6H/12H/day/week/month/quarter bars open
+in UTC+8. Gate Spot/perpetual range parameters conflict with limit and use seconds.
+Observed nonaligned from returned six 1m bars for a five-minute span; the first
+legal aligned open returned five. Current Spot rows have base volume and a close
+flag (eight fields); the seven-field example lacks base quantity and is rejected.
+Perpetual t accepts exact numeric seconds, v is contracts and completion is absent.
+Gate documentation calls 30d a calendar month. The delivery reference documents
+contracts/books/trades, not a candle endpoint; Rust does not invent one.
+
+Gate weekly boundary verification: current Spot `7d` bars open Monday (epoch
+remainder four days), while perpetual `7d` bars are epoch-aligned, as documented
+for futures. Request rounding uses the product-specific anchor. Public September
+2026 probes confirmed both grids and UTC-midnight daily opens. Monthly Spot and
+perpetual `30d` probes each returned the September 1 UTC open. These observations
+are separate from the ten-product 1m smoke; offline tests assert both week grids.

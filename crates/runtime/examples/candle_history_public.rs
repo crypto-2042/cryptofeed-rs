@@ -27,7 +27,10 @@ async fn observe(
     }
     let mut seen = std::collections::HashSet::new();
     for record in &first.records {
-        if record.closed.is_some()
+        if (matches!(
+            exchange,
+            ExchangeId::Binance | ExchangeId::Bybit | ExchangeId::Bitget
+        ) && record.closed.is_some())
             || record.start * 1000.0 < start_ms as f64
             || record.start * 1000.0 >= end_ms as f64
             || record.symbol != symbol
@@ -48,7 +51,10 @@ async fn observe(
             next.next.is_some()
         );
         for record in &next.records {
-            if record.closed.is_some()
+            if (matches!(
+                exchange,
+                ExchangeId::Binance | ExchangeId::Bybit | ExchangeId::Bitget
+            ) && record.closed.is_some())
                 || record.start * 1000.0 < start_ms as f64
                 || record.start * 1000.0 >= end_ms as f64
                 || record.symbol != symbol
@@ -62,13 +68,20 @@ async fn observe(
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let end_ms = std::time::SystemTime::now()
+    let now_ms: u64 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis()
         .try_into()?;
+    let end_ms = now_ms / 60_000 * 60_000 - 60_000;
     let start_ms = end_ms - 60 * 60 * 1000;
     let mut failures = Vec::new();
-    for exchange in [ExchangeId::Binance, ExchangeId::Bybit] {
+    for exchange in [
+        ExchangeId::Binance,
+        ExchangeId::Bybit,
+        ExchangeId::Bitget,
+        ExchangeId::Okx,
+        ExchangeId::Gateio,
+    ] {
         for product in [InstrumentKind::Spot, InstrumentKind::Perpetual] {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(90),

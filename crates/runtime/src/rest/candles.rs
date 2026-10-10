@@ -1,7 +1,7 @@
 //! Bounded candle history. Time windows advance even across empty source ranges.
 use super::{adapter, received_time};
 use crate::market_info::MarketInfo;
-use chrono::{Datelike, Months, TimeZone, Utc};
+use chrono::{Datelike, FixedOffset, Months, TimeZone, Utc};
 use cryptofeed_candles::Candle;
 use cryptofeed_core::{
     error::{Error, Result},
@@ -31,7 +31,9 @@ impl CandleHistoryQuery {
             ));
         }
         let interval = interval.into();
-        if crate::exchange::binance::adapter::candle_interval_wire(&interval).is_none() {
+        if crate::exchange::binance::adapter::candle_interval_wire(&interval).is_none()
+            && !matches!(interval.as_str(), "10s" | "3M")
+        {
             return Err(Error::InvalidConfiguration(
                 "invalid candle history interval".into(),
             ));
@@ -105,9 +107,24 @@ fn millis(value: &Value) -> Result<u64> {
         .filter(|time| *time <= i64::MAX as u64)
         .ok_or_else(invalid)
 }
+fn gate_millis(value: &Value) -> Result<u64> {
+    let time = adapter::decimal(value)?
+        .checked_mul(rust_decimal::Decimal::from(1000))
+        .ok_or_else(invalid)?;
+    if !time.fract().is_zero() {
+        return Err(invalid());
+    }
+    time.normalize()
+        .to_string()
+        .parse::<u64>()
+        .ok()
+        .filter(|time| *time <= i64::MAX as u64)
+        .ok_or_else(invalid)
+}
 fn duration(interval: &str) -> Result<u64> {
     let (number, unit) = interval.split_at(interval.len() - 1);
     let scale = match unit {
+        "s" => 1_000,
         "m" => 60_000,
         "h" => 3_600_000,
         "d" => 86_400_000,
@@ -123,29 +140,77 @@ fn duration(interval: &str) -> Result<u64> {
 fn date(time: u64) -> Result<chrono::DateTime<Utc>> {
     chrono::DateTime::from_timestamp_millis(time as i64).ok_or_else(invalid)
 }
-fn month_end(start: u64) -> Result<u64> {
+fn month_offset(info: &MarketInfo) -> FixedOffset {
+    FixedOffset::east_opt(if info.exchange == ExchangeId::Okx {
+        8 * 3600
+    } else {
+        0
+    })
+    .expect("static calendar offset")
+}
+fn months(interval: &str) -> u32 {
+    if interval == "3M" { 3 } else { 1 }
+}
+fn month_end(info: &MarketInfo, interval: &str, start: u64) -> Result<u64> {
     date(start)?
-        .checked_add_months(Months::new(1))
+        .with_timezone(&month_offset(info))
+        .checked_add_months(Months::new(months(interval)))
         .and_then(|end| u64::try_from(end.timestamp_millis()).ok())
         .ok_or_else(invalid)
 }
-fn window_start(q: &CandleHistoryQuery, before: u64) -> Result<u64> {
-    let lower = if q.interval == "1M" {
-        let last = date(before - 1)?;
-        let first = Utc
-            .with_ymd_and_hms(last.year(), last.month(), 1, 0, 0, 0)
+fn window_start(info: &MarketInfo, q: &CandleHistoryQuery, before: u64) -> Result<u64> {
+    let lower = if q.interval.ends_with('M') {
+        let offset = month_offset(info);
+        let last = date(before - 1)?.with_timezone(&offset);
+        let step = months(&q.interval);
+        let month = (last.month0() / step) * step + 1;
+        let first = offset
+            .with_ymd_and_hms(last.year(), month, 1, 0, 0, 0)
             .single()
             .ok_or_else(invalid)?;
         first
-            .checked_sub_months(Months::new(u32::from(q.page_size - 1)))
+            .checked_sub_months(Months::new(u32::from(q.page_size - 1) * step))
             .map_or(0, |date| date.timestamp_millis().max(0) as u64)
     } else {
         before.saturating_sub(duration(&q.interval)? * u64::from(q.page_size))
     };
-    // COIN-M permits at most 200 days per request, including monthly windows.
+    // Bitget limits history windows to 90 days; COIN-M permits 200 days.
+    let (end, days) = if info.exchange == ExchangeId::Bitget {
+        let period = duration(&q.interval)?;
+        (
+            ((before - 1) / period + 1)
+                .checked_mul(period)
+                .ok_or_else(invalid)?,
+            90,
+        )
+    } else {
+        (before, 200)
+    };
     Ok(lower
-        .max(before.saturating_sub(200 * 86_400_000))
+        .max(end.saturating_sub(days * 86_400_000))
         .max(q.start_ms))
+}
+fn interval_wire<'a>(info: &MarketInfo, interval: &'a str) -> Result<&'a str> {
+    use crate::exchange::{
+        binance::adapter::candle_interval_wire, bitget::adapter::BitgetAdapter,
+        bybit::adapter::BybitAdapter, gateio::adapter::GateioAdapter, okx::adapter::OkxAdapter,
+    };
+    let wire = match info.exchange {
+        ExchangeId::Binance => candle_interval_wire(interval),
+        ExchangeId::Bybit => BybitAdapter::candle_interval_wire(interval),
+        ExchangeId::Bitget => BitgetAdapter::candle_interval_wire(interval),
+        ExchangeId::Okx => OkxAdapter::candle_interval_wire(interval),
+        // REST uses 1d, whereas the established WS adapter uses 24h.
+        ExchangeId::Gateio => {
+            if interval == "1d" {
+                Some("1d")
+            } else {
+                GateioAdapter::candle_interval_wire(interval)
+            }
+        }
+        _ => None,
+    };
+    wire.ok_or_else(|| Error::UnsupportedCapability("candle history exchange/interval".into()))
 }
 fn category(info: &MarketInfo) -> Result<&'static str> {
     use crate::exchange::bybit::adapter::{BybitAdapter, BybitProduct};
@@ -158,9 +223,42 @@ fn category(info: &MarketInfo) -> Result<&'static str> {
         )),
     }
 }
+fn gate_first_start(info: &MarketInfo, q: &CandleHistoryQuery, lower: u64) -> Result<u64> {
+    if q.interval == "1M" {
+        let date = date(lower)?;
+        let first = Utc
+            .with_ymd_and_hms(date.year(), date.month(), 1, 0, 0, 0)
+            .single()
+            .ok_or_else(invalid)?;
+        if u64::try_from(first.timestamp_millis()).map_err(|_| invalid())? == lower {
+            Ok(lower)
+        } else {
+            first
+                .checked_add_months(Months::new(1))
+                .and_then(|next| u64::try_from(next.timestamp_millis()).ok())
+                .ok_or_else(invalid)
+        }
+    } else {
+        let period = duration(&q.interval)?;
+        // Spot 7d opens Monday; perpetual 7d is explicitly epoch-aligned.
+        let anchor = if q.interval == "1w" && info.symbol.kind() == InstrumentKind::Spot {
+            4 * 86_400_000
+        } else {
+            0
+        };
+        lower
+            .saturating_sub(anchor)
+            .div_ceil(period)
+            .checked_mul(period)
+            .and_then(|time| time.checked_add(anchor))
+            .ok_or_else(invalid)
+    }
+}
 fn plan(info: &MarketInfo, q: &CandleHistoryQuery, lower: u64, before: u64) -> Result<Url> {
-    use crate::exchange::binance::adapter::{BinanceProduct, product_from_normalized};
-    use crate::exchange::bybit::adapter::BybitAdapter;
+    use crate::exchange::{
+        binance::adapter::{BinanceProduct, product_from_normalized},
+        gateio::adapter::{GateioProduct, product_from_symbol},
+    };
     if !matches!(
         info.symbol.kind(),
         InstrumentKind::Spot | InstrumentKind::Perpetual | InstrumentKind::Futures
@@ -169,49 +267,108 @@ fn plan(info: &MarketInfo, q: &CandleHistoryQuery, lower: u64, before: u64) -> R
             "candle history product".into(),
         ));
     }
-    let (base, interval, start_key, end_key) = match info.exchange {
-        ExchangeId::Binance => (
-            match product_from_normalized(&info.symbol)? {
-                BinanceProduct::Spot => "https://data-api.binance.vision/api/v3/klines",
-                BinanceProduct::UsdM => "https://fapi.binance.com/fapi/v1/klines",
-                BinanceProduct::CoinM => "https://dapi.binance.com/dapi/v1/klines",
-                _ => {
-                    return Err(Error::UnsupportedCapability(
-                        "Binance candle history product".into(),
-                    ));
-                }
-            },
-            q.interval.as_str(),
-            "startTime",
-            "endTime",
-        ),
-        ExchangeId::Bybit => (
-            "https://api.bybit.com/v5/market/kline",
-            BybitAdapter::candle_interval_wire(&q.interval).ok_or_else(|| {
-                Error::UnsupportedCapability("Bybit candle history interval".into())
-            })?,
-            "start",
-            "end",
-        ),
-        _ => {
-            return Err(Error::UnsupportedCapability(
-                "candle history currently supports Binance and Bybit".into(),
-            ));
-        }
+    let interval = interval_wire(info, &q.interval)?;
+    let base = match info.exchange {
+        ExchangeId::Binance => match product_from_normalized(&info.symbol)? {
+            BinanceProduct::Spot => "https://data-api.binance.vision/api/v3/klines",
+            BinanceProduct::UsdM => "https://fapi.binance.com/fapi/v1/klines",
+            BinanceProduct::CoinM => "https://dapi.binance.com/dapi/v1/klines",
+            _ => {
+                return Err(Error::UnsupportedCapability(
+                    "Binance candle history product".into(),
+                ));
+            }
+        },
+        ExchangeId::Bybit => "https://api.bybit.com/v5/market/kline",
+        ExchangeId::Bitget => "https://api.bitget.com/api/v3/market/history-candles",
+        ExchangeId::Okx => "https://openapi.okx.com/api/v5/market/history-candles",
+        ExchangeId::Gateio => match product_from_symbol(&info.symbol)? {
+            GateioProduct::Spot => "https://api.gateio.ws/api/v4/spot/candlesticks",
+            GateioProduct::UsdtPerpetual => {
+                "https://api.gateio.ws/api/v4/futures/usdt/candlesticks"
+            }
+            GateioProduct::BtcPerpetual => "https://api.gateio.ws/api/v4/futures/btc/candlesticks",
+            GateioProduct::UsdtDelivery => {
+                return Err(Error::UnsupportedCapability(
+                    "Gate delivery candle history is undocumented".into(),
+                ));
+            }
+        },
+        _ => return Err(Error::UnsupportedExchange(format!("{:?}", info.exchange))),
     };
     let mut url = Url::parse(base).expect("static candle history URL");
     let mut params = url.query_pairs_mut();
+    let symbol_key = match info.exchange {
+        ExchangeId::Okx => "instId",
+        ExchangeId::Gateio if info.symbol.kind() == InstrumentKind::Spot => "currency_pair",
+        ExchangeId::Gateio => "contract",
+        _ => "symbol",
+    };
     params
-        .append_pair("symbol", &info.exchange_symbol)
-        .append_pair("interval", interval)
-        .append_pair("limit", &q.page_size.to_string())
-        .append_pair(start_key, &lower.to_string())
-        .append_pair(end_key, &(before - 1).to_string());
-    if info.exchange == ExchangeId::Bybit {
-        params.append_pair("category", category(info)?);
+        .append_pair(symbol_key, &info.exchange_symbol)
+        .append_pair(
+            if info.exchange == ExchangeId::Okx {
+                "bar"
+            } else {
+                "interval"
+            },
+            interval,
+        );
+    if info.exchange != ExchangeId::Gateio {
+        params.append_pair("limit", &q.page_size.to_string());
+    }
+    match info.exchange {
+        ExchangeId::Binance => {
+            params
+                .append_pair("startTime", &lower.to_string())
+                .append_pair("endTime", &(before - 1).to_string());
+        }
+        ExchangeId::Bybit => {
+            params
+                .append_pair("start", &lower.to_string())
+                .append_pair("end", &(before - 1).to_string())
+                .append_pair("category", category(info)?);
+        }
+        ExchangeId::Bitget => {
+            // Exact end boundaries avoid the documented extra earlier interval.
+            let duration = duration(&q.interval)?;
+            let end = ((before - 1) / duration + 1)
+                .checked_mul(duration)
+                .ok_or_else(invalid)?;
+            params
+                .append_pair("startTime", &lower.to_string())
+                .append_pair("endTime", &end.to_string())
+                .append_pair(
+                    "category",
+                    &crate::exchange::bitget::adapter::bitget_instrument_type(&info.symbol)
+                        .to_ascii_uppercase(),
+                );
+        }
+        ExchangeId::Okx => {
+            params.append_pair("after", &before.to_string());
+            // before is exclusive; zero is safe because epoch has no older bar.
+            params.append_pair("before", &lower.saturating_sub(1).to_string());
+        }
+        ExchangeId::Gateio => {
+            params
+                .append_pair(
+                    "from",
+                    &(gate_first_start(info, q, lower)? / 1000).to_string(),
+                )
+                .append_pair("to", &((before - 1) / 1000).to_string());
+        }
+        _ => unreachable!(),
     }
     drop(params);
     Ok(url)
+}
+fn closed(value: &Value) -> Result<bool> {
+    match value {
+        Value::Bool(value) => Ok(*value),
+        Value::String(value) if value == "true" || value == "1" => Ok(true),
+        Value::String(value) if value == "false" || value == "0" => Ok(false),
+        _ => Err(invalid()),
+    }
 }
 fn decode(
     info: &MarketInfo,
@@ -219,31 +376,76 @@ fn decode(
     row: &Value,
     received_ts: f64,
 ) -> Result<(u64, Candle)> {
-    let row = row.as_array().ok_or_else(invalid)?;
+    let gate = info.exchange == ExchangeId::Gateio;
+    let gate_spot = gate && info.symbol.kind() == InstrumentKind::Spot;
     let binance = info.exchange == ExchangeId::Binance;
-    if row.len() != if binance { 12 } else { 7 } {
-        return Err(invalid());
-    }
-    let start = millis(&row[0])?;
+    let okx = info.exchange == ExchangeId::Okx;
+    let (start, open, high, low, close, volume, completion) = if gate && !gate_spot {
+        let start = gate_millis(&row["t"])?;
+        (
+            start, &row["o"], &row["h"], &row["l"], &row["c"], &row["v"], None,
+        )
+    } else {
+        let rows = row.as_array().ok_or_else(invalid)?;
+        let count = if binance {
+            12
+        } else if okx {
+            9
+        } else if gate_spot {
+            8
+        } else {
+            7
+        };
+        if rows.len() != count {
+            return Err(invalid());
+        }
+        if gate_spot {
+            let start = gate_millis(&rows[0])?;
+            (
+                start,
+                &rows[5],
+                &rows[3],
+                &rows[4],
+                &rows[2],
+                &rows[6],
+                Some(closed(&rows[7])?),
+            )
+        } else {
+            (
+                millis(&rows[0])?,
+                &rows[1],
+                &rows[2],
+                &rows[3],
+                &rows[4],
+                &rows[5],
+                if okx { Some(closed(&rows[8])?) } else { None },
+            )
+        }
+    };
     let end = if binance {
         millis(&row[6])?
     } else {
-        (if q.interval == "1M" {
-            month_end(start)?
+        let boundary = if q.interval.ends_with('M') {
+            month_end(info, &q.interval, start)?
         } else {
             start
                 .checked_add(duration(&q.interval)?)
                 .ok_or_else(invalid)?
-        }) - 1
+        };
+        if info.exchange == ExchangeId::Bybit {
+            boundary - 1
+        } else {
+            boundary
+        }
     };
     if end < start {
         return Err(invalid());
     }
-    let open = adapter::decimal(&row[1])?;
-    let high = adapter::decimal(&row[2])?;
-    let low = adapter::decimal(&row[3])?;
-    let close = adapter::decimal(&row[4])?;
-    let volume = adapter::decimal(&row[5])?;
+    let open = adapter::decimal(open)?;
+    let high = adapter::decimal(high)?;
+    let low = adapter::decimal(low)?;
+    let close = adapter::decimal(close)?;
+    let volume = adapter::decimal(volume)?;
     if low > high
         || open < low
         || open > high
@@ -271,7 +473,7 @@ fn decode(
             low,
             close,
             volume,
-            closed: None,
+            closed: completion,
             exchange_ts: start as f64 / 1000.0,
             received_ts,
         },
@@ -309,8 +511,13 @@ where
     let mut pages = 0;
     let mut scanned_rows = 0;
     while pages < usize::from(q.max_pages) && before > q.start_ms {
-        let lower = window_start(&q, before)?;
-        let payload = fetch(plan(info, &q, lower, before)?).await?;
+        let lower = window_start(info, &q, before)?;
+        let url = plan(info, &q, lower, before)?;
+        if info.exchange == ExchangeId::Gateio && gate_first_start(info, &q, lower)? >= before {
+            before = lower;
+            continue;
+        }
+        let payload = fetch(url).await?;
         let root = adapter::data(info.exchange, &payload)?;
         let rows = if info.exchange == ExchangeId::Bybit {
             adapter::identity(info, root, "symbol")?;
@@ -323,13 +530,34 @@ where
         };
         let rows = rows.as_array().ok_or_else(invalid)?;
         if rows.len() > usize::from(q.page_size) {
-            return Err(invalid());
+            return Err(Error::MalformedData(format!(
+                "candle history page exceeds row budget: {} > {}",
+                rows.len(),
+                q.page_size
+            )));
         }
         let received_ts = received_time();
+        let mut earlier_overlap = false;
         for row in rows {
             let (time, candle) = decode(info, &q, row, received_ts)?;
-            if time < lower || time >= before || records.insert(time, candle).is_some() {
-                return Err(invalid());
+            // Bitget documents one extra earlier interval and was observed to
+            // backfill it when the newest historical bar is not yet available.
+            // Count it against the raw budget; a later window may emit it.
+            if info.exchange == ExchangeId::Bitget
+                && time < lower
+                && time >= lower.saturating_sub(duration(&q.interval)?)
+                && !earlier_overlap
+            {
+                earlier_overlap = true;
+                continue;
+            }
+            if time < lower || time >= before {
+                return Err(Error::MalformedData(format!(
+                    "candle open {time} outside requested window [{lower}, {before})"
+                )));
+            }
+            if records.insert(time, candle).is_some() {
+                return Err(Error::MalformedData("duplicated candle open time".into()));
             }
         }
         pages += 1;
@@ -365,7 +593,15 @@ mod tests {
     use super::*;
     use serde_json::json;
     fn info(exchange: ExchangeId) -> MarketInfo {
-        MarketInfo::new(exchange, Symbol::perpetual("BTC", "USDT"), "BTCUSDT")
+        MarketInfo::new(
+            exchange,
+            Symbol::perpetual("BTC", "USDT"),
+            match exchange {
+                ExchangeId::Okx => "BTC-USDT-SWAP",
+                ExchangeId::Gateio => "BTC_USDT",
+                _ => "BTCUSDT",
+            },
+        )
     }
     fn payload(exchange: ExchangeId, times: &[u64]) -> Value {
         let rows: Vec<_> = times
@@ -514,25 +750,36 @@ mod tests {
     #[test]
     fn monthly_calendar_and_coin_m_window_cap() {
         let feb = 1_706_745_600_000;
-        assert_eq!(month_end(feb).unwrap(), 1_709_251_200_000); // leap-year March 1
+        assert_eq!(
+            month_end(&info(ExchangeId::Bybit), "1M", feb).unwrap(),
+            1_709_251_200_000
+        ); // leap-year March 1
         let q = CandleHistoryQuery::new(0, 1_714_521_600_000, "1M")
             .unwrap()
             .limits(2, 1)
             .unwrap();
-        assert_eq!(window_start(&q, q.end_ms).unwrap(), 1_709_251_200_000); // March+April
+        assert_eq!(
+            window_start(&info(ExchangeId::Binance), &q, q.end_ms).unwrap(),
+            1_709_251_200_000
+        ); // March+April
         let q = q.limits(100, 1).unwrap();
         assert_eq!(
-            q.end_ms - window_start(&q, q.end_ms).unwrap(),
+            q.end_ms - window_start(&info(ExchangeId::Binance), &q, q.end_ms).unwrap(),
             200 * 86_400_000
         );
         let mut cm = info(ExchangeId::Binance);
         cm.symbol = Symbol::perpetual("BTC", "USD");
         cm.exchange_symbol = "BTCUSD_PERP".into();
         assert!(
-            plan(&cm, &q, window_start(&q, q.end_ms).unwrap(), q.end_ms)
-                .unwrap()
-                .as_str()
-                .starts_with("https://dapi.binance.com/dapi/v1/klines?")
+            plan(
+                &cm,
+                &q,
+                window_start(&info(ExchangeId::Binance), &q, q.end_ms).unwrap(),
+                q.end_ms
+            )
+            .unwrap()
+            .as_str()
+            .starts_with("https://dapi.binance.com/dapi/v1/klines?")
         );
         let row = json!([feb.to_string(), "100", "102", "99", "101", "3", "303"]);
         let (_, candle) = decode(&info(ExchangeId::Bybit), &q, &row, 0.0).unwrap();
@@ -578,7 +825,7 @@ mod tests {
                 "{key}"
             );
         }
-        for exchange in [ExchangeId::Bitget, ExchangeId::Okx, ExchangeId::Gateio] {
+        for exchange in [ExchangeId::Coinbase, ExchangeId::Kraken] {
             assert!(
                 collect(&info(exchange), q.clone(), |_| async {
                     panic!("must not fetch")
@@ -671,5 +918,261 @@ mod tests {
         assert!(futures::poll!(future.as_mut()).is_pending());
         drop(future);
         assert!(dropped.load(Ordering::SeqCst));
+    }
+    fn new_payload(exchange: ExchangeId, times: &[u64], spot: bool) -> Value {
+        let rows: Vec<_> = times
+            .iter()
+            .map(|t| match exchange {
+                ExchangeId::Bitget => {
+                    json!([t.to_string(), "100", "102", "99", "101", "3.25", "328"])
+                }
+                ExchangeId::Okx => json!([
+                    t.to_string(),
+                    "100",
+                    "102",
+                    "99",
+                    "101",
+                    "3.25",
+                    "0.325",
+                    "328",
+                    "1"
+                ]),
+                ExchangeId::Gateio if spot => json!([
+                    (t / 1000).to_string(),
+                    "328",
+                    "101",
+                    "102",
+                    "99",
+                    "100",
+                    "3.25",
+                    "true"
+                ]),
+                ExchangeId::Gateio => {
+                    json!({"t":t/1000,"o":"100","h":"102","l":"99","c":"101","v":325,"sum":"328"})
+                }
+                _ => unreachable!(),
+            })
+            .collect();
+        match exchange {
+            ExchangeId::Bitget => json!({"code":"00000","data":rows}),
+            ExchangeId::Okx => json!({"code":"0","data":rows}),
+            _ => json!(rows),
+        }
+    }
+    #[tokio::test]
+    async fn new_venues_normalize_and_resume_exact_bar_windows() {
+        for (exchange, spot) in [
+            (ExchangeId::Bitget, false),
+            (ExchangeId::Okx, false),
+            (ExchangeId::Gateio, false),
+            (ExchangeId::Gateio, true),
+        ] {
+            let mut info = info(exchange);
+            if spot {
+                info.symbol = Symbol::spot("BTC", "USDT");
+            }
+            let q = CandleHistoryQuery::new(0, 300_000, "1m")
+                .unwrap()
+                .limits(2, 1)
+                .unwrap();
+            let first = collect(&info, q.clone(), |_| async {
+                Ok(new_payload(exchange, &[240_000, 180_000], spot))
+            })
+            .await
+            .unwrap();
+            let bar = &first.records[0];
+            assert_eq!(bar.symbol, info.symbol);
+            assert_eq!(bar.start, 180.0);
+            assert_eq!(bar.end, 240.0);
+            assert_eq!(
+                bar.volume.to_string(),
+                if exchange == ExchangeId::Gateio && !spot {
+                    "325"
+                } else {
+                    "3.25"
+                }
+            );
+            assert_eq!(
+                bar.closed,
+                if exchange == ExchangeId::Okx || spot {
+                    Some(true)
+                } else {
+                    None
+                }
+            );
+            let cursor =
+                serde_json::from_str(&serde_json::to_string(&first.next.unwrap()).unwrap())
+                    .unwrap();
+            let next = collect(&info, q.resume(cursor), |_| async {
+                Ok(new_payload(exchange, &[120_000, 60_000], spot))
+            })
+            .await
+            .unwrap();
+            assert_eq!(
+                next.records.iter().map(|c| c.start).collect::<Vec<_>>(),
+                vec![60.0, 120.0]
+            );
+            assert_eq!(next.pages, 1);
+        }
+    }
+    #[test]
+    fn native_parameters_use_current_versions_units_and_exclusive_bounds() {
+        let q = CandleHistoryQuery::new(1, 180_001, "1m")
+            .unwrap()
+            .limits(3, 1)
+            .unwrap();
+        for exchange in [ExchangeId::Bitget, ExchangeId::Okx, ExchangeId::Gateio] {
+            let info = info(exchange);
+            let lower = window_start(&info, &q, q.end_ms).unwrap();
+            let url = plan(&info, &q, lower, q.end_ms).unwrap();
+            let params: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+            match exchange {
+                ExchangeId::Bitget => {
+                    assert_eq!(url.path(), "/api/v3/market/history-candles");
+                    assert_eq!(params["endTime"], "240000");
+                    assert_eq!(params["startTime"], "1");
+                    assert_eq!(params["category"], "USDT-FUTURES");
+                }
+                ExchangeId::Okx => {
+                    assert_eq!(params["after"], "180001");
+                    assert_eq!(params["before"], "0");
+                    assert_eq!(params["instId"], "BTC-USDT-SWAP");
+                }
+                ExchangeId::Gateio => {
+                    assert_eq!(params["from"], "60");
+                    assert_eq!(params["to"], "180");
+                    assert!(!params.contains_key("limit"));
+                    assert_eq!(url.path(), "/api/v4/futures/usdt/candlesticks");
+                    assert_eq!(interval_wire(&info, "1d").unwrap(), "1d");
+                    assert_eq!(interval_wire(&info, "1M").unwrap(), "30d");
+                }
+                _ => unreachable!(),
+            }
+        }
+        let info = info(ExchangeId::Bitget);
+        let q = CandleHistoryQuery::new(0, 200 * 86_400_000 + 1, "1d").unwrap();
+        let lower = window_start(&info, &q, q.end_ms).unwrap();
+        let url = plan(&info, &q, lower, q.end_ms).unwrap();
+        let p: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(
+            p["endTime"].parse::<u64>().unwrap() - p["startTime"].parse::<u64>().unwrap(),
+            90 * 86_400_000
+        );
+    }
+    #[test]
+    fn okx_quarters_and_gate_months_preserve_calendar_semantics() {
+        let okx = info(ExchangeId::Okx);
+        let q = CandleHistoryQuery::new(0, 1_714_492_800_000, "3M")
+            .unwrap()
+            .limits(1, 1)
+            .unwrap();
+        // 2024-04-30 16:00 UTC is May 1 in UTC+8; quarter opens April 1.
+        assert_eq!(window_start(&okx, &q, q.end_ms).unwrap(), 1_711_900_800_000);
+        let jan = 1_704_038_400_000; // Jan 1 00:00 UTC+8
+        assert_eq!(month_end(&okx, "3M", jan).unwrap(), 1_711_900_800_000);
+        let gate = info(ExchangeId::Gateio);
+        let feb = 1_706_745_600_000;
+        assert_eq!(month_end(&gate, "1M", feb).unwrap(), 1_709_251_200_000);
+        assert_eq!(gate_millis(&json!(60.0)).unwrap(), 60_000);
+        assert_eq!(gate_millis(&json!("60.001")).unwrap(), 60_001);
+        assert!(gate_millis(&json!("60.0001")).is_err());
+        let q = CandleHistoryQuery::new(0, 1_714_521_600_000, "1M").unwrap();
+        assert_eq!(
+            gate_first_start(&gate, &q, feb + 1).unwrap(),
+            1_709_251_200_000
+        );
+        assert_eq!(gate_first_start(&gate, &q, feb).unwrap(), feb);
+        let q = CandleHistoryQuery::new(0, 1_788_825_600_000, "1w").unwrap();
+        let mut spot = gate.clone();
+        spot.symbol = Symbol::spot("BTC", "USDT");
+        assert_eq!(
+            gate_first_start(&spot, &q, 1_788_220_800_000).unwrap(),
+            1_788_739_200_000
+        );
+        assert_eq!(
+            gate_first_start(&gate, &q, 1_788_220_800_000).unwrap(),
+            1_788_393_600_000
+        );
+    }
+    #[tokio::test]
+    async fn gate_subsecond_empty_window_and_delivery_reject_before_http() {
+        let info = info(ExchangeId::Gateio);
+        let q = CandleHistoryQuery::new(60_001, 60_002, "10s").unwrap();
+        let result = collect(&info, q, |_| async {
+            panic!("empty second range must not fetch")
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.pages, 0);
+        assert_eq!(result.stop, CandleHistoryStop::RangeBoundary);
+        let mut delivery = info.clone();
+        delivery.symbol = Symbol::futures("BTC", "USDT", "241227");
+        let q = CandleHistoryQuery::new(0, 180_000, "1m").unwrap();
+        assert!(
+            collect(&delivery, q, |_| async { panic!("undocumented endpoint") })
+                .await
+                .is_err()
+        );
+    }
+    #[test]
+    fn completion_and_volume_shapes_fail_without_guessing() {
+        let mut gate = info(ExchangeId::Gateio);
+        gate.symbol = Symbol::spot("BTC", "USDT");
+        let q = CandleHistoryQuery::new(0, 180_000, "1m").unwrap();
+        let old = json!(["60", "328", "101", "102", "99", "100", "true"]);
+        assert!(decode(&gate, &q, &old, 0.0).is_err()); // no base quantity in retired example
+        let mut row = new_payload(ExchangeId::Gateio, &[60_000], true)[0].clone();
+        row[7] = json!(false);
+        assert_eq!(decode(&gate, &q, &row, 0.0).unwrap().1.closed, Some(false));
+        row[7] = json!("finished");
+        assert!(decode(&gate, &q, &row, 0.0).is_err());
+        let okx = info(ExchangeId::Okx);
+        let mut row = new_payload(ExchangeId::Okx, &[60_000], false)["data"][0].clone();
+        row[8] = json!("0");
+        assert_eq!(decode(&okx, &q, &row, 0.0).unwrap().1.closed, Some(false));
+        row[8] = Value::Null;
+        assert!(decode(&okx, &q, &row, 0.0).is_err());
+    }
+    #[tokio::test]
+    async fn bitget_one_earlier_interval_counts_against_budget_without_losing_resume() {
+        let info = info(ExchangeId::Bitget);
+        let q = CandleHistoryQuery::new(1, 300_001, "1m")
+            .unwrap()
+            .limits(2, 1)
+            .unwrap();
+        let first = collect(&info, q.clone(), |_| async {
+            Ok(new_payload(ExchangeId::Bitget, &[180_000, 240_000], false))
+        })
+        .await
+        .unwrap();
+        assert_eq!(first.scanned_rows, 2);
+        assert_eq!(
+            first.records.iter().map(|c| c.start).collect::<Vec<_>>(),
+            vec![240.0]
+        );
+        let second = collect(&info, q.clone().resume(first.next.unwrap()), |_| async {
+            Ok(new_payload(ExchangeId::Bitget, &[120_000, 180_000], false))
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            second.records.iter().map(|c| c.start).collect::<Vec<_>>(),
+            vec![120.0, 180.0]
+        );
+        for times in [
+            &[120_000, 240_000][..],
+            &[180_000, 180_000][..],
+            &[240_000, 360_000][..],
+        ] {
+            assert!(
+                collect(&info, q.clone(), |_| std::future::ready(Ok(new_payload(
+                    ExchangeId::Bitget,
+                    times,
+                    false
+                ))))
+                .await
+                .is_err()
+            );
+        }
     }
 }

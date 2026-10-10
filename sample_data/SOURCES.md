@@ -239,3 +239,14 @@ linked in [the guide](../docs/candle-history.md). The long Decimal price is a
 synthetic precision probe. Neither response includes a close/finality flag.
 Cursor corruption, duplicate/out-of-range pages and cancellation are unit-only
 SDK probes. Captures are references, not automatically loaded test fixtures.
+
+## 2026-10-10 remaining candle-history venues
+
+Appended Bitget v3 seven-field, OKX nine-field confirm and Gate Spot eight-field /
+perpetual object examples mirror `rest::candles::tests::new_venues_normalize_and_resume_exact_bar_windows`.
+Small epochs and prices/volumes are substituted references, not real quotes.
+Current primary sources are linked in [the guide](../docs/candle-history.md).
+Request tests separately assert Bitget end rounding/90-day cap, Gate no-limit
+second bounds and REST 1d mapping. The documented one-earlier Bitget overlap,
+Gate range rounding and old seven-field Spot example are bounded regression
+probes; actual first-failure/follow-up observations remain in the dated report.

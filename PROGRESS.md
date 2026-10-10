@@ -683,3 +683,30 @@ feature boundaries.
   feature checks/boundary-test runs, no-default compilation, strict all-target
   Clippy, rustdoc, formatting/relative links and Rust 1.85 with fresh resolution
   passed. Single-feature builds retain existing unrelated unused-code warnings.
+
+## Five-venue candle history — 2026-10-10
+
+- Extended current public candle-history queries to Bitget v3, OKX v5 and Gate
+  v4 Spot/perpetual. Gate delivery has no documented candle endpoint and remains
+  explicitly rejected, including REST capability reporting.
+- Bitget aligns native end boundaries, limits requests to 90 days and accepts
+  exactly one documented earlier overlap, counted against raw scan limits.
+  Gate sends the first legal bar open, second-valued from/to, no conflicting
+  limit; Spot base volume/completion and perpetual contracts stay distinct.
+- OKX calendar months/quarters use UTC+8, native confirm is preserved; Gate 30d
+  is a calendar month. Gate perpetual and Bitget finality stay unknown.
+- Offline regressions cover all new row families and JSON continuation, native
+  request routing/units, 90-day caps, UTC+8 quarters, completion/volume shapes,
+  Gate empty subsecond windows/delivery rejection and Bitget overlap continuity.
+- Final ten-product Spot/perpetual public first/resume smoke passed: 10+10 bars,
+  2+2 pages per product, no duplicate opens, BudgetReached/next=true; 40 pages
+  and 200 per-product records, exit 0. Earlier Gate/Bitget failures remain in
+  the [dated report](docs/reports/live-smoke-candle-history-2026-10-10.md).
+- Gates passed: 547 workspace tests; focused candle-only REST tests; nine
+  individual feature checks and no-default compilation; strict all-target Clippy,
+  rustdoc, formatting/local links and Rust 1.85 with fresh dependency resolution.
+  Recording/replay, trade history, sinks/aggregation, NBBO and advanced resource
+  policies remain under the active alignment objective.
+- Additional Gate day/week/month public probes confirmed UTC daily/calendar
+  month opens and caught different weekly grids: Spot Monday versus perpetual
+  epoch alignment. Product-specific request rounding and regressions cover both.

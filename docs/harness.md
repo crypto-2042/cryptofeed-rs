@@ -412,3 +412,9 @@ Candle history regression cases live in `rest::candles::tests`. Matching Binance
 and Bybit HTTP captures document substituted field-table values; tests are inline
 and offline. They cover cursor scope, empty time-window advancement, leap-month
 boundaries and cancellation, without asserting historical source completeness.
+
+Five-venue candle-history tests also assert Bitget's single-earlier-interval
+continuation, Gate integer/decimal second units and range rounding, native
+completion flags, base-vs-contract volume and OKX UTC+8 quarters. Sanitized
+references match those inline assertions; bad/duplicate/out-of-range probes
+remain unit-only cases, not supposed real exchange captures.
