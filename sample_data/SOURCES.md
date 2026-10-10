@@ -230,3 +230,12 @@ asserts actual-rate selection. SDK-only JSON cursor mutation/empty/duplicate/
 conflicting/oversized/cancelled-page tests are not claims of venue behavior.
 The dated live report separately records first/resume success; it does not label
 budget-limited records as complete history.
+
+## 2026-10-10 Binance/Bybit candle history
+
+Appended candle arrays mirror `rest::candles::tests` normalization assertions,
+using substituted OHLCV, counts and epochs from current official field tables
+linked in [the guide](../docs/candle-history.md). The long Decimal price is a
+synthetic precision probe. Neither response includes a close/finality flag.
+Cursor corruption, duplicate/out-of-range pages and cancellation are unit-only
+SDK probes. Captures are references, not automatically loaded test fixtures.

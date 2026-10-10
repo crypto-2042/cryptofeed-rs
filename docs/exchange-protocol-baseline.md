@@ -628,3 +628,14 @@ realizedRate is actual while fundingRate is predicted; Gate v4 uses seconds t/r.
 retention/termination limits and sources. Captures and narrow assertions were
 added together. No next settlement is inferred, prediction is not relabeled as
 actual, and source exhaustion is not proof of complete retention coverage.
+
+## Candle-history increment — 2026-10-10
+
+Current official Binance Spot/UM/CM klines and Bybit v5 kline documentation was
+checked for the [candle-history API](candle-history.md). Binance returns 12-element
+rows with native close time and trade count; Bybit returns seven-element rows,
+reverse-ordered by start time, with native symbol/category in result. Both omit
+an explicit completion flag. Bybit inverse volume is quote currency and Binance
+COIN-M volume is contracts. CM start/end ranges cannot exceed 200 days. Rust uses
+bounded backward windows and a common 100-row cap, not a copied Python API path.
+Other venues' candle-history APIs are still pending implementation.

@@ -367,7 +367,9 @@ create no WS subscription and do not change live recovery state. See
 [public REST](docs/public-rest.md) for native depth/time rules, HTTP backoff and
 examples. Feature-gated `funding_history(&symbol, query)` now provides bounded settlement
 pages and versioned continuation, with actual rates and explicit stop reasons.
-See [funding history](docs/funding-history.md); trade/candle history remains unfinished.
+See [funding history](docs/funding-history.md). Binance/Bybit
+[candle history](docs/candle-history.md) adds bounded time windows and JSON
+continuation; other candle venues and trade history remain unfinished.
 
 ## HTTP and WebSocket proxy
 

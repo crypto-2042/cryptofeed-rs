@@ -663,3 +663,23 @@ feature boundaries.
 - Trade/candle history, recording/replay, sinks/aggregation, NBBO and advanced
   resource policies remain unfinished under the active full alignment goal.
   Private/trading/instrument-type coverage and Binance OI deferral stay unchanged.
+
+## Bounded candle history: Binance/Bybit — 2026-10-10
+
+- Added candle-feature query/result/scoped JSON continuation, backward time windows,
+  common 100-row/100-page caps and at most 200-day requests. Empty windows advance
+  within the budget; RangeBoundary means queried windows, not complete retention.
+- Current Spot/USD-M/COIN-M and Bybit v5 spot/linear/inverse routes reuse exact
+  catalog mappings. OHLCV stays Decimal, native volume units stay intact, Binance
+  count/end preserved, Bybit monthly ends use calendar UTC and inclusive 1ms ends.
+  Both REST surfaces have unknown finality; no clock-based close inference.
+- Offline tests cover normalization, boundaries, scope mutation, empty/duplicate/
+  malformed pages, leap-year months, JSON resume and cancellation. Coverage for
+  Bitget/OKX/Gate candle history and trade history remains pending.
+- Manual four-product public smoke: first and JSON resume each returned 10 bars
+  over 2 pages, no repeated open times, all BudgetReached with cursors; exit 0.
+  See [evidence](docs/reports/live-smoke-candle-history-2026-10-10.md).
+- Verification: 540 workspace tests, 7 candle-only history tests, nine individual
+  feature checks/boundary-test runs, no-default compilation, strict all-target
+  Clippy, rustdoc, formatting/relative links and Rust 1.85 with fresh resolution
+  passed. Single-feature builds retain existing unrelated unused-code warnings.

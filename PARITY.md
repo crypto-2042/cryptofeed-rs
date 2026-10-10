@@ -368,3 +368,19 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   session double verifies confirmation before book readiness.
 - Follow-up public spot Trade/L2 evidence reached Ready on all five exchanges;
   this is not a new all-product, rare-channel or throughput certification.
+
+## Bounded candle history: Binance/Bybit — 2026-10-10
+
+- Added candle-feature query/result/scoped JSON continuation, backward time windows,
+  common 100-row/100-page caps and at most 200-day requests. Empty windows advance
+  within the budget; RangeBoundary means queried windows, not complete retention.
+- Current Spot/USD-M/COIN-M and Bybit v5 spot/linear/inverse routes reuse exact
+  catalog mappings. OHLCV stays Decimal, native volume units stay intact, Binance
+  count/end preserved, Bybit monthly ends use calendar UTC and inclusive 1ms ends.
+  Both REST surfaces have unknown finality; no clock-based close inference.
+- Offline tests cover normalization, boundaries, scope mutation, empty/duplicate/
+  malformed pages, leap-year months, JSON resume and cancellation. Coverage for
+  Bitget/OKX/Gate candle history and trade history remains pending.
+- Manual four-product public smoke: first and JSON resume each returned 10 bars
+  over 2 pages, no repeated open times, all BudgetReached with cursors; exit 0.
+  See [evidence](docs/reports/live-smoke-candle-history-2026-10-10.md).

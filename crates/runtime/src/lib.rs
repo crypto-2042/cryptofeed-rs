@@ -59,3 +59,6 @@ pub use rest::{PublicRestClient, RestSnapshot};
 
 #[cfg(feature = "funding")]
 pub use crate::rest::{FundingHistory, FundingHistoryCursor, FundingHistoryQuery, HistoryStop};
+
+#[cfg(feature = "candles")]
+pub use crate::rest::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, CandleHistoryStop};

@@ -96,7 +96,12 @@ fn retry_after(header: Option<&str>, now: SystemTime) -> Option<Duration> {
         .ok()
         .map(|time| time.duration_since(now).unwrap_or_default())
 }
-#[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
+#[cfg(any(
+    feature = "ticker",
+    feature = "orderbook",
+    feature = "funding",
+    feature = "candles"
+))]
 pub(crate) async fn fetch_json(
     url: &str,
     transport: &crate::transport::TransportConfig,

@@ -16,7 +16,7 @@ default = ["ticker", "trade", "orderbook", "candles", "funding", "index", "liqui
 ticker = ["dep:cryptofeed-ticker"]
 trade = ["dep:cryptofeed-trade"]
 orderbook = ["dep:cryptofeed-orderbook"]
-candles = ["dep:cryptofeed-candles", "dep:chrono"]
+candles = ["dep:cryptofeed-candles", "dep:chrono", "dep:serde"]
 funding = ["dep:cryptofeed-funding", "dep:serde"]
 liquidations = ["dep:cryptofeed-liquidations"]
 markprice = ["dep:cryptofeed-markprice"]
@@ -149,6 +149,10 @@ required-features = ["ticker", "orderbook"]
 [[example]]
 name = "funding_history_public"
 required-features = ["funding"]
+
+[[example]]
+name = "candle_history_public"
+required-features = ["candles"]
 
 [package.metadata.docs.rs]
 all-features = true

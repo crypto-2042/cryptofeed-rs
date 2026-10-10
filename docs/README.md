@@ -54,6 +54,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Funding history](funding-history.md): bounded settlement batches, exact actual
   rates, versioned cursors, native pagination/retention and termination semantics.
 
+- [Candle history](candle-history.md): bounded Binance/Bybit time windows, calendar
+  month boundaries, unknown completion and scoped JSON continuation.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are

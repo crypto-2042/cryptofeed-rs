@@ -1,10 +1,24 @@
 //! Public, normalized REST market-data queries.
-#[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
+#[cfg(any(
+    feature = "ticker",
+    feature = "orderbook",
+    feature = "funding",
+    feature = "candles"
+))]
 mod adapter;
+#[cfg(feature = "candles")]
+mod candles;
 #[cfg(feature = "funding")]
 mod history;
 use crate::{catalog::MarketCatalog, transport::TransportConfig};
-#[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
+#[cfg(feature = "candles")]
+pub use candles::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, CandleHistoryStop};
+#[cfg(any(
+    feature = "ticker",
+    feature = "orderbook",
+    feature = "funding",
+    feature = "candles"
+))]
 use cryptofeed_core::symbol::Symbol;
 use cryptofeed_core::{
     error::Result,
@@ -29,7 +43,12 @@ pub struct RestSnapshot<T> {
 #[derive(Clone)]
 pub struct PublicRestClient {
     catalog: Arc<MarketCatalog>,
-    #[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
+    #[cfg(any(
+        feature = "ticker",
+        feature = "orderbook",
+        feature = "funding",
+        feature = "candles"
+    ))]
     transport: TransportConfig,
 }
 impl PublicRestClient {
@@ -45,11 +64,21 @@ impl PublicRestClient {
         Ok(Self::from_catalog(catalog, transport))
     }
     pub fn from_catalog(catalog: MarketCatalog, transport: TransportConfig) -> Self {
-        #[cfg(not(any(feature = "ticker", feature = "orderbook", feature = "funding")))]
+        #[cfg(not(any(
+            feature = "ticker",
+            feature = "orderbook",
+            feature = "funding",
+            feature = "candles"
+        )))]
         let _ = transport;
         Self {
             catalog: Arc::new(catalog),
-            #[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
+            #[cfg(any(
+                feature = "ticker",
+                feature = "orderbook",
+                feature = "funding",
+                feature = "candles"
+            ))]
             transport,
         }
     }
@@ -58,10 +87,34 @@ impl PublicRestClient {
     }
     /// Implemented public REST methods for this build, distinct from WS channels.
     pub fn supported_channels(&self) -> Vec<Channel> {
-        [Channel::Ticker, Channel::L2Book, Channel::Funding]
-            .into_iter()
-            .filter(|channel| self.catalog.supported_channels().contains(channel))
-            .collect()
+        [
+            Channel::Ticker,
+            Channel::L2Book,
+            Channel::Funding,
+            Channel::Candles,
+        ]
+        .into_iter()
+        .filter(|channel| self.catalog.supported_channels().contains(channel))
+        .filter(|channel| {
+            *channel != Channel::Candles
+                || matches!(
+                    self.catalog.exchange(),
+                    ExchangeId::Binance | ExchangeId::Bybit
+                )
+        })
+        .collect()
+    }
+    #[cfg(feature = "candles")]
+    pub async fn candle_history(
+        &self,
+        symbol: &Symbol,
+        query: CandleHistoryQuery,
+    ) -> Result<CandleHistory> {
+        let info = self.catalog.market(symbol)?;
+        candles::collect(info, query, |url| async move {
+            crate::runtime::snapshot::fetch_json(url.as_str(), &self.transport, info.exchange).await
+        })
+        .await
     }
     #[cfg(feature = "funding")]
     pub async fn funding_history(
@@ -99,7 +152,12 @@ impl PublicRestClient {
         adapter::book(info, &plan, &payload, depth, received_time())
     }
 }
-#[cfg(any(feature = "ticker", feature = "orderbook", feature = "funding"))]
+#[cfg(any(
+    feature = "ticker",
+    feature = "orderbook",
+    feature = "funding",
+    feature = "candles"
+))]
 fn received_time() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -132,6 +190,10 @@ mod tests {
             cfg!(feature = "orderbook")
         );
         assert!(!channels.contains(&Channel::Trade));
+        assert_eq!(
+            channels.contains(&Channel::Candles),
+            cfg!(feature = "candles")
+        );
     }
     #[cfg(all(feature = "ticker", feature = "orderbook"))]
     #[tokio::test]

@@ -15,3 +15,5 @@ https://api.bybit.com/v5/market/tickers?symbol=BTCUSDT&category=spot -> 17100000
 https://api.bybit.com/v5/market/orderbook?symbol=BTCUSDT&category=spot&limit=20 -> 1710000001.500000: {"retCode":0,"result":{"s":"BTCUSDT","b":[["99","2"],["100","1"]],"a":[["102","2"],["101","1"]],"ts":1710000000123,"cts":1710000000100,"u":9007199254740993}}
 
 https://api.bybit.com/v5/market/funding/history?symbol=BTCUSDT&limit=2&category=linear&endTime=9999 -> 1710000001.500000: {"retCode":0,"result":{"category":"linear","list":[{"symbol":"BTCUSDT","fundingRateTimestamp":"9000","fundingRate":"-0.0001"},{"symbol":"BTCUSDT","fundingRateTimestamp":"8000","fundingRate":"-0.0001"}]}}
+
+https://api.bybit.com/v5/market/kline?symbol=BTCUSDT&interval=1&limit=2&start=0&end=119999&category=linear -> 1710000001.500000: {"retCode":0,"result":{"symbol":"BTCUSDT","category":"linear","list":[["60000","100.0000000000000000000000001","102","99","101","3.25","328"]]}}

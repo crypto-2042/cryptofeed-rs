@@ -550,3 +550,14 @@ Project-specific memory for `rust/cryptofeed-rs`.
   observed 10+10 records each, all budget-limited with further cursors, exit 0.
 - Trade/candle history, recording/replay, sinks/aggregation, NBBO and advanced
   resource policy remain active; dated funding/private/trading/OI scope unchanged.
+
+## Bounded candle history
+
+- Binance and Bybit are the first candle-history venues; test availability with
+  REST supported_channels(), distinct from WebSocket catalog capabilities.
+- Advance bounded backward windows even for empty pages, cap requests at 200 days
+  and 100 rows/pages. Monthly calculations are calendar-based. Scoped JSON cursors
+  continue older ranges; RangeBoundary is no retention guarantee.
+- REST scheduled candle end is not finality: both venues retain closed=None.
+  Native volume units and Binance count/inclusive end are preserved. Bybit end
+  is next UTC interval/calendar boundary minus 1ms; exchange_ts is open time.

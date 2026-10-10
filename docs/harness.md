@@ -407,3 +407,8 @@ exact negative numeric rates and cancellation during a later fetch. Captures hav
 provenance. Funding-only builds run these tests independently; default tests use
 no external socket. `funding_history_public` provides separate live first/resume
 evidence without claiming completeness when the budget is reached.
+
+Candle history regression cases live in `rest::candles::tests`. Matching Binance
+and Bybit HTTP captures document substituted field-table values; tests are inline
+and offline. They cover cursor scope, empty time-window advancement, leap-month
+boundaries and cancellation, without asserting historical source completeness.
