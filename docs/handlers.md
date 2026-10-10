@@ -37,8 +37,9 @@ candle-completion filtering occurs before any callback.
 
 ## Deadlines, failure and shutdown
 
-Each invocation has its own existing five-second SDK timeout, starting when that
-handler begins. Timeout drops the callback future, logs a warning and continues
+Each invocation has its own SDK timeout (default five seconds), starting when that
+handler begins. Configure it with
+[RuntimeOptions::handler_timeout](runtime-options.md). Timeout drops the callback future, logs a warning and continues
 with the next handler; it does not retry the event or declare the exchange feed
 failed. Catchable Rust panics are logged and likewise do not skip later callbacks
 or subsequent events. Future construction and polling run inside the unwind
@@ -53,7 +54,7 @@ failures/readiness. No new typed callback-result API is claimed by this incremen
 
 Serial execution has no implicit queue or background workers: a slow handler
 holds up later handlers and subsequent session reads. N timed-out callbacks can
-consume approximately N times five seconds for one event. Different sessions
+consume approximately N times the configured timeout for one event. Different sessions
 may invoke the same Arc concurrently; Send + Sync does not imply global event
 ordering. Callback futures must yield for Tokio timeouts/cancellation to work;
 CPU loops, blocking calls and detached caller tasks are not forcibly preempted.

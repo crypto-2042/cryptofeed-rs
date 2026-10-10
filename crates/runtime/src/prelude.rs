@@ -51,3 +51,5 @@ pub use crate::discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, Di
 pub use crate::books::{
     BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle,
 };
+
+pub use crate::options::RuntimeOptions;

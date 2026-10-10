@@ -1,4 +1,5 @@
 pub struct Backoff {
+    initial: u64,
     current: u64,
     max: u64,
 }
@@ -6,9 +7,14 @@ pub struct Backoff {
 impl Backoff {
     pub fn new(initial: u64, max: u64) -> Self {
         Self {
+            initial,
             current: initial,
             max,
         }
+    }
+
+    fn reset(&mut self) {
+        self.current = self.initial;
     }
 
     pub fn next_delay_secs(&mut self) -> u64 {
@@ -60,10 +66,35 @@ where
     }
 }
 
+#[derive(Default)]
+pub(crate) struct RetryProgress(std::sync::atomic::AtomicBool);
+impl RetryProgress {
+    pub fn subscribed(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+    pub fn take(&self) -> bool {
+        self.0.swap(false, std::sync::atomic::Ordering::AcqRel)
+    }
+}
+
 pub async fn retry_with_backoff_until_shutdown<T, F, Fut>(
+    max_retries: Option<usize>,
+    backoff: Backoff,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+    operation: F,
+) -> cryptofeed_core::error::Result<Option<T>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = cryptofeed_core::error::Result<T>>,
+{
+    retry_with_progress(max_retries, backoff, shutdown, None, operation).await
+}
+
+pub(crate) async fn retry_with_progress<T, F, Fut>(
     max_retries: Option<usize>,
     mut backoff: Backoff,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
+    progress: Option<std::sync::Arc<RetryProgress>>,
     operation: F,
 ) -> cryptofeed_core::error::Result<Option<T>>
 where
@@ -100,6 +131,10 @@ where
                     } else {
                         Err(error)
                     };
+                }
+                if progress.as_ref().is_some_and(|progress| progress.take()) {
+                    attempts = 0;
+                    backoff.reset();
                 }
                 if max_retries.is_some_and(|limit| attempts >= limit) {
                     return Err(error);
@@ -142,6 +177,50 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
     use tokio::sync::watch;
+
+    #[tokio::test]
+    async fn successful_subscription_resets_budget_but_not_permanent_errors() {
+        let progress = Arc::new(super::RetryProgress::default());
+        let attempts = AtomicUsize::new(0);
+        let (_stop, shutdown) = watch::channel(false);
+        let result: Result<Option<()>> = super::retry_with_progress(
+            Some(1),
+            Backoff::new(0, 0),
+            shutdown,
+            Some(progress.clone()),
+            || async {
+                let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                if attempt == 1 {
+                    progress.subscribed();
+                }
+                Err(Error::Transport("scripted failure".into()))
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(attempts.load(Ordering::SeqCst), 3); // Failure, successful subscription then disconnect, failure.
+        let (_stop, shutdown) = watch::channel(false);
+        let permanent = AtomicUsize::new(0);
+        let result: Result<Option<()>> = super::retry_with_progress(
+            Some(100),
+            Backoff::new(0, 0),
+            shutdown,
+            Some(progress.clone()),
+            || async {
+                permanent.fetch_add(1, Ordering::SeqCst);
+                progress.subscribed();
+                Err(Error::Subscription("rejected".into()))
+            },
+        )
+        .await;
+        assert!(matches!(result, Err(Error::Subscription(_))));
+        assert_eq!(permanent.load(Ordering::SeqCst), 1);
+        let mut backoff = Backoff::new(1, 8);
+        assert_eq!(backoff.next_delay_secs(), 1);
+        assert_eq!(backoff.next_delay_secs(), 2);
+        backoff.reset();
+        assert_eq!(backoff.next_delay_secs(), 1);
+    }
 
     #[test]
     fn backoff_doubles_until_cap() {

@@ -39,6 +39,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Recoverable L2 consumption](l2-recovery.md): atomic snapshots/subscriptions,
   continuity anchors, lag recovery and cache invalidation.
 
+- [Runtime budgets](runtime-options.md): retry limits/reset, handshake and callback
+  deadlines, fixed protocol policies and remaining transport settings.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are

@@ -61,6 +61,7 @@ pub enum CandlePolicy {
 
 #[derive(Clone)]
 pub struct ExchangeFeed {
+    pub runtime_options: crate::options::RuntimeOptions,
     pub exchange: ExchangeId,
     pub channels: Vec<Channel>,
     pub symbols: Vec<Symbol>,
@@ -135,6 +136,7 @@ pub struct ExchangeFeed {
     pub(crate) event_counts: Option<std::sync::Arc<crate::feed::EventCounters>>,
     pub(crate) identity: Option<crate::feed::FeedIdentity>,
     pub(crate) managed: bool,
+    pub(crate) retry_progress: Option<Arc<crate::runtime::supervisor::RetryProgress>>,
     pub(crate) monitor: Option<Arc<crate::runtime::readiness::FeedMonitor>>,
     pub(crate) connection_tracker: Option<crate::runtime::readiness::ConnectionTracker>,
     pub(crate) connection_epoch: Option<u64>,
@@ -199,6 +201,7 @@ impl ExchangeFeed {
     }
 
     pub(crate) fn fresh_runtime_state(&mut self) {
+        self.retry_progress = None;
         #[cfg(feature = "orderbook")]
         {
             self.orderbook_states = Default::default();
@@ -501,6 +504,7 @@ fn channel_name_for_warning(channel: Channel) -> &'static str {
 }
 
 pub struct ExchangeFeedBuilder {
+    runtime_options: crate::options::RuntimeOptions,
     exchange: ExchangeId,
     channels: Vec<Channel>,
     symbols: Vec<Symbol>,
@@ -564,6 +568,7 @@ pub struct ExchangeFeedBuilder {
 impl ExchangeFeedBuilder {
     pub fn new(exchange: ExchangeId) -> Self {
         Self {
+            runtime_options: Default::default(),
             exchange,
             channels: Vec::new(),
             symbols: Vec::new(),
@@ -673,6 +678,13 @@ impl ExchangeFeedBuilder {
     #[cfg(feature = "candles")]
     pub fn candle_policy(mut self, policy: CandlePolicy) -> Self {
         self.candle_policy = policy;
+        self
+    }
+
+    /// Sets per-connection retry/establishment and per-callback deadlines.
+    /// Protocol heartbeat, shared admission and shutdown budgets remain intact.
+    pub fn runtime_options(mut self, options: crate::options::RuntimeOptions) -> Self {
+        self.runtime_options = options;
         self
     }
 
@@ -934,6 +946,7 @@ impl ExchangeFeedBuilder {
             );
         }
         ExchangeFeed {
+            runtime_options: self.runtime_options,
             exchange: self.exchange,
             channels: self.channels,
             symbols: self.symbols,
@@ -998,6 +1011,7 @@ impl ExchangeFeedBuilder {
             event_counts: None,
             identity: None,
             managed: false,
+            retry_progress: None,
             monitor: None,
             connection_tracker: None,
             connection_epoch: None,

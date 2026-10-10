@@ -34,7 +34,7 @@ local checkout, not claims about every upstream version.
 | Callback fan-out | `feed.py`: callback lists; `callback.py`: async/sync callback wrappers | Implemented primary plus add_*_handler registrations, serial order, independent five-second deadlines and catchable panic isolation. Traits return (); business errors remain caller-owned. Broadcast remains lossy. |
 | Candle completion | `feed.py`: `candle_closed_only`; Binance applies the flag | Implemented CandlePolicy All/ClosedOnly/ClosedOrUnknown at the common dispatcher; Rust retains its existing All default and never infers unknown completion. |
 | Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Implemented opt-in L2BookHandle atomic full-snapshot/subscription recovery with local identity/connection/epoch/revision anchors and resync/disconnect/stop invalidation. Quantity units remain exchange-native normalized units. |
-| Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Rust uses fixed supervision policies and tracing. Add only demonstrated public-service settings after lifecycle controls; preserve safe defaults and bounded shutdown. |
+| Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Implemented feed-level retry limits and handshake/callback deadlines with compatible defaults and successful-subscription reset. Idle overrides, start delay and explicit HTTP/WS proxy config remain pending; fixed protocol/resource policies stay intact. |
 | Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Rust REST currently serves discovery and book bootstrap. Public history clients are a later workstream; verify current official endpoints before implementation. |
 | Recording/replay | `raw_data_collection.py`: recording and playback | Rust has deterministic inline fixtures/session doubles, but no user recording/replay API. Phase 5, with sanitization and an explicit file format. |
 | Storage/aggregation | `backends/`: database/message-bus/socket adapters, aggregate callbacks | No bundled Rust backends or OHLCV/throttle/Renko adapters. Phase 5 starts with a small sink contract and one justified adapter, avoiding a dependency-heavy default SDK. |
@@ -158,6 +158,9 @@ updates, lag recovery and scoped cache invalidation. Existing lossy broadcast
 must remain explicit. Document which books are snapshots versus changes and
 which quantities use contracts versus base units. Add only needed transport
 settings without hiding protocol-specific constraints.
+[RuntimeOptions](runtime-options.md) now covers finite retries, handshake/callback
+deadlines and successful-subscription retry/backoff reset; idle policy, start delay
+and explicit HTTP/WS proxy configuration remain unfinished.
 
 Acceptance: tests cover unfinished/unknown candles, handler ordering and failure,
 lag-and-recovery continuity, and shutdown with slow consumers. Preserve existing

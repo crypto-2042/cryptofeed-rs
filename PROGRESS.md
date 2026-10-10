@@ -474,3 +474,27 @@ feature boundaries.
   orderbook-only lib tests, formatting and documentation links passed.
 - Needed runtime policies, full market metadata and optional REST/history,
   recording/replay, sinks/aggregation and NBBO remain in the active overall goal.
+
+
+## Usage alignment: runtime budgets and retry reset — 2026-10-10
+
+- Added validated feed RuntimeOptions: optional finite transient retries,
+  connection establishment timeout and per-callback timeout. Defaults stay None,
+  20 seconds and five seconds; options follow concrete planning/replacements.
+- Verified the sibling Python connection handler resets retries/delay after
+  successful subscription writes. Runtime supervisors now reset their private
+  counter/backoff at the same public-session initialization boundary: all queued
+  writes completed, or first non-control text for legacy implicit Binance URLs.
+  Partial writes do not reset; permanent rejection still fails immediately.
+- Finite limits are per physical connection, exclude the initial attempt and do
+  not cap lifetime healthy reconnects. Handshake budget excludes admission and
+  other HTTP/ack/idle budgets. Shutdown grace and protocol pacing remain intact.
+- Regressions cover defaults/zero rejection, initial-versus-retry counts,
+  successful-init reset/permanent errors, partial/full subscribe queue progress,
+  stalled handshake/result preservation, actual callback cancellation and option
+  retention across channel partitioning. No wire parser or endpoint changed.
+- Final verification: 488 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation,
+  formatting and documentation links passed. No new live protocol claim.
+- Explicit HTTP/WS proxy, caller idle policy and start delay remain unfinished;
+  full market metadata and optional ecosystem work remain in the active goal.

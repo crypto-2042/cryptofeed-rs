@@ -28,6 +28,7 @@ pub mod feed;
 pub mod handler;
 #[doc(hidden)]
 pub mod markets;
+pub mod options;
 pub mod prelude;
 pub mod runtime;
 
@@ -44,3 +45,5 @@ pub use discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, Discovery
 
 #[cfg(feature = "orderbook")]
 pub use books::{BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle};
+
+pub use options::RuntimeOptions;

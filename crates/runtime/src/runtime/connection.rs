@@ -131,6 +131,7 @@ impl HeartbeatPolicy {
 
 pub struct WsConnection {
     pub url: Url,
+    options: crate::options::RuntimeOptions,
     heartbeat: HeartbeatPolicy,
     exchange: ExchangeId,
 }
@@ -139,15 +140,27 @@ impl WsConnection {
     pub fn new(url: Url, exchange: ExchangeId) -> Self {
         let heartbeat = HeartbeatPolicy::for_exchange(exchange, &url);
         Self {
+            options: Default::default(),
             url,
             heartbeat,
             exchange,
         }
     }
 
-    /// WebSocket handshake timeout: a blackholed endpoint must fail the
-    /// connect (and reach the backoff) instead of stalling the task forever.
-    const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+    pub fn runtime_options(mut self, options: crate::options::RuntimeOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    async fn handshake<T>(
+        &self,
+        future: impl std::future::Future<Output = Result<T>>,
+    ) -> Result<T> {
+        tokio::time::timeout(self.options.connection_deadline(), future)
+            .await
+            .map_err(|_| Error::Transport(format!("websocket connect timed out: {}", self.url)))?
+    }
+
     const MAX_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
     const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
@@ -159,13 +172,13 @@ impl WsConnection {
             max_frame_size: Some(Self::MAX_FRAME_BYTES),
             ..WebSocketConfig::default()
         };
-        let (stream, _) = tokio::time::timeout(
-            Self::CONNECT_TIMEOUT,
-            connect_async_with_config(self.url.as_str(), Some(config), false),
-        )
-        .await
-        .map_err(|_| Error::Transport(format!("websocket connect timed out: {}", self.url)))?
-        .map_err(|error| Error::Transport(error.to_string()))?;
+        let (stream, _) = self
+            .handshake(async {
+                connect_async_with_config(self.url.as_str(), Some(config), false)
+                    .await
+                    .map_err(|error| Error::Transport(error.to_string()))
+            })
+            .await?;
         let mut session = Session::new(stream, self.heartbeat);
         session._connection_slot = Some(slot);
         Ok(session)
@@ -181,6 +194,7 @@ pub struct Session<S> {
     _connection_slot: Option<tokio::sync::OwnedSemaphorePermit>,
     readiness: Option<super::readiness::ConnectionAttempt>,
     next_subscription: Instant,
+    retry_progress: Option<std::sync::Arc<super::supervisor::RetryProgress>>,
 }
 
 impl<S> Session<S> {
@@ -189,6 +203,20 @@ impl<S> Session<S> {
             readiness.connected();
         }
         self.readiness = readiness;
+    }
+
+    pub(crate) fn set_retry_progress(
+        &mut self,
+        progress: Option<std::sync::Arc<super::supervisor::RetryProgress>>,
+    ) {
+        self.retry_progress = progress;
+    }
+    fn subscribed(&self) {
+        if self.pending_subscriptions.is_empty() {
+            if let Some(progress) = &self.retry_progress {
+                progress.subscribed();
+            }
+        }
     }
 
     pub(crate) fn record_result(&self, result: &Result<()>) {
@@ -223,6 +251,7 @@ impl<S> Session<S> {
             _connection_slot: None,
             readiness: None,
             next_subscription: now,
+            retry_progress: None,
         }
     }
 }
@@ -257,6 +286,9 @@ where
         shutdown: &mut watch::Receiver<bool>,
     ) -> Result<Option<String>> {
         let result = self.next_text_inner(shutdown).await;
+        if matches!(result, Ok(Some(_))) {
+            self.subscribed();
+        }
         if let Some(readiness) = &self.readiness {
             match &result {
                 Err(error) => readiness.disconnected(Some(error.to_string())),
@@ -317,6 +349,7 @@ where
                     }
                     self.send_text(&message).await?;
                     if let Some(readiness) = self.readiness.as_mut() { readiness.sent(&message, Instant::now()); }
+                    self.subscribed();
                     self.next_subscription = Instant::now() + Duration::from_millis(250);
                 }
                 _ = tokio::time::sleep_until(acknowledgement_deadline.unwrap_or(idle_deadline)), if acknowledgement_deadline.is_some() => {
@@ -357,6 +390,38 @@ where
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod option_tests {
+    use super::*;
+    #[tokio::test]
+    async fn configured_handshake_deadline_bounds_stalled_establishment_and_keeps_results() {
+        let connection = WsConnection::new(
+            Url::parse("wss://example.invalid/public").unwrap(),
+            ExchangeId::Okx,
+        )
+        .runtime_options(
+            crate::options::RuntimeOptions::default()
+                .connect_timeout(Duration::from_millis(10))
+                .unwrap(),
+        );
+        let error = tokio::time::timeout(
+            Duration::from_secs(1),
+            connection.handshake(std::future::pending::<Result<()>>()),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(
+            matches!(error, Error::Transport(message) if message.contains("websocket connect timed out"))
+        );
+        assert_eq!(connection.handshake(async { Ok(42) }).await.unwrap(), 42);
+        assert!(
+            matches!(connection.handshake(async { Err::<(), _>(Error::Transport("original".into())) }).await,
+            Err(Error::Transport(message)) if message == "original")
+        );
     }
 }
 
@@ -435,6 +500,9 @@ mod tests {
             client,
             HeartbeatPolicy::for_test(None, Duration::from_secs(30), Duration::from_secs(5)),
         );
+        let progress = std::sync::Arc::new(super::super::supervisor::RetryProgress::default());
+        session.set_retry_progress(Some(progress.clone()));
+        let progress_in_task = progress.clone();
         session.queue_subscriptions(["first".to_owned(), "second".to_owned()]);
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
@@ -446,6 +514,7 @@ mod tests {
                     .unwrap(),
                 Some("market data".to_owned())
             );
+            assert!(!progress_in_task.take()); // A partial subscribe send is not successful initialization.
             seen_tx.send(()).unwrap();
             assert!(
                 session
@@ -468,6 +537,7 @@ mod tests {
             matches!(server.next().await.unwrap().unwrap(), Message::Text(text) if text == "second")
         );
         assert!(first_at.elapsed() >= Duration::from_millis(200));
+        assert!(progress.take()); // All initial subscription writes completed.
         shutdown_tx.send(true).unwrap();
         task.await.unwrap();
     }

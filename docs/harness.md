@@ -334,3 +334,13 @@ isolation. Seven older tests now declare their actual feature prerequisites;
 their assertions still execute in the full-feature suite. Public `book_recovery_public` provides separate manual OKX evidence;
 mock lag and reconnect are not relabeled as real service observations. No
 exchange parser or wire fixture changed.
+
+
+## Runtime option targets
+
+`options::tests`, `configured_handshake_deadline`,
+`configured_callback_deadline` and `successful_subscription_resets_budget`
+exercise validated budgets, retry reset/permanent failure, stalled establishment,
+callback cancellation and planning preservation. The paced-session double also
+asserts initialization only after all subscribe writes. Default tests stay offline;
+no new exchange wire fixture or live-service claim is introduced.

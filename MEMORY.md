@@ -403,3 +403,21 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - One bounded 1024-update ring includes unrelated symbols, which can cause lag.
   Retained handles keep its sender alive after shutdown; use lifecycle/shutdown
   signals, not stream closure alone. No cache is allocated by default.
+
+
+## Runtime budgets and retry reset
+
+- RuntimeOptions defaults: None transient retry limit, 20-second handshake and
+  five-second per-callback deadlines. Positive duration setters validate before
+  building; options propagate with feed planning/replacement configuration.
+- Runtime retry budgets are per physical connection. Successful completion of
+  initial subscribe writes resets retries and backoff; partial queues/data before
+  their completion do not. Legacy implicit Binance URL initialization is marked
+  by the first non-control text. This is initialization, not remote readiness.
+- Permanent errors still fail immediately; Some(0) is one attempt. Finite limits
+  do not cap lifetime reconnect count when sessions successfully reinitialize.
+- Handshake budget excludes admission/catalog/bootstrap/ack/idle time. Shared
+  pacing, heartbeat/idle/ack policies and bounded shutdown remain intact. Callback
+  budgets do not enlarge shutdown grace or preempt non-yielding caller code.
+- Explicit HTTP/WS proxy, idle policy and start delay remain unfinished alignment
+  work; Python idle timeout must not be mistaken for a handshake deadline.

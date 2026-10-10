@@ -586,6 +586,7 @@ impl Drop for ConnectionAttempt {
 }
 
 pub(crate) fn track(feed: &mut crate::exchange::ExchangeFeed, url: &str, books: Vec<String>) {
+    feed.retry_progress = Some(Default::default());
     if let Some(monitor) = &feed.monitor {
         let mut endpoint = url::Url::parse(url).expect("adapter websocket URL");
         endpoint.set_query(None);

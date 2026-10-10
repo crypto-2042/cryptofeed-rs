@@ -71,7 +71,6 @@ type GateioSnapshotReceivers = std::collections::HashMap<
 const SHUTDOWN_GRACE_PERIOD: std::time::Duration = std::time::Duration::from_millis(100);
 #[cfg(not(test))]
 const SHUTDOWN_GRACE_PERIOD: std::time::Duration = std::time::Duration::from_secs(5);
-const HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// In-session Gate.io snapshot bootstrap retries per symbol. A failed
 /// bootstrap (e.g. buffered deltas that cannot bridge the snapshot) re-fetches
@@ -346,10 +345,11 @@ async fn consume_binance_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
             let product = plan.product;
-            let result = supervisor::retry_with_backoff_until_shutdown(
-                None,
+            let result = supervisor::retry_with_progress(
+                feed.runtime_options.retry_limit(),
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
+                feed.retry_progress.clone(),
                 move || {
                     let feed = feed.clone();
                     let plan = plan.clone();
@@ -394,10 +394,11 @@ async fn consume_bitget_feed(
         Vec::new()
     };
     readiness::track(&mut feed, &url, books);
-    supervisor::retry_with_backoff_until_shutdown(
-        None,
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
         supervisor::Backoff::new(1, 8),
         shutdown.clone(),
+        feed.retry_progress.clone(),
         move || {
             let feed = feed.clone();
             let shutdown = shutdown.clone();
@@ -424,10 +425,11 @@ async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>)
         readiness::track(&mut planned_feed, &url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
-            supervisor::retry_with_backoff_until_shutdown(
-                None,
+            supervisor::retry_with_progress(
+                planned_feed.runtime_options.retry_limit(),
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
+                planned_feed.retry_progress.clone(),
                 move || {
                     let feed = planned_feed.clone();
                     let url = url.clone();
@@ -462,10 +464,11 @@ async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -
         readiness::track(&mut planned_feed, &url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
-            supervisor::retry_with_backoff_until_shutdown(
-                None,
+            supervisor::retry_with_progress(
+                planned_feed.runtime_options.retry_limit(),
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
+                planned_feed.retry_progress.clone(),
                 move || {
                     let feed = planned_feed.clone();
                     let url = url.clone();
@@ -539,10 +542,11 @@ async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
             let product = plan.product;
-            let result = supervisor::retry_with_backoff_until_shutdown(
-                None,
+            let result = supervisor::retry_with_progress(
+                feed.runtime_options.retry_limit(),
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
+                feed.retry_progress.clone(),
                 move || {
                     let feed = feed.clone();
                     let shutdown = retry_shutdown.clone();
@@ -609,7 +613,8 @@ async fn consume_binance_session(
         Some((url, _)) => Url::parse(url).map_err(|error| Error::Transport(error.to_string()))?,
         None => Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?,
     };
-    let connection = connection::WsConnection::new(url, feed.exchange);
+    let connection =
+        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -620,6 +625,7 @@ async fn consume_binance_session(
         }
     };
     session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
     if let Some((_, subscribe)) = explicit {
         session.queue_subscriptions([subscribe]);
     }
@@ -709,7 +715,8 @@ async fn consume_bitget_session(
         feed.clear_connection_books(&feed.symbols);
     }
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
+    let connection =
+        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -720,6 +727,7 @@ async fn consume_bitget_session(
         }
     };
     session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
     let result = consume_bitget_session_with(feed, shutdown, &mut session).await;
     session.record_result(&result);
     result
@@ -753,7 +761,8 @@ async fn consume_bybit_session(
         feed.clear_connection_books(&feed.symbols);
     }
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
+    let connection =
+        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -764,6 +773,7 @@ async fn consume_bybit_session(
         }
     };
     session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
     let result = consume_bybit_session_with(feed, shutdown, &mut session).await;
     session.record_result(&result);
     result
@@ -804,7 +814,8 @@ async fn consume_okx_session(
         feed.clear_connection_books(&feed.symbols);
     }
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
+    let connection =
+        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -815,6 +826,7 @@ async fn consume_okx_session(
         }
     };
     session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
     let result = consume_okx_session_with(feed, shutdown, &mut session).await;
     session.record_result(&result);
     result
@@ -854,7 +866,8 @@ async fn consume_gateio_session(
         );
     }
     let url = Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
+    let connection =
+        connection::WsConnection::new(url, feed.exchange).runtime_options(feed.runtime_options);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -865,6 +878,7 @@ async fn consume_gateio_session(
         }
     };
     session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
     #[cfg(feature = "orderbook")]
     let snapshot_receivers = std::collections::HashMap::new();
     #[cfg(feature = "orderbook")]
@@ -1213,7 +1227,10 @@ async fn dispatch_candle(feed: &ExchangeFeed, candle: cryptofeed_candles::Candle
         .iter()
         .chain(&feed.additional_candle_handlers)
     {
-        await_handler("candle", async { handler.on_candle(candle.clone()).await }).await;
+        await_handler(feed.runtime_options.callback_deadline(), "candle", async {
+            handler.on_candle(candle.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1228,7 +1245,7 @@ async fn dispatch_funding(feed: &ExchangeFeed, funding: cryptofeed_funding::Fund
         .iter()
         .chain(&feed.additional_funding_handlers)
     {
-        await_handler("funding", async {
+        await_handler(feed.runtime_options.callback_deadline(), "funding", async {
             handler.on_funding(funding.clone()).await
         })
         .await;
@@ -1249,9 +1266,11 @@ async fn dispatch_liquidation(
         .iter()
         .chain(&feed.additional_liquidation_handlers)
     {
-        await_handler("liquidation", async {
-            handler.on_liquidation(liquidation.clone()).await
-        })
+        await_handler(
+            feed.runtime_options.callback_deadline(),
+            "liquidation",
+            async { handler.on_liquidation(liquidation.clone()).await },
+        )
         .await;
     }
 }
@@ -1267,9 +1286,11 @@ async fn dispatch_mark_price(feed: &ExchangeFeed, mark_price: cryptofeed_markpri
         .iter()
         .chain(&feed.additional_mark_price_handlers)
     {
-        await_handler("mark_price", async {
-            handler.on_mark_price(mark_price.clone()).await
-        })
+        await_handler(
+            feed.runtime_options.callback_deadline(),
+            "mark_price",
+            async { handler.on_mark_price(mark_price.clone()).await },
+        )
         .await;
     }
 }
@@ -1288,9 +1309,11 @@ async fn dispatch_open_interest(
         .iter()
         .chain(&feed.additional_open_interest_handlers)
     {
-        await_handler("open_interest", async {
-            handler.on_open_interest(open_interest.clone()).await
-        })
+        await_handler(
+            feed.runtime_options.callback_deadline(),
+            "open_interest",
+            async { handler.on_open_interest(open_interest.clone()).await },
+        )
         .await;
     }
 }
@@ -1306,9 +1329,11 @@ async fn dispatch_index_price(feed: &ExchangeFeed, index_price: cryptofeed_index
         .iter()
         .chain(&feed.additional_index_price_handlers)
     {
-        await_handler("index_price", async {
-            handler.on_index_price(index_price.clone()).await
-        })
+        await_handler(
+            feed.runtime_options.callback_deadline(),
+            "index_price",
+            async { handler.on_index_price(index_price.clone()).await },
+        )
         .await;
     }
 }
@@ -1324,7 +1349,10 @@ async fn dispatch_ticker(feed: &ExchangeFeed, ticker: cryptofeed_ticker::Ticker)
         .iter()
         .chain(&feed.additional_ticker_handlers)
     {
-        await_handler("ticker", async { handler.on_ticker(ticker.clone()).await }).await;
+        await_handler(feed.runtime_options.callback_deadline(), "ticker", async {
+            handler.on_ticker(ticker.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1339,7 +1367,10 @@ async fn dispatch_trade(feed: &ExchangeFeed, trade: cryptofeed_trade::Trade) {
         .iter()
         .chain(&feed.additional_trade_handlers)
     {
-        await_handler("trade", async { handler.on_trade(trade.clone()).await }).await;
+        await_handler(feed.runtime_options.callback_deadline(), "trade", async {
+            handler.on_trade(trade.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1367,7 +1398,10 @@ async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) {
         .iter()
         .chain(&feed.additional_orderbook_handlers)
     {
-        await_handler("l2_book", async { handler.on_l2_book(book.clone()).await }).await;
+        await_handler(feed.runtime_options.callback_deadline(), "l2_book", async {
+            handler.on_l2_book(book.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1382,7 +1416,10 @@ async fn dispatch_l1_book(feed: &ExchangeFeed, book: cryptofeed_orderbook::L1Boo
         .iter()
         .chain(&feed.additional_orderbook_handlers)
     {
-        await_handler("l1_book", async { handler.on_l1_book(book.clone()).await }).await;
+        await_handler(feed.runtime_options.callback_deadline(), "l1_book", async {
+            handler.on_l1_book(book.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1394,16 +1431,11 @@ fn subscribed_to(
     feed.subscribes(channel, symbol)
 }
 
-async fn await_handler<F>(channel: &'static str, future: F)
+async fn await_handler<F>(timeout: std::time::Duration, channel: &'static str, future: F)
 where
     F: Future<Output = ()>,
 {
-    match tokio::time::timeout(
-        HANDLER_TIMEOUT,
-        std::panic::AssertUnwindSafe(future).catch_unwind(),
-    )
-    .await
-    {
+    match tokio::time::timeout(timeout, std::panic::AssertUnwindSafe(future).catch_unwind()).await {
         Ok(Ok(())) => {}
         Ok(Err(_)) => tracing::error!(channel, "handler panicked; continuing remaining callbacks"),
         Err(_) => tracing::warn!(channel, "handler timed out; event callback cancelled"),
@@ -2995,6 +3027,40 @@ mod tests {
             ["panic", "slow", "last", "panic", "slow", "last"]
         );
     }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn configured_callback_deadline_reaches_dispatch_after_handler_registration() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let options = crate::options::RuntimeOptions::default()
+            .handler_timeout(Duration::from_millis(10))
+            .unwrap();
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .runtime_options(options)
+            .add_trade_handler(Arc::new(OrderedTradeHandler {
+                name: "slow",
+                seen: seen.clone(),
+                behavior: 2,
+            }))
+            .add_trade_handler(Arc::new(OrderedTradeHandler {
+                name: "later",
+                seen: seen.clone(),
+                behavior: 0,
+            }))
+            .build();
+        let mut handler = FeedHandler::new();
+        handler.add_feed(feed);
+        let feed = handler.into_feeds().pop().unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            super::dispatch_trade(&feed, handler_trade()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["slow", "later"]);
+    }
+
     #[cfg(feature = "trade")]
     #[tokio::test]
     async fn shutdown_cancels_slow_handler_before_remaining_callbacks() {

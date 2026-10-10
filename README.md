@@ -162,7 +162,7 @@ Key API surface:
   `exchange_symbol(...)` (explicit native mapping), `candles_interval(...)`,
   `l2_book_depth(...)`, `l2_book_interval(...)` (Binance only), one
   `*_handler(...)` per data category and `add_*_handler(...)` for additional
-  serial callbacks. Each callback has a five-second timeout; catchable panic or
+  serial callbacks. Each callback defaults to a five-second timeout; catchable panic or
   timeout continues to the next callback. See [handler semantics](docs/handlers.md).
   `build()` warns when a subscribed
   channel has no registered handler.
@@ -458,7 +458,9 @@ use cryptofeed_rs::prelude::*;
 Runtime connections implement exchange application heartbeats, idle detection,
 indefinite transient reconnection with bounded backoff, bounded shutdown, feed
 failure isolation, batch event delivery, and product-aware L2 snapshot/gap
-recovery. Handler callbacks have a five-second deadline so a stuck callback
+recovery. [RuntimeOptions](docs/runtime-options.md) adds per-connection retry
+limits and handshake/callback deadlines. Handler callbacks default to five
+seconds so a stuck callback
 cannot permanently stop socket reads; high-volume consumers should prefer the
 bounded event-stream API.
 
