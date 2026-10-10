@@ -31,6 +31,8 @@ pub mod market_info;
 pub mod markets;
 pub mod options;
 pub mod prelude;
+#[cfg(feature = "recording")]
+pub mod recording;
 pub mod rest;
 pub mod runtime;
 pub mod transport;
@@ -66,4 +68,10 @@ pub use crate::rest::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, Ca
 #[cfg(feature = "trade")]
 pub use crate::rest::{
     TradeHistory, TradeHistoryCursor, TradeHistoryKind, TradeHistoryQuery, TradeHistoryStop,
+};
+
+#[cfg(feature = "recording")]
+pub use crate::recording::{
+    RecordedEvent, RecordingEnd, RecordingLimits, RecordingReader, RecordingSummary,
+    RecordingWriter, ReplayOptions, ReplayTiming, record_stream,
 };

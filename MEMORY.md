@@ -613,3 +613,20 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Gate contract create_time_ms is fractional seconds, unlike Spot milliseconds.
   Positive/not-future smoke checks were insufficient; recent BTC smoke now also
   requires age <=300s. Preserve the correction and earlier weak evidence.
+
+## Normalized event recording
+
+- recording is optional/non-default and uses only enabled public normalized model
+  variants. FeedEvent/identity serde derives are gated; no feed/config/status/error
+  serialization. Raw protocol recording/replay remains a separate pending scope.
+- Version 1 JSONL uses external tags; internal/adjacent serde buffering with
+  arbitrary_precision can misdeserialize f64 as maps. Never disable numeric
+  precision to work around this; tests roundtrip all categories and long Decimals.
+- Reserve footer bytes and cap lines/total/events. Lag makes capture fail without
+  footer. Cancelled/failed partial I/O poisons state; replay drop/cancel/error must
+  not permit resuming after a record was read but not delivered.
+- Original model clocks survive; saved elapsed_ns is recorder observation timing.
+  Replay schedules absolute elapsed deadlines to avoid callback-induced drift.
+  Recorded identities are file-local source labels, not live control IDs/epochs.
+- No L2 recovery/lifecycle or atomic callback transaction is claimed. Ending
+  validates sequence/count/EOF, not retained completeness or cryptographic integrity.

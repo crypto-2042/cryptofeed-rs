@@ -13,6 +13,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 
 /// Process-local identity of one logical feed, retained across replacements.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "recording", derive(serde::Serialize, serde::Deserialize))]
 pub struct FeedId(u64);
 
 impl FeedId {
@@ -26,6 +27,8 @@ impl FeedId {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "recording", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "recording", serde(deny_unknown_fields))]
 pub struct FeedIdentity {
     pub id: FeedId,
     pub generation: u64,

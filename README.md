@@ -373,6 +373,15 @@ continuation. [Recent trades](docs/recent-trades.md) now provides bounded
 five-venue batches with exact IDs and native quantity units. [Native trade history](docs/trade-history.md) now adds scoped continuation
 for Binance aggregate and OKX/Gate individual executions; Gate delivery candles use the documented delivery endpoint.
 
+## Event recording and offline replay
+
+Opt-in `recording` adds bounded, versioned JSONL capture of identified normalized
+public events and sequential offline replay callbacks, with exact Decimal data,
+original model clocks, immediate/recorded timing and explicit failure/stop behavior.
+Broadcast lag is an error; incomplete files are rejected. Raw protocol replay
+remains pending. See [recording](docs/recording.md) for limits, file schema and the
+end-to-end example.
+
 ## HTTP and WebSocket proxy
 
 Use `.transport(TransportConfig::http_proxy("http://127.0.0.1:8080")?)` to route

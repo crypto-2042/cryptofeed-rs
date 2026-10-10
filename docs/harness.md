@@ -430,3 +430,13 @@ multiple native pages at one timestamp, empty seeds, offsets, boundary filtering
 non-progress and cancellation. The sanitized aggregate payload is distinct from
 recent individual executions. Gate contract trade clocks use second input;
 Spot uses milliseconds. Near-epoch same-value regression guards explicit units.
+
+## Normalized recordings (optional)
+
+The `recording` feature's user format is separate from exchange protocol capture
+references. `sample_data/recording.normalized.v1.jsonl` is synthetic normalized
+public data; matching inline `recording::tests` assertions run offline without
+packaging external files into the runtime crate. Do not replace raw parity fixtures
+with normalized recordings: the latter do not exercise native parser/book sync.
+Tests cover every enabled model category and record bounds/order/failure behavior.
+See [recording](recording.md) for the version-1 contract and remaining raw replay.

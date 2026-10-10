@@ -287,3 +287,13 @@ SourceLimit is separately tested without adding unsupported paging parameters.
 The delivery-trade range reference mirrors the focused SourceLimit test with
 native integer signed size and fractional-second numeric time, using substituted
 contract identity/OHLC values. It contains no invented page/offset parameter.
+
+## 2026-10-11 normalized recording format
+
+recording.normalized.v1.jsonl is synthetic SDK-normalized Trade data, not an
+exchange wire capture. Price/amount precision, source ID/generation, event sequence
+and elapsed timing match executable inline `recording::tests` data. The reference
+is not automatically loaded by tests, keeping packaged/offline tests self-contained.
+All-model roundtrip and malformed/truncated/limit/cancellation probes are SDK
+format tests, not supposed native exchange payloads. Public live capture evidence
+is kept separately and no raw frames/configuration/headers are recorded here.

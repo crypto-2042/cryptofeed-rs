@@ -769,3 +769,30 @@ feature boundaries.
   strict all-target Clippy, rustdoc, formatting/local links and Rust 1.85 all-target
   fresh resolution. Recording/replay, sinks/aggregation, NBBO and advanced resource
   policies remain under the active full-alignment objective.
+
+## Normalized recording/replay — 2026-10-11
+
+- Added opt-in recording feature: version-1 JSONL header/event/footer, contiguous
+  sequence and source feed/generation labels, preserved normalized models/Decimal
+  strings and original clocks. No transport/config/headers/raw/error text captured.
+- Bounded events/bytes/lines, footer reserve, size-limited encoding/read buffers,
+  five-second I/O deadlines and poisoned state after partial cancellation/failure.
+  Broadcast lag is explicit and produces no successful footer. Limited/stopped
+  prefixes are distinct from natural source closure; no fsync promise is made.
+- Offline replay invokes sequential callbacks with immediate or absolute recorded
+  timing, callback deadline and catchable panic/error handling. Cancellation/drop
+  cannot resume and skip a pending event. No network/live feed/cache mutation.
+- Focused tests cover all enabled categories, L2 snapshot/delta, committed format
+  reference/inline fixture, numeric precision, truncation/version/sequence/scope,
+  resource bounds, lag/quiet limits, false-stop signals, I/O deadlines/poisoning,
+  ordered timing, callback errors/panics and replay cancellation.
+- Normalized replay is one part of the larger objective; sanitized raw protocol
+  capture/replay, sinks/aggregation, NBBO and advanced resource policies remain.
+- Public OKX Spot workflow captured 20 identified normalized trades (6,738 bytes),
+  stopped the managed runtime, then replayed 20 models offline with source/model
+  identity and footer/count checks; exit 0. See [evidence](docs/reports/live-smoke-recording-2026-10-11.md).
+- Final gates passed: 577 all-feature workspace tests, 13 recording/Trade-only
+  focused cases plus disabled-category/boundary tests, every recording/category
+  combination and no-default build, strict all-target Clippy/rustdoc, formatting/
+  local links and Rust 1.85 all-feature all-target fresh resolution. CI/Makefile
+  now include the optional feature boundaries. No capture output/lockfile committed.

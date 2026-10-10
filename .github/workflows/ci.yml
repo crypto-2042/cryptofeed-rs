@@ -31,13 +31,20 @@ jobs:
       - run: cargo check --workspace --no-default-features
       - name: Check every runtime feature independently
         run: |
-          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
+          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest recording; do
             cargo check -p cryptofeed-rs --lib --no-default-features --features "$feature"
           done
       - name: Test every runtime feature independently
         run: |
-          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
+          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest recording; do
             cargo test -p cryptofeed-rs --test feature_boundaries --no-default-features --features "$feature"
+          done
+      - name: Check normalized recording boundaries
+        run: |
+          cargo test -p cryptofeed-rs --lib recording:: --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib recording:: --no-default-features --features recording,trade
+          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
+            cargo check -p cryptofeed-rs --lib --no-default-features --features "recording,$feature"
           done
       - run: cargo test -p cryptofeed-rs --no-default-features --no-run
 

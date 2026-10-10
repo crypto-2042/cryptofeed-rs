@@ -54,6 +54,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Funding history](funding-history.md): bounded settlement batches, exact actual
   rates, versioned cursors, native pagination/retention and termination semantics.
 
+- [Normalized recording/replay](recording.md): versioned JSONL, source identity,
+  bounded strict capture, offline callbacks, timing/cancellation and format scope.
+
 - [Trade history](trade-history.md): explicit granularity, ID-aware paging,
   scoped continuation, native retention and bounded stop reasons.
 

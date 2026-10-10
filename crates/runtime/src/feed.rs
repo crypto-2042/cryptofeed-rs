@@ -35,6 +35,8 @@ use tokio::sync::broadcast;
 /// consumer that never drains its receiver will lag (the broadcast channel
 /// drops the oldest events once the bounded buffer is full).
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "recording", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "recording", serde(rename_all = "snake_case"))]
 #[non_exhaustive]
 pub enum FeedEvent {
     #[cfg(feature = "ticker")]

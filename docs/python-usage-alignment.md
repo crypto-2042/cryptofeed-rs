@@ -36,7 +36,7 @@ local checkout, not claims about every upstream version.
 | Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Implemented opt-in L2BookHandle atomic full-snapshot/subscription recovery with local identity/connection/epoch/revision anchors and resync/disconnect/stop invalidation. Quantity units remain exchange-native normalized units. |
 | Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Implemented feed-level retry limits and handshake/callback deadlines with compatible defaults and successful-subscription reset. Idle overrides/disable and cancellation-aware startup delay are now implemented; shared explicit HTTP/WS proxy routing is implemented through TransportConfig; fixed protocol/resource policies stay intact. |
 | Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Implemented PublicRestClient ticker/book snapshots on current five-exchange routes, normalized models and optional native time/IDs; bounded funding settlement history/cursors are now implemented; five-venue candle history is implemented; five-venue recent trade batches are implemented; Binance/OKX/Gate historical pagination is implemented; Bybit/Bitget remain recent-only; Gate delivery history is range-only with SourceLimit on a full page; Gate delivery candles use the documented delivery endpoint. |
-| Recording/replay | `raw_data_collection.py`: recording and playback | Rust has deterministic inline fixtures/session doubles, but no user recording/replay API. Phase 5, with sanitization and an explicit file format. |
+| Recording/replay | `raw_data_collection.py`: recording and playback | Implemented opt-in normalized JSONL recording/replay with explicit format, source labels, limits, timing and strict lag/truncation/cancellation behavior. Sanitized raw protocol capture/replay remains pending. |
 | Storage/aggregation | `backends/`: database/message-bus/socket adapters, aggregate callbacks | No bundled Rust backends or OHLCV/throttle/Renko adapters. Phase 5 starts with a small sink contract and one justified adapter, avoiding a dependency-heavy default SDK. |
 | Cross-exchange NBBO | `feedhandler.py`: `add_nbbo`; `nbbo.py` | No Rust aggregation helper. Later opt-in work, with stale-source and symbol/unit compatibility rules. |
 
@@ -178,8 +178,9 @@ defaults unless a documented migration intentionally changes them.
 are implemented. [Funding history](funding-history.md) now adds bounded settlement
 batches with scope-bound JSON cursors and explicit stop reasons. [Five-venue candle history](candle-history.md) now provides bounded time windows
 and scoped JSON continuation. [Recent trades](recent-trades.md) now provides bounded five-venue batches.
-[Native trade history](trade-history.md) is implemented for Binance/OKX/Gate Spot/perpetual; Bybit/Bitget remain recent-only; Gate delivery history has no native continuation; Gate delivery candles use the documented delivery endpoint. Sanitized recording/replay, sinks and aggregation, and NBBO
-are separate increments after the subscription/lifecycle contract is stable.
+[Native trade history](trade-history.md) is implemented for Binance/OKX/Gate Spot/perpetual; Bybit/Bitget remain recent-only; Gate delivery history has no native continuation; Gate delivery candles use the documented delivery endpoint. [Normalized recording/replay](recording.md) is now implemented as a bounded
+optional workflow. Sanitized raw protocol replay, sinks/aggregation and NBBO remain
+separate increments after the subscription/lifecycle contract is stable.
 Do not promise full Python backend parity as part of the 0.1 core SDK. Each
 increment needs a concrete caller workflow, bounded resource behavior, and
 independent tests; protocol-facing work needs current official sources.

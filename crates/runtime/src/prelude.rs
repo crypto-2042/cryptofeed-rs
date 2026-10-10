@@ -70,3 +70,9 @@ pub use crate::rest::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, Ca
 pub use crate::rest::{
     TradeHistory, TradeHistoryCursor, TradeHistoryKind, TradeHistoryQuery, TradeHistoryStop,
 };
+
+#[cfg(feature = "recording")]
+pub use crate::recording::{
+    RecordedEvent, RecordingEnd, RecordingLimits, RecordingReader, RecordingSummary,
+    RecordingWriter, ReplayOptions, ReplayTiming, record_stream,
+};
