@@ -130,3 +130,5 @@ The footer certifies the captured file prefix, not exchange-wide completeness or
 [Public capture/offline replay evidence](reports/live-smoke-recording-2026-10-11.md) records the successful 20-event workflow.
 
 Incompatible normalized model/schema changes require a recording format migration or version change; do not silently reinterpret older records.
+
+A separate [public WS observation channel](raw-capture.md) now provides sanitized pre-parser text/context. It is not accepted by this normalized codec; persisted raw replay remains pending.

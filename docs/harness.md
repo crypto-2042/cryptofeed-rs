@@ -440,3 +440,10 @@ packaging external files into the runtime crate. Do not replace raw parity fixtu
 with normalized recordings: the latter do not exercise native parser/book sync.
 Tests cover every enabled model category and record bounds/order/failure behavior.
 See [recording](recording.md) for the version-1 contract and remaining raw replay.
+
+Public raw WS observation tests (`recording::raw` and connection `raw_tests`)
+are transport/sanitization probes, not new native protocol fixture expectations.
+They verify long JSON-number preservation, public context, credential redaction,
+sticky bounds/failure, reconnect ordering and observation before pong filtering.
+The narrow live model-clock assertion is separate from exchange event time.
+No persisted raw replay or HTTP bootstrap parity is implied by these observations.

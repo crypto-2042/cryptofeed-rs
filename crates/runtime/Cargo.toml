@@ -12,7 +12,7 @@ description = "Runtime for normalized cryptocurrency exchange market data"
 documentation = "https://docs.rs/cryptofeed-rs"
 
 [features]
-recording = ["dep:serde", "tokio/io-util", "tokio/fs"]
+recording = ["dep:serde", "serde/rc", "tokio/io-util", "tokio/fs"]
 default = ["ticker", "trade", "orderbook", "candles", "funding", "index", "liquidations", "markprice", "openinterest"]
 ticker = ["dep:cryptofeed-ticker"]
 trade = ["dep:cryptofeed-trade", "dep:serde"]
@@ -165,6 +165,10 @@ required-features = ["trade"]
 
 [[example]]
 name = "recording_public"
+required-features = ["recording", "trade"]
+
+[[example]]
+name = "raw_capture_public"
 required-features = ["recording", "trade"]
 
 [package.metadata.docs.rs]

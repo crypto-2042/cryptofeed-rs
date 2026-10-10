@@ -130,6 +130,11 @@ impl HeartbeatPolicy {
 }
 
 pub struct WsConnection {
+    #[cfg(feature = "recording")]
+    raw_capture: Option<(
+        crate::recording::raw::RawCaptureHandle,
+        crate::recording::raw::RawFeedInfo,
+    )>,
     pub url: Url,
     transport: crate::transport::TransportConfig,
     options: crate::options::RuntimeOptions,
@@ -141,6 +146,8 @@ impl WsConnection {
     pub fn new(url: Url, exchange: ExchangeId) -> Self {
         let heartbeat = HeartbeatPolicy::for_exchange(exchange, &url);
         Self {
+            #[cfg(feature = "recording")]
+            raw_capture: None,
             transport: Default::default(),
             options: Default::default(),
             url,
@@ -149,6 +156,24 @@ impl WsConnection {
         }
     }
 
+    pub(crate) fn capture_feed(self, feed: &crate::exchange::ExchangeFeed) -> Self {
+        #[cfg(feature = "recording")]
+        {
+            let mut connection = self;
+            connection.raw_capture = feed.raw_capture.as_ref().map(|capture| {
+                (
+                    capture.clone(),
+                    crate::recording::raw::RawFeedInfo::from_feed(feed),
+                )
+            });
+            connection
+        }
+        #[cfg(not(feature = "recording"))]
+        {
+            let _ = feed;
+            self
+        }
+    }
     pub fn transport(mut self, transport: crate::transport::TransportConfig) -> Self {
         self.transport = transport;
         self
@@ -184,11 +209,21 @@ impl WsConnection {
             .await?;
         let mut session = Session::new(stream, self.heartbeat).runtime_options(self.options);
         session._connection_slot = Some(slot);
+        #[cfg(feature = "recording")]
+        {
+            session.raw = self
+                .raw_capture
+                .as_ref()
+                .and_then(|(capture, feed)| capture.session(feed.clone()));
+        }
         Ok(session)
     }
 }
 
 pub struct Session<S> {
+    #[cfg(feature = "recording")]
+    raw: Option<crate::recording::raw::RawSession>,
+    last_text_received_ts: f64,
     stream: S,
     heartbeat: HeartbeatPolicy,
     last_received: Instant,
@@ -202,6 +237,9 @@ pub struct Session<S> {
 }
 
 impl<S> Session<S> {
+    pub(crate) fn received_timestamp(&self) -> f64 {
+        self.last_text_received_ts
+    }
     /// Sets the receipt watchdog; handshake/callback/retry settings apply at
     /// their owning runtime layers, not to this established session.
     pub fn runtime_options(mut self, options: crate::options::RuntimeOptions) -> Self {
@@ -258,6 +296,9 @@ impl<S> Session<S> {
             .is_some()
             .then_some(now + heartbeat.interval);
         Self {
+            #[cfg(feature = "recording")]
+            raw: None,
+            last_text_received_ts: 0.0,
             stream,
             heartbeat,
             last_received: now,
@@ -283,13 +324,27 @@ where
     const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
     pub async fn send_text(&mut self, text: &str) -> Result<()> {
-        tokio::time::timeout(
+        let result = tokio::time::timeout(
             Self::SEND_TIMEOUT,
             self.stream.send(Message::Text(text.to_owned())),
         )
         .await
         .map_err(|_| Error::Transport("websocket send timed out".to_owned()))?
-        .map_err(|error| Error::Transport(error.to_string()))
+        .map_err(|error| Error::Transport(error.to_string()));
+        #[cfg(feature = "recording")]
+        if result.is_ok() {
+            if let Some(raw) = &self.raw {
+                raw.text(
+                    text,
+                    serde_json::from_str::<serde_json::Value>(text)
+                        .ok()
+                        .as_ref(),
+                    false,
+                    super::current_timestamp(),
+                );
+            }
+        }
+        result
     }
 
     async fn close(&mut self) {
@@ -302,6 +357,12 @@ where
         shutdown: &mut watch::Receiver<bool>,
     ) -> Result<Option<String>> {
         let result = self.next_text_inner(shutdown).await;
+        #[cfg(feature = "recording")]
+        if !matches!(result, Ok(Some(_))) {
+            if let Some(raw) = &mut self.raw {
+                raw.close(matches!(result, Ok(None)));
+            }
+        }
         if matches!(result, Ok(Some(_))) {
             self.subscribed();
         }
@@ -376,10 +437,12 @@ where
                 message = self.stream.next() => {
                     match message {
                         Some(Ok(Message::Text(text))) => {
+                            self.last_text_received_ts=super::current_timestamp();
                             self.last_received = Instant::now();
                             if let Some(readiness) = &self.readiness { readiness.received(); }
                             let text = text.to_string();
                             let value = serde_json::from_str::<serde_json::Value>(&text).ok();
+                            #[cfg(feature="recording")] if let Some(raw)=&self.raw{raw.text(&text,value.as_ref(),true,self.last_text_received_ts);}
                             if text == "pong" && matches!(self.heartbeat.kind, HeartbeatKind::Text("ping"))
                                 || value.as_ref().is_some_and(|value| self.heartbeat.is_response_value(value)) { continue; }
                             if let (Some(readiness), Some(value)) = (self.readiness.as_mut(), value.as_ref()) {
@@ -823,5 +886,63 @@ mod tests {
             server.next().await.unwrap().unwrap(),
             Message::Close(_)
         ));
+    }
+}
+
+#[cfg(all(test, feature = "recording"))]
+mod raw_tests {
+    use super::*;
+    use crate::{
+        exchange::okx::Okx,
+        recording::raw::{RawFeedInfo, RawObservationKind, RawPayload, raw_capture_channel},
+    };
+    use tokio_tungstenite::tungstenite::protocol::Role;
+    #[tokio::test]
+    async fn observes_inbound_pong_before_filtering_and_uses_identical_receipt_clock() {
+        let (client, server) = tokio::io::duplex(8192);
+        let client = WebSocketStream::from_raw_socket(client, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(server, Role::Server, None).await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(
+                Some("ping"),
+                Duration::from_secs(20),
+                Duration::from_secs(45),
+            ),
+        );
+        let (capture, mut rx) = raw_capture_channel(16, 4096).unwrap();
+        session.raw = capture.session(RawFeedInfo::from_feed(
+            &Okx::new().trade().symbol("BTC-USDT").build(),
+        ));
+        server.send(Message::Text("pong".into())).await.unwrap();
+        server
+            .send(Message::Text(r#"{"data":{"px":"100"}}"#.into()))
+            .await
+            .unwrap();
+        let (_tx, mut shutdown) = watch::channel(false);
+        let text = session
+            .next_text_or_shutdown(&mut shutdown)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(text.contains("100"));
+        rx.recv().await.unwrap().unwrap();
+        assert!(matches!(
+            rx.recv().await.unwrap().unwrap().kind,
+            RawObservationKind::Received(RawPayload::Heartbeat(_))
+        ));
+        let data = rx.recv().await.unwrap().unwrap();
+        assert_eq!(data.observed_ts, session.received_timestamp());
+        session
+            .send_text(r#"{"op":"subscribe","apiKey":"fake-secret"}"#)
+            .await
+            .unwrap();
+        let sent = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(sent.kind, RawObservationKind::Sent(_)));
+        assert!(
+            !serde_json::to_string(&sent)
+                .unwrap()
+                .contains("fake-secret")
+        );
     }
 }

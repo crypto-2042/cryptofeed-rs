@@ -64,6 +64,8 @@ pub enum CandlePolicy {
 #[derive(Clone)]
 pub struct ExchangeFeed {
     pub transport: crate::transport::TransportConfig,
+    #[cfg(feature = "recording")]
+    pub(crate) raw_capture: Option<crate::recording::raw::RawCaptureHandle>,
     pub runtime_options: crate::options::RuntimeOptions,
     pub exchange: ExchangeId,
     pub channels: Vec<Channel>,
@@ -489,6 +491,8 @@ fn channel_name_for_warning(channel: Channel) -> &'static str {
 
 pub struct ExchangeFeedBuilder {
     transport: crate::transport::TransportConfig,
+    #[cfg(feature = "recording")]
+    raw_capture: Option<crate::recording::raw::RawCaptureHandle>,
     runtime_options: crate::options::RuntimeOptions,
     exchange: ExchangeId,
     channels: Vec<Channel>,
@@ -554,6 +558,8 @@ impl ExchangeFeedBuilder {
     pub fn new(exchange: ExchangeId) -> Self {
         Self {
             transport: Default::default(),
+            #[cfg(feature = "recording")]
+            raw_capture: None,
             runtime_options: Default::default(),
             exchange,
             channels: Vec::new(),
@@ -664,6 +670,13 @@ impl ExchangeFeedBuilder {
     #[cfg(feature = "candles")]
     pub fn candle_policy(mut self, policy: CandlePolicy) -> Self {
         self.candle_policy = policy;
+        self
+    }
+
+    /// Observes sanitized public WS text before heartbeat/control/parser handling.
+    #[cfg(feature = "recording")]
+    pub fn raw_capture(mut self, capture: crate::recording::raw::RawCaptureHandle) -> Self {
+        self.raw_capture = Some(capture);
         self
     }
 
@@ -939,6 +952,8 @@ impl ExchangeFeedBuilder {
         }
         ExchangeFeed {
             transport: self.transport,
+            #[cfg(feature = "recording")]
+            raw_capture: self.raw_capture,
             runtime_options: self.runtime_options,
             exchange: self.exchange,
             channels: self.channels,

@@ -76,3 +76,9 @@ pub use crate::recording::{
     RecordedEvent, RecordingEnd, RecordingLimits, RecordingReader, RecordingSummary,
     RecordingWriter, ReplayOptions, ReplayTiming, record_stream,
 };
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::{
+    RawCaptureHandle, RawCaptureReceiver, RawFeedInfo, RawObservation, RawObservationKind,
+    RawPayload, RawSessionInfo, raw_capture_channel,
+};

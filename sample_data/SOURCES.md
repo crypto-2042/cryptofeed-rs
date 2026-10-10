@@ -297,3 +297,14 @@ is not automatically loaded by tests, keeping packaged/offline tests self-contai
 All-model roundtrip and malformed/truncated/limit/cancellation probes are SDK
 format tests, not supposed native exchange payloads. Public live capture evidence
 is kept separately and no raw frames/configuration/headers are recorded here.
+
+## 2026-10-11 public WS observation schema
+
+recording.raw-observation.v1.json mirrors the synthetic sanitizer/context probe
+in recording::raw::tests, with substituted session/sequence/clock labels. It is
+one serialized SDK observation, not a completed raw recording file or actual
+exchange packet. The long numeric price is a precision probe. All credential and
+diagnostic placeholders are [REDACTED]; rejected private/auth/text cases exist
+only as explicit synthetic unit probes. Native headers/URLs/configuration were
+not captured. Connection raw_tests assert observation before pong filtering and
+the shared runtime/model receipt timestamp; no exchange parser expectation changed.

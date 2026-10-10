@@ -471,3 +471,23 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Public OKX Spot workflow captured 20 identified normalized trades (6,738 bytes),
   stopped the managed runtime, then replayed 20 models offline with source/model
   identity and footer/count checks; exit 0. See [evidence](docs/reports/live-smoke-recording-2026-10-11.md).
+
+## Public raw WS observation boundary — 2026-10-11
+
+- Added recording-feature raw_capture_channel and exchange-builder attachment,
+  actual successful-connection/send/inbound-text/closure hooks on all five runtime
+  consumers. Observe input before heartbeat/readiness/control/market filtering.
+- Shared immutable public feed/session context includes native mappings, sparse
+  channel rules, policy and source labels, never transport URL/credentials/headers.
+  JSON numeric literals preserve precision; known credential/diagnostic fields
+  redact, private auth/topics reject, and non-JSON text is limited to ping/pong.
+- Bounded nonblocking queue/text/depth, sticky overflow/closed/private/malformed
+  failure, serialized global enqueue order and fresh reconnect session IDs.
+  Capture failure does not fail healthy feed processing. Receiver owns no sender.
+- WS normalization now reuses the exact text-read receipt clock. Narrow WS double
+  verifies capture before pong filtering; no native exchange timestamp changed.
+- Raw persisted file/HTTP bootstrap capture and complete parser/session/L2 replay
+  remain pending, distinct from the existing normalized JSONL workflow.
+- Public OKX smoke observed 20 market packets/24 observations and 20 normalized
+  trades, exact shared receipt clocks/sequence/source verified, exit 0; see
+  [evidence](docs/reports/live-smoke-raw-capture-2026-10-11.md).

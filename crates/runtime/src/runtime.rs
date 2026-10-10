@@ -618,7 +618,8 @@ async fn consume_binance_session(
     };
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)
-        .transport(feed.transport.clone());
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -688,6 +689,7 @@ where
     E: Display,
 {
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
         #[cfg(feature = "orderbook")]
         poll_binance_snapshot_bootstraps(
             &feed,
@@ -704,7 +706,7 @@ where
             &feed,
             &plan,
             &text,
-            current_timestamp(),
+            received_ts,
             &mut snapshot_receivers,
             &mut pending_deltas,
         )
@@ -712,7 +714,7 @@ where
         #[cfg(not(feature = "orderbook"))]
         let handled = false;
         if !handled {
-            process_binance_text_message_for_plan(&feed, &plan, &text, current_timestamp()).await?;
+            process_binance_text_message_for_plan(&feed, &plan, &text, received_ts).await?;
         }
     }
 
@@ -730,7 +732,8 @@ async fn consume_bitget_session(
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)
-        .transport(feed.transport.clone());
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -759,7 +762,8 @@ where
     session.queue_subscriptions([BitgetAdapter::subscription_message(&feed)]);
 
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
-        process_bitget_text_message(&feed, &text, current_timestamp()).await?;
+        let received_ts = session.received_timestamp();
+        process_bitget_text_message(&feed, &text, received_ts).await?;
     }
 
     Ok(())
@@ -777,7 +781,8 @@ async fn consume_bybit_session(
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)
-        .transport(feed.transport.clone());
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -809,7 +814,7 @@ where
     // reconnect cannot reuse values from a previous session.
     let mut tickers = std::collections::HashMap::new();
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
-        let received_ts = current_timestamp();
+        let received_ts = session.received_timestamp();
         let mut message: Value =
             serde_json::from_str(&text).map_err(|e| Error::Parse(e.to_string()))?;
         merge_bybit_ticker_message(&feed, &mut tickers, &mut message)?;
@@ -831,7 +836,8 @@ async fn consume_okx_session(
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)
-        .transport(feed.transport.clone());
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -860,7 +866,8 @@ where
     session.queue_subscriptions([OkxAdapter::subscription_message(&feed)]);
 
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
-        process_okx_text_message(&feed, &text, current_timestamp()).await?;
+        let received_ts = session.received_timestamp();
+        process_okx_text_message(&feed, &text, received_ts).await?;
     }
 
     Ok(())
@@ -884,7 +891,8 @@ async fn consume_gateio_session(
     let url = Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)
-        .transport(feed.transport.clone());
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
     let mut session = match connection.connect().await {
         Ok(session) => session,
         Err(error) => {
@@ -936,6 +944,7 @@ where
     #[cfg(feature = "orderbook")]
     let mut resnapshot_attempts = std::collections::HashMap::new();
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
         #[cfg(feature = "orderbook")]
         poll_gateio_snapshot_bootstraps_for_plan(
             &feed,
@@ -950,7 +959,7 @@ where
             &feed,
             &plan,
             &text,
-            current_timestamp(),
+            received_ts,
             &mut snapshot_receivers,
             &mut pending_deltas,
         )
@@ -958,7 +967,7 @@ where
         {
             continue;
         }
-        process_gateio_text_message_for_plan(&feed, &plan, &text, current_timestamp()).await?;
+        process_gateio_text_message_for_plan(&feed, &plan, &text, received_ts).await?;
     }
 
     Ok(())
@@ -2760,7 +2769,7 @@ async fn process_bitget_orderbook_message(
     Ok(true)
 }
 
-fn current_timestamp() -> f64 {
+pub(crate) fn current_timestamp() -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     SystemTime::now()

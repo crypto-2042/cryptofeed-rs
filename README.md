@@ -378,8 +378,10 @@ for Binance aggregate and OKX/Gate individual executions; Gate delivery candles 
 Opt-in `recording` adds bounded, versioned JSONL capture of identified normalized
 public events and sequential offline replay callbacks, with exact Decimal data,
 original model clocks, immediate/recorded timing and explicit failure/stop behavior.
-Broadcast lag is an error; incomplete files are rejected. Raw protocol replay
-remains pending. See [recording](docs/recording.md) for limits, file schema and the
+Broadcast lag is an error; incomplete files are rejected. A separate
+[sanitized WS observation channel](docs/raw-capture.md) now captures text before
+control/market parsing. Raw file/session replay and HTTP bootstrap capture remain
+pending. See [recording](docs/recording.md) for limits, file schema and the
 end-to-end example.
 
 ## HTTP and WebSocket proxy

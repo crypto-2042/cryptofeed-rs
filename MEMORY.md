@@ -630,3 +630,18 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   Recorded identities are file-local source labels, not live control IDs/epochs.
 - No L2 recovery/lifecycle or atomic callback transaction is claimed. Ending
   validates sequence/count/EOF, not retained completeness or cryptographic integrity.
+
+## Public raw WS observation
+
+- Builder raw_capture attaches before Session text heartbeat/readiness/control
+  filtering. Capture successful sends, received text and session lifecycle, with
+  immutable public mappings/policy context, no transport/URL/header/handler data.
+- Keep sanitized WS observation separate from normalized JSONL; persisted raw
+  codec/HTTP/bootstrap/session replay remains pending. JSON semantics/precision
+  survive, whitespace may change, so this is not a byte-exact packet recorder.
+- Auth/private topics reject; known credentials and diagnostic strings redact;
+  preserve fixed success/pong controls. Never echo rejected payloads in errors.
+- Queue failure is sticky and source processing remains healthy. The receiver
+  must not retain a Sender through shared state, or producer closure never arrives.
+- WS model and raw observation receipt clocks share the pre-JSON read timestamp.
+  Reconnect/session IDs are process-local and distinct from feed generations.
