@@ -45,6 +45,20 @@ use cryptofeed_ticker::TickerHandler;
 #[cfg(feature = "trade")]
 use cryptofeed_trade::TradeHandler;
 
+/// Candle delivery policy. Completion comes only from the normalized wire flag;
+/// elapsed wall-clock time does not make a candle final.
+#[cfg(feature = "candles")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CandlePolicy {
+    /// Deliver all updates, preserving the existing Rust default.
+    #[default]
+    All,
+    /// Deliver only candles explicitly marked closed; omit unknown completion.
+    ClosedOnly,
+    /// Omit explicitly unfinished candles, retaining unknown completion as None.
+    ClosedOrUnknown,
+}
+
 #[derive(Clone)]
 pub struct ExchangeFeed {
     pub exchange: ExchangeId,
@@ -56,6 +70,8 @@ pub struct ExchangeFeed {
     /// Normalized candle interval (default `"1m"`); each adapter maps it to
     /// its own wire form. `Channel::Candles` uses a single interval per feed.
     pub candle_interval: String,
+    #[cfg(feature = "candles")]
+    pub candle_policy: CandlePolicy,
     /// Requested L2 depth level; `None` means the exchange default (Bybit 50,
     /// OKX/Bitget full book, Binance full depth).
     pub l2_book_depth: Option<u16>,
@@ -450,6 +466,8 @@ pub struct ExchangeFeedBuilder {
     exchange_symbols: Vec<String>,
     channel_subscriptions: Vec<(Channel, Vec<Symbol>)>,
     candle_interval: String,
+    #[cfg(feature = "candles")]
+    candle_policy: CandlePolicy,
     l2_book_depth: Option<u16>,
     l2_book_interval: Option<String>,
     #[cfg(feature = "ticker")]
@@ -493,6 +511,8 @@ impl ExchangeFeedBuilder {
             exchange_symbols: Vec::new(),
             channel_subscriptions: Vec::new(),
             candle_interval: "1m".to_owned(),
+            #[cfg(feature = "candles")]
+            candle_policy: CandlePolicy::All,
             l2_book_depth: None,
             l2_book_interval: None,
             #[cfg(feature = "ticker")]
@@ -568,6 +588,14 @@ impl ExchangeFeedBuilder {
     /// preflight; unsupported intervals fail before connecting.
     pub fn candles_interval(mut self, interval: impl Into<String>) -> Self {
         self.candle_interval = interval.into();
+        self
+    }
+
+    /// Filters candle delivery to handlers, streams, counters and observations.
+    /// This does not alter subscriptions or infer completion for unknown flags.
+    #[cfg(feature = "candles")]
+    pub fn candle_policy(mut self, policy: CandlePolicy) -> Self {
+        self.candle_policy = policy;
         self
     }
 
@@ -764,6 +792,8 @@ impl ExchangeFeedBuilder {
             channel_subscriptions: self.channel_subscriptions,
             subscription_mode_conflict,
             candle_interval: self.candle_interval,
+            #[cfg(feature = "candles")]
+            candle_policy: self.candle_policy,
             l2_book_depth: self.l2_book_depth,
             l2_book_interval: self.l2_book_interval,
             #[cfg(feature = "ticker")]

@@ -1198,6 +1198,15 @@ async fn dispatch_candle(feed: &ExchangeFeed, candle: cryptofeed_candles::Candle
     if !subscribed_to(feed, Channel::Candles, &candle.symbol) {
         return;
     }
+    use crate::exchange::CandlePolicy;
+    let deliver = match feed.candle_policy {
+        CandlePolicy::All => true,
+        CandlePolicy::ClosedOnly => candle.closed == Some(true),
+        CandlePolicy::ClosedOrUnknown => candle.closed != Some(false),
+    };
+    if !deliver {
+        return;
+    }
     feed.publish_event(crate::feed::FeedEvent::Candle(candle.clone()));
     if let Some(handler) = &feed.candle_handler {
         await_handler("candle", handler.on_candle(candle)).await;
@@ -2851,6 +2860,76 @@ mod tests {
         async fn on_candle(&self, _candle: Candle) {
             *self.seen.lock().expect("lock") += 1;
         }
+    }
+
+    #[cfg(feature = "candles")]
+    #[tokio::test]
+    async fn candle_completion_policy_filters_every_delivery_surface_without_guessing() {
+        use crate::exchange::CandlePolicy;
+        use cryptofeed_core::{exchange::Channel, symbol::Symbol};
+        use rust_decimal::Decimal;
+        for (policy, expected) in [
+            (CandlePolicy::All, vec![Some(false), None, Some(true)]),
+            (CandlePolicy::ClosedOnly, vec![Some(true)]),
+            (CandlePolicy::ClosedOrUnknown, vec![None, Some(true)]),
+        ] {
+            let seen = Arc::new(Mutex::new(0));
+            let mut handler = FeedHandler::new();
+            let mut events = handler.subscribe();
+            let mut identified = handler.subscribe_identified();
+            let counters = handler.event_counters();
+            handler.add_feed(
+                Binance::new()
+                    .candles()
+                    .symbol("BTC-USDT")
+                    .candle_policy(policy)
+                    .candle_handler(Arc::new(TestCandleHandler { seen: seen.clone() }))
+                    .build(),
+            );
+            let feed = handler.into_feeds().pop().unwrap();
+            let candle = Candle {
+                exchange: ExchangeId::Binance,
+                symbol: Symbol::spot("BTC", "USDT"),
+                start: 1.0,
+                end: 61.0,
+                interval: "1m".into(),
+                trades: None,
+                open: Decimal::ONE,
+                close: Decimal::ONE,
+                high: Decimal::ONE,
+                low: Decimal::ONE,
+                volume: Decimal::ONE,
+                closed: None,
+                exchange_ts: 2.0,
+                received_ts: 100.0, // Receipt after end must not imply completion.
+            };
+            for closed in [Some(false), None, Some(true)] {
+                let mut next = candle.clone();
+                next.closed = closed;
+                super::dispatch_candle(&feed, next).await;
+            }
+            assert_eq!(*seen.lock().unwrap(), expected.len());
+            assert_eq!(counters.count(Channel::Candles), expected.len() as u64);
+            for closed in expected {
+                let crate::feed::FeedEvent::Candle(actual) = events.try_recv().unwrap() else {
+                    panic!("candle")
+                };
+                let mut wanted = candle.clone();
+                wanted.closed = closed;
+                assert_eq!(actual, wanted); // Unknown stays unknown; no model rewrite.
+                let scoped = identified.try_recv().unwrap();
+                assert_eq!(Some(scoped.identity), feed.identity());
+                assert!(
+                    matches!(scoped.event, crate::feed::FeedEvent::Candle(value) if value == wanted)
+                );
+            }
+            assert!(events.try_recv().is_err());
+            assert!(identified.try_recv().is_err());
+        }
+        assert_eq!(
+            Binance::new().candles().build().candle_policy,
+            CandlePolicy::All
+        );
     }
 
     #[cfg(feature = "funding")]

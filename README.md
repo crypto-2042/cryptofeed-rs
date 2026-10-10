@@ -336,6 +336,15 @@ cargo run -p cryptofeed-rs --example managed_public
 state, data observations, reconnect epochs and stopping. Run the five-exchange
 public Trade/L2 observation with `cargo run -p cryptofeed-rs --example readiness_public`.
 
+## Candle completion
+
+Use `.candle_policy(CandlePolicy::ClosedOnly)` to deliver only explicitly final
+candles. The compatible default `All` delivers every update; `ClosedOrUnknown`
+omits known unfinished bars but preserves unknown completion as `None`.
+The filter applies to handlers, streams and counters. Bitget currently has
+unknown completion, so strict mode delivers no candles there. See
+[candle delivery](docs/candle-delivery.md) for policies and Python differences.
+
 ## Symbol discovery and service shutdown
 
 Load a product-qualified catalog, then select explicit normalized symbols:

@@ -39,6 +39,8 @@ bulk symbol configuration, and the existing watch-signal shutdown via
 patterns, unsupported products, and typed configuration. Exchange/channel
 capabilities are unchanged. Managed runtime controls/readiness and opt-in
 [automatic directory reconciliation](docs/discovery.md) are implemented.
+[CandlePolicy](docs/candle-delivery.md) also supports confirmed-final or
+final/unknown delivery while preserving the all-update default.
 Scripted regressions cover listings/removals, native-name changes, empty/failing
 refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
 tracked in [the usage alignment plan](docs/python-usage-alignment.md).

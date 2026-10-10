@@ -304,3 +304,11 @@ manual-owner protection. Catalog unit tests assert mixed active/inactive rows
 alongside sanitized HTTP references. No default test requires network access.
 `discovery_public` separately observes a real periodic refresh and cleanup; it
 cannot prove a new listing occurred during its observation window.
+
+
+## Candle delivery policy
+
+`cargo test -p cryptofeed-rs candle_completion_policy` checks final, unfinished and
+unknown flags against every delivery surface and verifies that receipt after
+bar end does not infer completion. This changes SDK filtering, not wire parsing;
+existing sourced parser fixtures remain unchanged.

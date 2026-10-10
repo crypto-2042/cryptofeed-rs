@@ -408,3 +408,21 @@ feature boundaries.
   Rust 1.85, all nine feature checks/tests, no-default test compilation and
   formatting passed. Consumer semantics/recovery, needed runtime policy,
   market metadata and optional ecosystem work remain under the active goal.
+
+
+## Usage alignment: candle completion policy — 2026-10-10
+
+- Added builder CandlePolicy All/ClosedOnly/ClosedOrUnknown at the shared
+  dispatcher for every active exchange. All preserves existing Rust behavior;
+  Python's inspected closed-only default is documented as an explicit difference.
+- Filtered events do not reach handlers, raw/identified streams, counters or
+  normalized observation metrics. Unknown remains None; receive time/end/reconnect
+  never synthesizes finality. Bitget strict mode emits no candles with its current
+  unknown-completion parser; the caller can explicitly retain unknown bars.
+- Regression exercises all flags/policies and delivery surfaces with unchanged
+  normalized values/identity and receipt-after-end behavior. No protocol/parser
+  changes or new live-service claims were made.
+- Final verification: 472 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation and
+  formatting passed. Multiple handlers/error/deadline semantics, recoverable L2
+  consumers and remaining policy/ecosystem increments are still active work.

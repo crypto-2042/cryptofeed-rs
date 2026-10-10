@@ -32,7 +32,7 @@ local checkout, not claims about every upstream version.
 | Updating an existing subscription | No general public update/unsubscribe API found in the inspected Python core | Implemented controlled remove/replace with candidate validation and old-task drain. In-place exchange WS updates remain a separate optimization. |
 | Automatically following listings | Python catalog refresh is explicit; no core periodic discover-and-resubscribe loop found | Rust now offers opt-in DiscoveryFeed with forced refresh, per-channel patterns, replacement, backoff and ownership guards; this extends the inspected Python core. |
 | Callback fan-out | `feed.py`: callback lists; `callback.py`: async/sync callback wrappers | Rust registers one handler per category. Broadcast offers fan-out with loss on lag; multiple reliable handlers need separate semantics. Phase 4. |
-| Candle completion | `feed.py`: `candle_closed_only`; Binance applies the flag | Rust exposes `Candle.closed` but lacks a builder-level closed-only filter. Phase 4, with an explicit policy for unknown completion. |
+| Candle completion | `feed.py`: `candle_closed_only`; Binance applies the flag | Implemented CandlePolicy All/ClosedOnly/ClosedOrUnknown at the common dispatcher; Rust retains its existing All default and never infers unknown completion. |
 | Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Rust has normalized snapshots/deltas and exchange sync, but a lagged broadcast consumer cannot request a synchronized recovery snapshot. Phase 4 prioritizes recovery and documents native-unit differences. |
 | Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Rust uses fixed supervision policies and tracing. Add only demonstrated public-service settings after lifecycle controls; preserve safe defaults and bounded shutdown. |
 | Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Rust REST currently serves discovery and book bootstrap. Public history clients are a later workstream; verify current official endpoints before implementation. |
@@ -149,9 +149,10 @@ current exchange protocols and acknowledgement handling are verified.
 
 ## Phase 4 — event and handler semantics
 
-Add closed-only candles with unknown-completion policy, multiple handler
-registrations with documented ordering/error/deadline behavior, and a recoverable
-L2 consumer interface with snapshot revision anchors. Existing lossy broadcast
+Implemented [closed-only candles and explicit unknown-completion policy](candle-delivery.md),
+with compatible all-update defaults and filtering before all delivery surfaces.
+Multiple handler registrations with documented ordering/error/deadline behavior and a recoverable
+L2 consumer interface with snapshot revision anchors remain pending. Existing lossy broadcast
 must remain explicit. Document which books are snapshots versus changes and
 which quantities use contracts versus base units. Add only needed transport
 settings without hiding protocol-specific constraints.

@@ -30,6 +30,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Automatic symbol reconciliation](discovery.md): opt-in patterns, listing/removal
   policy, refresh backoff, ownership and stopping.
 
+- [Candle delivery](candle-delivery.md): final/unfinished/unknown completion,
+  filtering surfaces and compatible defaults.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are

@@ -10,6 +10,8 @@ pub use cryptofeed_core::{
 };
 
 #[cfg(feature = "candles")]
+pub use crate::exchange::CandlePolicy;
+#[cfg(feature = "candles")]
 pub use cryptofeed_candles::{Candle, CandleHandler};
 
 #[cfg(feature = "funding")]

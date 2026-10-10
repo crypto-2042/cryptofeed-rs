@@ -358,3 +358,14 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Catalog eligibility is public-data policy, not order permission. Preserve
   Bitget limit_open/limit_close and Gate buyable/sellable; exclude explicit
   unavailable statuses. Precision/full metadata and phases 4–5 remain pending.
+
+
+## Candle completion policy
+
+- CandlePolicy filters at the common runtime dispatcher before handlers, both
+  broadcasts, counters and normalized observations. Default All stays compatible;
+  ClosedOnly requires Some(true); ClosedOrUnknown keeps None unchanged.
+- Never infer completion from receive time, candle end, next bars or reconnect.
+  Bitget currently has no finality flag, so strict mode emits no candles there.
+- Python's inspected default is closed-only, but Rust preserves its existing
+  behavior with explicit opt-in. Multi-handler and recoverable L2 work remain.
