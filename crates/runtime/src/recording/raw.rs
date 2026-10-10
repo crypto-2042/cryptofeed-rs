@@ -1,12 +1,13 @@
 //! Bounded, sanitized observation of actual public WS text before parsing.
-//! This transport stream is not yet a persisted raw recording/replay file.
+pub mod file;
 use crate::{exchange::ExchangeFeed, feed::FeedIdentity};
 use cryptofeed_core::{
     error::{Error, Result},
     exchange::{Channel, ExchangeId},
     symbol::Symbol,
 };
-use serde::Serialize;
+pub use file::{RawRecordingLimits, RawRecordingReader, RawRecordingWriter, record_raw_stream};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::{
     Arc, Mutex,
@@ -15,7 +16,8 @@ use std::sync::{
 use tokio::sync::mpsc;
 
 /// Public routing inputs only; transport URLs/credentials and handlers are absent.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawFeedInfo {
     pub sdk_version: String,
     pub identity: Option<FeedIdentity>,
@@ -55,26 +57,28 @@ impl RawFeedInfo {
         }
     }
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawSessionInfo {
     pub session_id: u64,
     pub feed: RawFeedInfo,
 }
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum RawPayload {
     Json { value: Value, redacted: bool },
     Heartbeat(String),
 }
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum RawObservationKind {
     Connected,
     Sent(RawPayload),
     Received(RawPayload),
     Closed { clean: bool },
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawObservation {
     pub version: u16,
     pub sequence: u64,

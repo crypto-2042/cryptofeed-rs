@@ -171,5 +171,9 @@ required-features = ["recording", "trade"]
 name = "raw_capture_public"
 required-features = ["recording", "trade"]
 
+[[example]]
+name = "raw_recording_public"
+required-features = ["recording", "trade"]
+
 [package.metadata.docs.rs]
 all-features = true

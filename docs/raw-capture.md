@@ -23,11 +23,10 @@ while input.recv().await?.is_some() {}
 # Ok(()) }
 ```
 
-The receiver is an observation API, **not yet a raw recording-file codec or offline
-protocol replayer**. The existing normalized JSONL reader does not accept these
-observations. Persisted raw segments, captured HTTP catalogs/bootstrap responses,
-parser/session replay and complete L2 sequence reconstruction remain subsequent
-work under the full alignment plan.
+The receiver is an observation API. [Raw WS files](raw-recording.md) now provide
+a separate bounded codec; the existing normalized JSONL reader does not accept
+these observations. Captured HTTP catalogs/bootstrap responses, native parser/
+session replay and complete L2 sequence reconstruction remain subsequent work.
 
 ## Observation scope
 

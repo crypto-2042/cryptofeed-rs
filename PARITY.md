@@ -491,3 +491,22 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Public OKX smoke observed 20 market packets/24 observations and 20 normalized
   trades, exact shared receipt clocks/sequence/source verified, exit 0; see
   [evidence](docs/reports/live-smoke-raw-capture-2026-10-11.md).
+
+## Raw WS segment files — 2026-10-11
+
+- Added separate version-1 raw-ws JSONL writer/reader/stream capture, sharing
+  bounded encoding/line I/O with normalized recording. Explicit header/footer,
+  quotas, session ceiling and partial-I/O poison/deadline behavior are preserved.
+- Validate contiguous global observation order, monotonic elapsed time, finite
+  clocks, public mapping/sparse scopes, immutable context, fresh connection IDs
+  and Connected/Sent/Received/Closed lifecycle. Natural Complete requires closed
+  sessions; Stopped/LimitReached are deliberate prefixes with open sessions allowed.
+- Revalidate privacy on writes/reads: unsafe or private records fail rather than
+  becoming file output/callback input. Reader interns validated context. No native
+  parser or network is invoked by file validation; HTTP/L2 replay remains pending.
+- Tests cover exact JSON-number roundtrip, unsafe metadata/payload, truncation/
+  versions/gaps/extra records, frozen context/lifecycle, resource/session limits,
+  source queue failure, partial cancellation and I/O deadlines.
+- Public OKX capture accepted 24 observations/18 trade-channel packets/15,672 bytes,
+  shut down runtime, then validated the saved file offline; LimitReached, exit 0.
+  See [evidence](docs/reports/live-smoke-raw-recording-2026-10-11.md).

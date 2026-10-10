@@ -308,3 +308,13 @@ diagnostic placeholders are [REDACTED]; rejected private/auth/text cases exist
 only as explicit synthetic unit probes. Native headers/URLs/configuration were
 not captured. Connection raw_tests assert observation before pong filtering and
 the shared runtime/model receipt timestamp; no exchange parser expectation changed.
+
+## 2026-10-11 raw-ws segment reference
+
+recording.raw-ws.v1.jsonl is a synthetic SDK file-format reference with matching
+inline raw::file tests, separate from the single-observation JSON and normalized
+codec. Context/session labels and clocks are substituted. The long numeric price
+is preserved from the sanitizer reference; credential/diagnostic fields are
+[REDACTED]. No actual exchange frames or private credentials are added. Tests
+validate cross-codec rejection, lifecycle/footer and precision; reading this file
+alone does not exercise an exchange parser or HTTP/L2 bootstrap replay.

@@ -82,3 +82,8 @@ pub use crate::recording::raw::{
     RawCaptureHandle, RawCaptureReceiver, RawFeedInfo, RawObservation, RawObservationKind,
     RawPayload, RawSessionInfo, raw_capture_channel,
 };
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::{
+    RawRecordingLimits, RawRecordingReader, RawRecordingWriter, record_raw_stream,
+};

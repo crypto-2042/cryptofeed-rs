@@ -645,3 +645,15 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   must not retain a Sender through shared state, or producer closure never arrives.
 - WS model and raw observation receipt clocks share the pre-JSON read timestamp.
   Reconnect/session IDs are process-local and distinct from feed generations.
+
+## Raw WS file codec
+
+- raw-ws version-1 JSONL is distinct from normalized recording and single raw DTO
+  references. Header/observation/footer schema, sequence/context/lifecycle/privacy
+  validate on both sides; no parse/session execution or HTTP fetch during reading.
+- Complete requires all sessions closed. Stopped/LimitReached certify deliberate
+  prefixes; segment starts at observer sequence one, with no rotation/merging yet.
+- Session metadata is frozen and interned after equality validation, with a
+  bounded total session count. Reused IDs/data after close or unredacted input fail.
+- Encoding/line reads share normalized bounded helpers; cancelled/failed I/O
+  poisons state. No snapshot recovery/native protocol completeness is implied.

@@ -54,6 +54,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Funding history](funding-history.md): bounded settlement batches, exact actual
   rates, versioned cursors, native pagination/retention and termination semantics.
 
+- [Raw WS files](raw-recording.md): bounded segments, privacy revalidation,
+  lifecycle/context integrity and explicit prefix/footer semantics.
+
 - [Public WS observation](raw-capture.md): pre-parser input/output capture,
   sanitization, bounded failure signaling, source context and remaining replay scope.
 

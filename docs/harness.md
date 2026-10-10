@@ -447,3 +447,9 @@ They verify long JSON-number preservation, public context, credential redaction,
 sticky bounds/failure, reconnect ordering and observation before pong filtering.
 The narrow live model-clock assertion is separate from exchange event time.
 No persisted raw replay or HTTP bootstrap parity is implied by these observations.
+
+Raw segment tests (`recording::raw::file`) exercise the separate raw-ws file
+schema and state validator. Test data is SDK-generated sanitized transport data,
+not a new exchange protocol assumption. Numeric JSON literals, metadata/lifecycle,
+privacy, truncation/limits and partial I/O are checked offline; file iteration is
+not evidence that native parsers or HTTP/L2 reconstruction were replayed.

@@ -97,7 +97,7 @@ impl Write for Buffer {
         Ok(())
     }
 }
-fn encode(record: &Record, maximum: usize) -> Result<Vec<u8>> {
+fn encode<T: Serialize>(record: &T, maximum: usize) -> Result<Vec<u8>> {
     let mut buffer = Buffer {
         bytes: Vec::new(),
         limit: maximum.saturating_sub(1),
@@ -105,6 +105,39 @@ fn encode(record: &Record, maximum: usize) -> Result<Vec<u8>> {
     serde_json::to_writer(&mut buffer, record).map_err(|_| limit())?;
     buffer.bytes.push(b'\n');
     Ok(buffer.bytes)
+}
+async fn bounded_line<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    bytes: &mut u64,
+    limits: RecordingLimits,
+) -> Result<Option<Vec<u8>>> {
+    let mut line = Vec::new();
+    loop {
+        let buffer = reader.fill_buf().await.map_err(io)?;
+        if buffer.is_empty() {
+            return if line.is_empty() {
+                Ok(None)
+            } else {
+                Err(invalid())
+            };
+        }
+        let count = buffer
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(buffer.len(), |i| i + 1);
+        if count > limits.max_record_bytes.saturating_sub(line.len())
+            || count as u64 > limits.max_bytes.saturating_sub(*bytes)
+        {
+            return Err(limit());
+        }
+        let end = buffer[count - 1] == b'\n';
+        line.extend_from_slice(&buffer[..count]);
+        reader.consume(count);
+        *bytes += count as u64;
+        if end {
+            return Ok(Some(line));
+        }
+    }
 }
 fn validate_event(record: &RecordedEvent) -> Result<()> {
     if record.identity.id.as_u64() == 0 || record.identity.generation == 0 {
@@ -310,33 +343,7 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
         self.finished
     }
     async fn line(&mut self) -> Result<Option<Vec<u8>>> {
-        let mut line = Vec::new();
-        loop {
-            let buffer = self.reader.fill_buf().await.map_err(io)?;
-            if buffer.is_empty() {
-                return if line.is_empty() {
-                    Ok(None)
-                } else {
-                    Err(invalid())
-                };
-            }
-            let count = buffer
-                .iter()
-                .position(|b| *b == b'\n')
-                .map_or(buffer.len(), |i| i + 1);
-            if count > self.limits.max_record_bytes.saturating_sub(line.len())
-                || count as u64 > self.limits.max_bytes.saturating_sub(self.bytes)
-            {
-                return Err(limit());
-            }
-            let end = buffer[count - 1] == b'\n';
-            line.extend_from_slice(&buffer[..count]);
-            self.reader.consume(count);
-            self.bytes += count as u64;
-            if end {
-                return Ok(Some(line));
-            }
-        }
+        bounded_line(&mut self.reader, &mut self.bytes, self.limits).await
     }
     async fn next_inner(&mut self) -> Result<Option<RecordedEvent>> {
         if !self.header {

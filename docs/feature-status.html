@@ -205,7 +205,8 @@
   <section>
     <h2><span class="step">1</span> 能力矩阵（按标的类型分组：现货 / 合约 / 期权 / MARGIN）</h2>
     <p class="note">首版推送前工程复核：字段语义、无损 JSON 精度、产品限定、Bybit delta 状态、周期格式和日历月边界已修正。383 项测试（含 82 parity）、Rust 1.85、全部 feature、文档与 lint 门禁通过；依赖审计零漏洞。10 配置聚合冒烟及 Bybit/Binance/Bitget 最终目标复核干净退出。最终工程门禁已复跑，源代码已推送 GitHub；GitHub 私有漏洞报告已启用并验证，正式发版仍需确认许可证来源。<a href="reports/live-smoke-pre-push-2026-10-08.md">实盘验证范围</a></p>
-    <p class="note">2026-10-11 原始 WS 观察通道：五家运行时接通连接/发送/接收/关闭观察，在心跳、确认和行情解析前采集。仅公共上下文，无传输 URL/头/代理凭据；敏感字段和诊断脱敏，私有认证/频道拒绝。队列/文本/深度有界，溢出失败粘滞且不阻断正常行情。WS 归一化共用原始文本接收时钟。OKX 20 个行情包/24 条观察与20条归一化交易精确时钟验证通过；584 项全 feature 测试、独立/组合 feature、严格 Clippy/rustdoc 与 Rust 1.85 全目标全新解析通过；原始文件、HTTP快照与完整状态回放仍待完成。<a href="raw-capture.md">范围与接口</a></p>
+    <p class="note">2026-10-11 原始 WS 文件：新增独立 raw-ws v1 JSONL 头/观察/尾格式，序号/上下文/会话生命周期/隐私重校验、有界大小和会话数；部分 I/O 失败/取消后不可猜测续读。自然 Complete 必须所有会话关闭，Stopped/LimitReached 是明确前缀。OKX 24条观察/18个交易频道包/15672字节落盘后关闭运行时，离线校验一致，退出0。592 项全 feature 测试、独立/组合 feature、严格 Clippy/rustdoc 与 Rust 1.85 全目标全新解析通过。尚未执行原生解析器或HTTP/L2回放。<a href="raw-recording.md">文件格式</a></p>
+    <p class="note">2026-10-11 原始 WS 观察通道：五家运行时接通连接/发送/接收/关闭观察，在心跳、确认和行情解析前采集。仅公共上下文，无传输 URL/头/代理凭据；敏感字段和诊断脱敏，私有认证/频道拒绝。队列/文本/深度有界，溢出失败粘滞且不阻断正常行情。WS 归一化共用原始文本接收时钟。OKX 20 个行情包/24 条观察与20条归一化交易精确时钟验证通过；584 项全 feature 测试、独立/组合 feature、严格 Clippy/rustdoc 与 Rust 1.85 全目标全新解析通过；原始 WS 文件已在后续批次补齐；HTTP快照与完整状态回放仍待完成。<a href="raw-capture.md">范围与接口</a></p>
     <p class="note">2026-10-11 归一化录制/回放：新增非默认 recording feature，版本 1 JSONL 头/事件/结束标记，来源 ID/代次、序号、原始模型与 Decimal 保留。默认 10 万条/256MiB/单行1MiB；lag 明确失败、缺尾拒绝、部分 I/O 与回放取消后不可跳过待投递事件。即时/绝对时间回放，顺序回调及超时/错误/可捕获 panic 停止；不创建网络连接或写入实时缓存。OKX 公开链路录制 20 条/6738 字节，关闭运行时后离线回放 20 条验证通过；577 项全 feature 工作区测试、独立/组合 feature、严格 Clippy/rustdoc 与 Rust 1.85 全 feature 全目标全新解析通过。CI 已加入可选功能边界。原始协议录制/回放仍待完成。<a href="recording.md">格式与行为</a></p>
     <p class="note">2026-10-10 历史成交：新增显式 Aggregate/Individual 粒度、每批最多 10,000 原始行、版本 1 JSON 续页。Binance 时间定位后按聚合 ID+1；OKX 按 tradeId；Gate 固定范围 page/offset，不用退役 last_id。同毫秒多笔跨页不丢失。Gate 合约 create_time_ms 已按公开服务证据修正为小数秒，与 Spot 毫秒计数区分，近期实盘新增年龄下界。六组历史首次/续页各 10 条、2 页，无重复，退出 0；564 项工作区测试、trade/candles 独立测试、九个 feature 编译、严格 Clippy 与 Rust 1.85 全目标全新解析通过。交割蜡烛端点遗漏已修正，交割成交范围满页明确 SourceLimit，不猜测 offset/last_id。<a href="trade-history.md">范围与限制</a> · <a href="reports/live-smoke-trade-history-2026-10-10.md">证据与先前观测</a></p>
     <p class="note">2026-10-10 近期成交：五家公共 REST 已新增 recent_trades，逐源限制行数，Decimal 精度与原生 ID/数量单位保留；Binance maker 标志换算主动方向，Gate 合约有符号数量确定方向并取绝对值。同刻不同 ID 不合并，精确时间排序后才转 f64。Binance 近期个别成交与 WS/历史聚合成交 ID 空间不同；本批不宣称历史分页或完整性。十组现货/永续公开查询各 5 条、ID 不重复、时间递增，退出 0；553 项工作区测试、trade 独立测试、九个 feature 编译、严格 Clippy 与 Rust 1.85 全目标全新解析通过。<a href="recent-trades.md">接口与语义</a></p>
@@ -341,7 +342,7 @@
         </div>
         <div class="kb-item">
           <div class="t">离线回放（playback）</div>
-          <div class="d">已实现可选归一化 JSONL 录制与离线顺序回调回放，保留 Decimal/来源/原始时间；解析前的公共 WS 脱敏观察通道已接通；原始文件/HTTP 捕获及 parser/book-sync 回放仍待完成。</div>
+          <div class="d">已实现可选归一化 JSONL 录制与离线顺序回调回放，保留 Decimal/来源/原始时间；解析前的公共 WS 脱敏观察通道已接通；原始 WS 文件录制/校验已完成；HTTP 捕获及 parser/book-sync 回放仍待完成。</div>
         </div>
         <div class="kb-item">
           <div class="t">性能基准</div>

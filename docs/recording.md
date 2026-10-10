@@ -131,4 +131,4 @@ The footer certifies the captured file prefix, not exchange-wide completeness or
 
 Incompatible normalized model/schema changes require a recording format migration or version change; do not silently reinterpret older records.
 
-A separate [public WS observation channel](raw-capture.md) now provides sanitized pre-parser text/context. It is not accepted by this normalized codec; persisted raw replay remains pending.
+A separate [public WS observation channel](raw-capture.md) now provides sanitized pre-parser text/context. It is not accepted by this normalized codec. [Raw WS files](raw-recording.md) provide their own bounded reader/writer; native protocol replay remains pending.
