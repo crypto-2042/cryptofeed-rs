@@ -31,7 +31,7 @@ local checkout, not claims about every upstream version.
 | Runtime additions | `feedhandler.py`: `add_feed` starts a new feed when running; `examples/demo_loop.py` | Implemented opt-in RuntimeControl; retained handles can add feeds after startup. Legacy strict startup remains available. |
 | Updating an existing subscription | No general public update/unsubscribe API found in the inspected Python core | Implemented controlled remove/replace with candidate validation and old-task drain. In-place exchange WS updates remain a separate optimization. |
 | Automatically following listings | Python catalog refresh is explicit; no core periodic discover-and-resubscribe loop found | Rust now offers opt-in DiscoveryFeed with forced refresh, per-channel patterns, replacement, backoff and ownership guards; this extends the inspected Python core. |
-| Callback fan-out | `feed.py`: callback lists; `callback.py`: async/sync callback wrappers | Rust registers one handler per category. Broadcast offers fan-out with loss on lag; multiple reliable handlers need separate semantics. Phase 4. |
+| Callback fan-out | `feed.py`: callback lists; `callback.py`: async/sync callback wrappers | Implemented primary plus add_*_handler registrations, serial order, independent five-second deadlines and catchable panic isolation. Traits return (); business errors remain caller-owned. Broadcast remains lossy. |
 | Candle completion | `feed.py`: `candle_closed_only`; Binance applies the flag | Implemented CandlePolicy All/ClosedOnly/ClosedOrUnknown at the common dispatcher; Rust retains its existing All default and never infers unknown completion. |
 | Book consumption | `feed.py`: book callbacks, depth/checksum/cross checks; Python book objects expose deltas | Rust has normalized snapshots/deltas and exchange sync, but a lagged broadcast consumer cannot request a synchronized recovery snapshot. Phase 4 prioritizes recovery and documents native-unit differences. |
 | Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Rust uses fixed supervision policies and tracing. Add only demonstrated public-service settings after lifecycle controls; preserve safe defaults and bounded shutdown. |
@@ -151,8 +151,9 @@ current exchange protocols and acknowledgement handling are verified.
 
 Implemented [closed-only candles and explicit unknown-completion policy](candle-delivery.md),
 with compatible all-update defaults and filtering before all delivery surfaces.
-Multiple handler registrations with documented ordering/error/deadline behavior and a recoverable
-L2 consumer interface with snapshot revision anchors remain pending. Existing lossy broadcast
+Implemented [multiple handler registrations](handlers.md) with primary/append ordering,
+per-callback timeout, catchable panic isolation and documented business-error semantics.
+A recoverable L2 consumer interface with snapshot revision anchors remains pending. Existing lossy broadcast
 must remain explicit. Document which books are snapshots versus changes and
 which quantities use contracts versus base units. Add only needed transport
 settings without hiding protocol-specific constraints.

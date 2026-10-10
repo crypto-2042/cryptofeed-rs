@@ -369,3 +369,18 @@ Project-specific memory for `rust/cryptofeed-rs`.
   Bitget currently has no finality flag, so strict mode emits no candles there.
 - Python's inspected default is closed-only, but Rust preserves its existing
   behavior with explicit opt-in. Multi-handler and recoverable L2 work remain.
+
+
+## Multiple callback registrations
+
+- Preserve primary *_handler setter replacement; add_*_handler appends after
+  the primary in registration order. Add-only works; duplicates intentionally run.
+- Every callback gets an independent model clone. Update books and publish/count
+  once before fan-out, after channel/symbol/candle filters.
+- Each callback owns a five-second timeout; drop on timeout and continue. Catch
+  unwind around construction/polling and continue after panic; abort panics and
+  non-yielding/blocking code are not cancellable guarantees. Traits return (),
+  so application errors remain caller-owned. Trace callback failures separately.
+- Serial callbacks block session reads; cross-session shared Arcs can run
+  concurrently. Bounded shutdown may cancel before remaining callbacks; no
+  transactional/exactly-once delivery or detached-task cleanup is implied.

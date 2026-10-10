@@ -312,3 +312,13 @@ cannot prove a new listing occurred during its observation window.
 unknown flags against every delivery surface and verifies that receipt after
 bar end does not infer completion. This changes SDK filtering, not wire parsing;
 existing sourced parser fixtures remain unchanged.
+
+
+## Handler fan-out targets
+
+The runtime `multiple_handlers`, `handler_panic_and_timeout` and
+`shutdown_cancels_slow_handler` regressions exercise primary/append ordering,
+add-only registration, model isolation, one publication, per-callback timeout,
+panic continuation, subsequent delivery and bounded cancellation. The timeout
+regression uses the actual five-second production deadline. Exchange wire
+fixtures are unchanged because this increment changes SDK callback execution.

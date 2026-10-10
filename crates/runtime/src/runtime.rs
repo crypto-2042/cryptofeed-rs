@@ -45,7 +45,7 @@ use cryptofeed_core::{
 };
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::L2Book;
-use futures::{Sink, Stream};
+use futures::{FutureExt, Sink, Stream};
 use serde_json::Value;
 use std::fmt::Display;
 use std::future::Future;
@@ -1208,8 +1208,12 @@ async fn dispatch_candle(feed: &ExchangeFeed, candle: cryptofeed_candles::Candle
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Candle(candle.clone()));
-    if let Some(handler) = &feed.candle_handler {
-        await_handler("candle", handler.on_candle(candle)).await;
+    for handler in feed
+        .candle_handler
+        .iter()
+        .chain(&feed.additional_candle_handlers)
+    {
+        await_handler("candle", async { handler.on_candle(candle.clone()).await }).await;
     }
 }
 
@@ -1219,8 +1223,15 @@ async fn dispatch_funding(feed: &ExchangeFeed, funding: cryptofeed_funding::Fund
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Funding(funding.clone()));
-    if let Some(handler) = &feed.funding_handler {
-        await_handler("funding", handler.on_funding(funding)).await;
+    for handler in feed
+        .funding_handler
+        .iter()
+        .chain(&feed.additional_funding_handlers)
+    {
+        await_handler("funding", async {
+            handler.on_funding(funding.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1233,8 +1244,15 @@ async fn dispatch_liquidation(
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Liquidation(liquidation.clone()));
-    if let Some(handler) = &feed.liquidation_handler {
-        await_handler("liquidation", handler.on_liquidation(liquidation)).await;
+    for handler in feed
+        .liquidation_handler
+        .iter()
+        .chain(&feed.additional_liquidation_handlers)
+    {
+        await_handler("liquidation", async {
+            handler.on_liquidation(liquidation.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1244,8 +1262,15 @@ async fn dispatch_mark_price(feed: &ExchangeFeed, mark_price: cryptofeed_markpri
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::MarkPrice(mark_price.clone()));
-    if let Some(handler) = &feed.mark_price_handler {
-        await_handler("mark_price", handler.on_mark_price(mark_price)).await;
+    for handler in feed
+        .mark_price_handler
+        .iter()
+        .chain(&feed.additional_mark_price_handlers)
+    {
+        await_handler("mark_price", async {
+            handler.on_mark_price(mark_price.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1258,8 +1283,15 @@ async fn dispatch_open_interest(
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::OpenInterest(open_interest.clone()));
-    if let Some(handler) = &feed.open_interest_handler {
-        await_handler("open_interest", handler.on_open_interest(open_interest)).await;
+    for handler in feed
+        .open_interest_handler
+        .iter()
+        .chain(&feed.additional_open_interest_handlers)
+    {
+        await_handler("open_interest", async {
+            handler.on_open_interest(open_interest.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1269,8 +1301,15 @@ async fn dispatch_index_price(feed: &ExchangeFeed, index_price: cryptofeed_index
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::IndexPrice(index_price.clone()));
-    if let Some(handler) = &feed.index_price_handler {
-        await_handler("index_price", handler.on_index_price(index_price)).await;
+    for handler in feed
+        .index_price_handler
+        .iter()
+        .chain(&feed.additional_index_price_handlers)
+    {
+        await_handler("index_price", async {
+            handler.on_index_price(index_price.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1280,8 +1319,12 @@ async fn dispatch_ticker(feed: &ExchangeFeed, ticker: cryptofeed_ticker::Ticker)
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Ticker(ticker.clone()));
-    if let Some(handler) = &feed.ticker_handler {
-        await_handler("ticker", handler.on_ticker(ticker)).await;
+    for handler in feed
+        .ticker_handler
+        .iter()
+        .chain(&feed.additional_ticker_handlers)
+    {
+        await_handler("ticker", async { handler.on_ticker(ticker.clone()).await }).await;
     }
 }
 
@@ -1291,8 +1334,12 @@ async fn dispatch_trade(feed: &ExchangeFeed, trade: cryptofeed_trade::Trade) {
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Trade(trade.clone()));
-    if let Some(handler) = &feed.trade_handler {
-        await_handler("trade", handler.on_trade(trade)).await;
+    for handler in feed
+        .trade_handler
+        .iter()
+        .chain(&feed.additional_trade_handlers)
+    {
+        await_handler("trade", async { handler.on_trade(trade.clone()).await }).await;
     }
 }
 
@@ -1306,8 +1353,12 @@ async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) {
         feed.book_synchronized(book.symbol().as_str());
     }
     feed.publish_event(crate::feed::FeedEvent::L2Book(book.clone()));
-    if let Some(handler) = &feed.orderbook_handler {
-        await_handler("l2_book", handler.on_l2_book(book)).await;
+    for handler in feed
+        .orderbook_handler
+        .iter()
+        .chain(&feed.additional_orderbook_handlers)
+    {
+        await_handler("l2_book", async { handler.on_l2_book(book.clone()).await }).await;
     }
 }
 
@@ -1317,8 +1368,12 @@ async fn dispatch_l1_book(feed: &ExchangeFeed, book: cryptofeed_orderbook::L1Boo
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::L1Book(book.clone()));
-    if let Some(handler) = &feed.orderbook_handler {
-        await_handler("l1_book", handler.on_l1_book(book)).await;
+    for handler in feed
+        .orderbook_handler
+        .iter()
+        .chain(&feed.additional_orderbook_handlers)
+    {
+        await_handler("l1_book", async { handler.on_l1_book(book.clone()).await }).await;
     }
 }
 
@@ -1334,8 +1389,15 @@ async fn await_handler<F>(channel: &'static str, future: F)
 where
     F: Future<Output = ()>,
 {
-    if tokio::time::timeout(HANDLER_TIMEOUT, future).await.is_err() {
-        tracing::warn!(channel, "handler timed out; event callback cancelled");
+    match tokio::time::timeout(
+        HANDLER_TIMEOUT,
+        std::panic::AssertUnwindSafe(future).catch_unwind(),
+    )
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => tracing::error!(channel, "handler panicked; continuing remaining callbacks"),
+        Err(_) => tracing::warn!(channel, "handler timed out; event callback cancelled"),
     }
 }
 
@@ -2819,6 +2881,152 @@ mod tests {
         async fn on_trade(&self, _trade: Trade) {
             *self.seen.lock().expect("lock") += 1;
         }
+    }
+
+    #[cfg(feature = "trade")]
+    struct OrderedTradeHandler {
+        name: &'static str,
+        seen: Arc<Mutex<Vec<&'static str>>>,
+        behavior: u8,
+    }
+    #[cfg(feature = "trade")]
+    #[async_trait]
+    impl TradeHandler for OrderedTradeHandler {
+        async fn on_trade(&self, mut trade: Trade) {
+            assert_eq!(trade.price, rust_decimal::Decimal::ONE);
+            trade.price = rust_decimal::Decimal::ZERO; // Each callback receives an independent model.
+            let first = {
+                let mut seen = self.seen.lock().unwrap();
+                seen.push(self.name);
+                seen.iter().filter(|name| **name == self.name).count() == 1
+            };
+            match self.behavior {
+                1 => panic!("scripted handler failure"),
+                2 if first => std::future::pending().await,
+                _ => tokio::task::yield_now().await,
+            }
+        }
+    }
+    #[cfg(feature = "trade")]
+    fn handler_trade() -> Trade {
+        Trade {
+            exchange: ExchangeId::Binance,
+            symbol: cryptofeed_core::symbol::Symbol::spot("BTC", "USDT"),
+            side: cryptofeed_trade::Side::Buy,
+            amount: rust_decimal::Decimal::ONE,
+            price: rust_decimal::Decimal::ONE,
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+            id: None,
+            implied_volatility: None,
+        }
+    }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn multiple_handlers_preserve_order_primary_replacement_and_single_publication() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let probe = |name| {
+            Arc::new(OrderedTradeHandler {
+                name,
+                seen: seen.clone(),
+                behavior: 0,
+            })
+        };
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .trade_handler(probe("replaced"))
+            .add_trade_handler(probe("second"))
+            .trade_handler(probe("primary"))
+            .add_trade_handler(probe("third"))
+            .build();
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        let counters = handler.event_counters();
+        handler.add_feed(feed);
+        let feed = handler.into_feeds().pop().unwrap();
+        super::dispatch_trade(&feed, handler_trade()).await;
+        assert_eq!(*seen.lock().unwrap(), ["primary", "second", "third"]);
+        assert_eq!(counters.count(cryptofeed_core::exchange::Channel::Trade), 1);
+        assert!(events.try_recv().is_ok());
+        assert!(events.try_recv().is_err());
+        let extra_only = Binance::new().trade().add_trade_handler(probe("only"));
+        assert!(extra_only.has_handler_for(cryptofeed_core::exchange::Channel::Trade));
+        super::dispatch_trade(&extra_only.symbol("BTC-USDT").build(), handler_trade()).await;
+        assert_eq!(seen.lock().unwrap().last(), Some(&"only"));
+    }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn handler_panic_and_timeout_allow_later_handlers_and_future_events() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let probe = |name, behavior| {
+            Arc::new(OrderedTradeHandler {
+                name,
+                seen: seen.clone(),
+                behavior,
+            })
+        };
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .trade_handler(probe("panic", 1))
+            .add_trade_handler(probe("slow", 2))
+            .add_trade_handler(probe("last", 0))
+            .build();
+        tokio::time::timeout(
+            Duration::from_secs(7),
+            super::dispatch_trade(&feed, handler_trade()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["panic", "slow", "last"]);
+        super::dispatch_trade(&feed, handler_trade()).await;
+        assert_eq!(
+            *seen.lock().unwrap(),
+            ["panic", "slow", "last", "panic", "slow", "last"]
+        );
+    }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn shutdown_cancels_slow_handler_before_remaining_callbacks() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .add_trade_handler(Arc::new(OrderedTradeHandler {
+                name: "slow",
+                seen: seen.clone(),
+                behavior: 2,
+            }))
+            .add_trade_handler(Arc::new(OrderedTradeHandler {
+                name: "later",
+                seen: seen.clone(),
+                behavior: 0,
+            }))
+            .build();
+        let (stop, shutdown) = watch::channel(false);
+        let running = tokio::spawn(super::run_feeds_until_shutdown(
+            vec![feed],
+            shutdown,
+            |feed, _| async move {
+                super::dispatch_trade(&feed, handler_trade()).await;
+                Ok(())
+            },
+        ));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while seen.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        stop.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), running)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["slow"]);
     }
 
     #[cfg(feature = "orderbook")]

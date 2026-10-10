@@ -80,22 +80,40 @@ pub struct ExchangeFeed {
     pub l2_book_interval: Option<String>,
     #[cfg(feature = "ticker")]
     pub ticker_handler: Option<Arc<dyn TickerHandler>>,
+    #[cfg(feature = "ticker")]
+    pub(crate) additional_ticker_handlers: Vec<Arc<dyn TickerHandler>>,
     #[cfg(feature = "candles")]
     pub candle_handler: Option<Arc<dyn CandleHandler>>,
+    #[cfg(feature = "candles")]
+    pub(crate) additional_candle_handlers: Vec<Arc<dyn CandleHandler>>,
     #[cfg(feature = "funding")]
     pub funding_handler: Option<Arc<dyn FundingHandler>>,
+    #[cfg(feature = "funding")]
+    pub(crate) additional_funding_handlers: Vec<Arc<dyn FundingHandler>>,
     #[cfg(feature = "liquidations")]
     pub liquidation_handler: Option<Arc<dyn LiquidationHandler>>,
+    #[cfg(feature = "liquidations")]
+    pub(crate) additional_liquidation_handlers: Vec<Arc<dyn LiquidationHandler>>,
     #[cfg(feature = "markprice")]
     pub mark_price_handler: Option<Arc<dyn MarkPriceHandler>>,
+    #[cfg(feature = "markprice")]
+    pub(crate) additional_mark_price_handlers: Vec<Arc<dyn MarkPriceHandler>>,
     #[cfg(feature = "trade")]
     pub trade_handler: Option<Arc<dyn TradeHandler>>,
+    #[cfg(feature = "trade")]
+    pub(crate) additional_trade_handlers: Vec<Arc<dyn TradeHandler>>,
     #[cfg(feature = "openinterest")]
     pub open_interest_handler: Option<Arc<dyn OpenInterestHandler>>,
+    #[cfg(feature = "openinterest")]
+    pub(crate) additional_open_interest_handlers: Vec<Arc<dyn OpenInterestHandler>>,
     #[cfg(feature = "index")]
     pub index_price_handler: Option<Arc<dyn IndexPriceHandler>>,
+    #[cfg(feature = "index")]
+    pub(crate) additional_index_price_handlers: Vec<Arc<dyn IndexPriceHandler>>,
     #[cfg(feature = "orderbook")]
     pub orderbook_handler: Option<Arc<dyn OrderBookHandler>>,
+    #[cfg(feature = "orderbook")]
+    pub(crate) additional_orderbook_handlers: Vec<Arc<dyn OrderBookHandler>>,
     #[cfg(feature = "orderbook")]
     pub(crate) orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
     #[cfg(feature = "orderbook")]
@@ -397,43 +415,66 @@ impl ExchangeFeedBuilder {
     pub(crate) fn has_handler_for(&self, channel: Channel) -> bool {
         match channel {
             #[cfg(feature = "ticker")]
-            Channel::Ticker => self.ticker_handler.is_some(),
+            Channel::Ticker => {
+                self.ticker_handler.is_some() || !self.additional_ticker_handlers.is_empty()
+            }
             #[cfg(not(feature = "ticker"))]
             Channel::Ticker => false,
             #[cfg(feature = "candles")]
-            Channel::Candles => self.candle_handler.is_some(),
+            Channel::Candles => {
+                self.candle_handler.is_some() || !self.additional_candle_handlers.is_empty()
+            }
             #[cfg(not(feature = "candles"))]
             Channel::Candles => false,
             #[cfg(feature = "funding")]
-            Channel::Funding => self.funding_handler.is_some(),
+            Channel::Funding => {
+                self.funding_handler.is_some() || !self.additional_funding_handlers.is_empty()
+            }
             #[cfg(not(feature = "funding"))]
             Channel::Funding => false,
             #[cfg(feature = "liquidations")]
-            Channel::Liquidations => self.liquidation_handler.is_some(),
+            Channel::Liquidations => {
+                self.liquidation_handler.is_some()
+                    || !self.additional_liquidation_handlers.is_empty()
+            }
             #[cfg(not(feature = "liquidations"))]
             Channel::Liquidations => false,
             #[cfg(feature = "markprice")]
-            Channel::MarkPrice => self.mark_price_handler.is_some(),
+            Channel::MarkPrice => {
+                self.mark_price_handler.is_some() || !self.additional_mark_price_handlers.is_empty()
+            }
             #[cfg(not(feature = "markprice"))]
             Channel::MarkPrice => false,
             #[cfg(feature = "trade")]
-            Channel::Trade => self.trade_handler.is_some(),
+            Channel::Trade => {
+                self.trade_handler.is_some() || !self.additional_trade_handlers.is_empty()
+            }
             #[cfg(not(feature = "trade"))]
             Channel::Trade => false,
             #[cfg(feature = "orderbook")]
-            Channel::L2Book => self.orderbook_handler.is_some(),
+            Channel::L2Book => {
+                self.orderbook_handler.is_some() || !self.additional_orderbook_handlers.is_empty()
+            }
             #[cfg(not(feature = "orderbook"))]
             Channel::L2Book => false,
             #[cfg(feature = "orderbook")]
-            Channel::L1Book => self.orderbook_handler.is_some(),
+            Channel::L1Book => {
+                self.orderbook_handler.is_some() || !self.additional_orderbook_handlers.is_empty()
+            }
             #[cfg(not(feature = "orderbook"))]
             Channel::L1Book => false,
             #[cfg(feature = "openinterest")]
-            Channel::OpenInterest => self.open_interest_handler.is_some(),
+            Channel::OpenInterest => {
+                self.open_interest_handler.is_some()
+                    || !self.additional_open_interest_handlers.is_empty()
+            }
             #[cfg(not(feature = "openinterest"))]
             Channel::OpenInterest => false,
             #[cfg(feature = "index")]
-            Channel::Index => self.index_price_handler.is_some(),
+            Channel::Index => {
+                self.index_price_handler.is_some()
+                    || !self.additional_index_price_handlers.is_empty()
+            }
             #[cfg(not(feature = "index"))]
             Channel::Index => false,
             // A future channel without a handler must not silently suppress
@@ -472,22 +513,40 @@ pub struct ExchangeFeedBuilder {
     l2_book_interval: Option<String>,
     #[cfg(feature = "ticker")]
     ticker_handler: Option<Arc<dyn TickerHandler>>,
+    #[cfg(feature = "ticker")]
+    additional_ticker_handlers: Vec<Arc<dyn TickerHandler>>,
     #[cfg(feature = "candles")]
     candle_handler: Option<Arc<dyn CandleHandler>>,
+    #[cfg(feature = "candles")]
+    additional_candle_handlers: Vec<Arc<dyn CandleHandler>>,
     #[cfg(feature = "funding")]
     funding_handler: Option<Arc<dyn FundingHandler>>,
+    #[cfg(feature = "funding")]
+    additional_funding_handlers: Vec<Arc<dyn FundingHandler>>,
     #[cfg(feature = "liquidations")]
     liquidation_handler: Option<Arc<dyn LiquidationHandler>>,
+    #[cfg(feature = "liquidations")]
+    additional_liquidation_handlers: Vec<Arc<dyn LiquidationHandler>>,
     #[cfg(feature = "markprice")]
     mark_price_handler: Option<Arc<dyn MarkPriceHandler>>,
+    #[cfg(feature = "markprice")]
+    additional_mark_price_handlers: Vec<Arc<dyn MarkPriceHandler>>,
     #[cfg(feature = "trade")]
     trade_handler: Option<Arc<dyn TradeHandler>>,
+    #[cfg(feature = "trade")]
+    additional_trade_handlers: Vec<Arc<dyn TradeHandler>>,
     #[cfg(feature = "openinterest")]
     open_interest_handler: Option<Arc<dyn OpenInterestHandler>>,
+    #[cfg(feature = "openinterest")]
+    additional_open_interest_handlers: Vec<Arc<dyn OpenInterestHandler>>,
     #[cfg(feature = "index")]
     index_price_handler: Option<Arc<dyn IndexPriceHandler>>,
+    #[cfg(feature = "index")]
+    additional_index_price_handlers: Vec<Arc<dyn IndexPriceHandler>>,
     #[cfg(feature = "orderbook")]
     orderbook_handler: Option<Arc<dyn OrderBookHandler>>,
+    #[cfg(feature = "orderbook")]
+    additional_orderbook_handlers: Vec<Arc<dyn OrderBookHandler>>,
     #[cfg(feature = "orderbook")]
     orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
     #[cfg(feature = "orderbook")]
@@ -517,22 +576,40 @@ impl ExchangeFeedBuilder {
             l2_book_interval: None,
             #[cfg(feature = "ticker")]
             ticker_handler: None,
+            #[cfg(feature = "ticker")]
+            additional_ticker_handlers: Vec::new(),
             #[cfg(feature = "candles")]
             candle_handler: None,
+            #[cfg(feature = "candles")]
+            additional_candle_handlers: Vec::new(),
             #[cfg(feature = "funding")]
             funding_handler: None,
+            #[cfg(feature = "funding")]
+            additional_funding_handlers: Vec::new(),
             #[cfg(feature = "liquidations")]
             liquidation_handler: None,
+            #[cfg(feature = "liquidations")]
+            additional_liquidation_handlers: Vec::new(),
             #[cfg(feature = "markprice")]
             mark_price_handler: None,
+            #[cfg(feature = "markprice")]
+            additional_mark_price_handlers: Vec::new(),
             #[cfg(feature = "trade")]
             trade_handler: None,
+            #[cfg(feature = "trade")]
+            additional_trade_handlers: Vec::new(),
             #[cfg(feature = "openinterest")]
             open_interest_handler: None,
+            #[cfg(feature = "openinterest")]
+            additional_open_interest_handlers: Vec::new(),
             #[cfg(feature = "index")]
             index_price_handler: None,
+            #[cfg(feature = "index")]
+            additional_index_price_handlers: Vec::new(),
             #[cfg(feature = "orderbook")]
             orderbook_handler: None,
+            #[cfg(feature = "orderbook")]
+            additional_orderbook_handlers: Vec::new(),
             #[cfg(feature = "orderbook")]
             orderbook_states: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
@@ -630,9 +707,25 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "candles")]
+    pub fn add_candle_handler(mut self, handler: Arc<dyn CandleHandler>) -> Self {
+        self.additional_candle_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "candles")]
     pub fn candle_handler(mut self, handler: Arc<dyn CandleHandler>) -> Self {
         self.candle_handler = Some(handler);
+        self
+    }
+
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "funding")]
+    pub fn add_funding_handler(mut self, handler: Arc<dyn FundingHandler>) -> Self {
+        self.additional_funding_handlers.push(handler);
         self
     }
 
@@ -642,9 +735,25 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "liquidations")]
+    pub fn add_liquidation_handler(mut self, handler: Arc<dyn LiquidationHandler>) -> Self {
+        self.additional_liquidation_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "liquidations")]
     pub fn liquidation_handler(mut self, handler: Arc<dyn LiquidationHandler>) -> Self {
         self.liquidation_handler = Some(handler);
+        self
+    }
+
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "markprice")]
+    pub fn add_mark_price_handler(mut self, handler: Arc<dyn MarkPriceHandler>) -> Self {
+        self.additional_mark_price_handlers.push(handler);
         self
     }
 
@@ -654,9 +763,25 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "ticker")]
+    pub fn add_ticker_handler(mut self, handler: Arc<dyn TickerHandler>) -> Self {
+        self.additional_ticker_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "ticker")]
     pub fn ticker_handler(mut self, handler: Arc<dyn TickerHandler>) -> Self {
         self.ticker_handler = Some(handler);
+        self
+    }
+
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "trade")]
+    pub fn add_trade_handler(mut self, handler: Arc<dyn TradeHandler>) -> Self {
+        self.additional_trade_handlers.push(handler);
         self
     }
 
@@ -666,15 +791,39 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "orderbook")]
+    pub fn add_orderbook_handler(mut self, handler: Arc<dyn OrderBookHandler>) -> Self {
+        self.additional_orderbook_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "orderbook")]
     pub fn orderbook_handler(mut self, handler: Arc<dyn OrderBookHandler>) -> Self {
         self.orderbook_handler = Some(handler);
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "openinterest")]
+    pub fn add_open_interest_handler(mut self, handler: Arc<dyn OpenInterestHandler>) -> Self {
+        self.additional_open_interest_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "openinterest")]
     pub fn open_interest_handler(mut self, handler: Arc<dyn OpenInterestHandler>) -> Self {
         self.open_interest_handler = Some(handler);
+        self
+    }
+
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "index")]
+    pub fn add_index_price_handler(mut self, handler: Arc<dyn IndexPriceHandler>) -> Self {
+        self.additional_index_price_handlers.push(handler);
         self
     }
 
@@ -798,22 +947,40 @@ impl ExchangeFeedBuilder {
             l2_book_interval: self.l2_book_interval,
             #[cfg(feature = "ticker")]
             ticker_handler: self.ticker_handler,
+            #[cfg(feature = "ticker")]
+            additional_ticker_handlers: self.additional_ticker_handlers,
             #[cfg(feature = "candles")]
             candle_handler: self.candle_handler,
+            #[cfg(feature = "candles")]
+            additional_candle_handlers: self.additional_candle_handlers,
             #[cfg(feature = "funding")]
             funding_handler: self.funding_handler,
+            #[cfg(feature = "funding")]
+            additional_funding_handlers: self.additional_funding_handlers,
             #[cfg(feature = "liquidations")]
             liquidation_handler: self.liquidation_handler,
+            #[cfg(feature = "liquidations")]
+            additional_liquidation_handlers: self.additional_liquidation_handlers,
             #[cfg(feature = "markprice")]
             mark_price_handler: self.mark_price_handler,
+            #[cfg(feature = "markprice")]
+            additional_mark_price_handlers: self.additional_mark_price_handlers,
             #[cfg(feature = "trade")]
             trade_handler: self.trade_handler,
+            #[cfg(feature = "trade")]
+            additional_trade_handlers: self.additional_trade_handlers,
             #[cfg(feature = "orderbook")]
             orderbook_handler: self.orderbook_handler,
+            #[cfg(feature = "orderbook")]
+            additional_orderbook_handlers: self.additional_orderbook_handlers,
             #[cfg(feature = "openinterest")]
             open_interest_handler: self.open_interest_handler,
+            #[cfg(feature = "openinterest")]
+            additional_open_interest_handlers: self.additional_open_interest_handlers,
             #[cfg(feature = "index")]
             index_price_handler: self.index_price_handler,
+            #[cfg(feature = "index")]
+            additional_index_price_handlers: self.additional_index_price_handlers,
             #[cfg(feature = "orderbook")]
             orderbook_states: self.orderbook_states,
             #[cfg(feature = "orderbook")]

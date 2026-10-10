@@ -33,6 +33,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Candle delivery](candle-delivery.md): final/unfinished/unknown completion,
   filtering surfaces and compatible defaults.
 
+- [Multiple handlers](handlers.md): registration order, per-callback deadlines,
+  panic/error semantics, backpressure and shutdown.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are

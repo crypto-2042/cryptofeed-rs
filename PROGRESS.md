@@ -426,3 +426,24 @@ feature boundaries.
   Rust 1.85, all nine feature checks/tests, no-default test compilation and
   formatting passed. Multiple handlers/error/deadline semantics, recoverable L2
   consumers and remaining policy/ecosystem increments are still active work.
+
+
+## Usage alignment: multiple handlers — 2026-10-10
+
+- Added add_*_handler for every data category. Existing setters still replace
+  only the primary; primary runs first, followed by appended registrations.
+  Add-only configuration is recognized; models are independently cloned.
+- Book application, normalized observations, event publication and counting
+  occur once per event before callbacks. Each invocation has its own existing
+  five-second timeout; catchable construction/poll panics and timeout continue
+  to later callbacks. Existing () traits keep business-error handling caller-owned.
+- Documented serial backpressure, concurrent shared handlers across sessions,
+  cancellation/partial effects and panic-abort/non-yielding limits. Bounded
+  runtime shutdown can cancel slow callbacks before later registrations.
+- Offline regressions cover order/replacement/add-only, independent values,
+  single publication/count, panic and real timeout continuation, subsequent
+  events and shutdown while a handler is pending. No exchange parser changed.
+- Final verification: 475 workspace tests, strict all-target Clippy, rustdoc,
+  Rust 1.85, all nine feature checks/tests, no-default test compilation,
+  formatting and documentation links passed. Recoverable L2, remaining needed
+  runtime policy, metadata and optional ecosystem work remain active.

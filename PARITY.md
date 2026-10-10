@@ -41,6 +41,8 @@ capabilities are unchanged. Managed runtime controls/readiness and opt-in
 [automatic directory reconciliation](docs/discovery.md) are implemented.
 [CandlePolicy](docs/candle-delivery.md) also supports confirmed-final or
 final/unknown delivery while preserving the all-update default.
+[Multiple handlers](docs/handlers.md) now execute serially with per-invocation
+timeout and catchable panic isolation; legacy primary setters remain compatible.
 Scripted regressions cover listings/removals, native-name changes, empty/failing
 refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
 tracked in [the usage alignment plan](docs/python-usage-alignment.md).

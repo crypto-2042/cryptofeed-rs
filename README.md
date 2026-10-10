@@ -161,7 +161,10 @@ Key API surface:
   retained for fixtures and future work but rejected in the 0.1 runtime),
   `exchange_symbol(...)` (explicit native mapping), `candles_interval(...)`,
   `l2_book_depth(...)`, `l2_book_interval(...)` (Binance only), one
-  `*_handler(...)` per data category. `build()` warns when a subscribed
+  `*_handler(...)` per data category and `add_*_handler(...)` for additional
+  serial callbacks. Each callback has a five-second timeout; catchable panic or
+  timeout continues to the next callback. See [handler semantics](docs/handlers.md).
+  `build()` warns when a subscribed
   channel has no registered handler.
 - `OpenInterest` preserves exchange-native `open_interest`, optional Decimal
   `coin_quantity` (OKX `oiCcy`), and optional `value_usd`. `oiCcy` is an amount,
