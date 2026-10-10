@@ -588,3 +588,15 @@ capability cells. L2 REST URL lists and readiness/cache ownership contain only
 subscribed L2 symbols; venue-scoped topics still rely on exact dispatch filters.
 The separate dated Spot smoke reached Ready on all five exchanges with one
 physical connection each; it does not certify global optimal packing.
+
+## Typed market metadata review — 2026-10-10
+
+Existing directory payloads now populate typed metadata beside exact symbol
+identity. Current primary field tables were verified: Binance filterType lookup
+and separate precision, Bitget v3 multiplier/count applicability, Bybit Spot's
+deprecated minimum quantity versus current amount minimum, OKX independent
+contract value/currency/multiplier, and Gate precision versus explicit derivative
+price rounding. The [metadata guide](market-metadata.md) records source mappings,
+optional/zero/error semantics and unit limitations. Sanitized HTTP references and
+inline helper/decoder assertions were added together; public event parser/model
+semantics and capability cells are unchanged. Metadata does not enable trading.

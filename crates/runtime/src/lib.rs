@@ -26,6 +26,7 @@ pub mod discovery;
 pub mod exchange;
 pub mod feed;
 pub mod handler;
+pub mod market_info;
 #[doc(hidden)]
 pub mod markets;
 pub mod options;
@@ -50,3 +51,5 @@ pub use books::{BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates,
 pub use options::{IdlePolicy, RuntimeOptions};
 
 pub use transport::TransportConfig;
+
+pub use market_info::MarketInfo;

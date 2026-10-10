@@ -2,7 +2,7 @@
 
 use cryptofeed_core::{
     error::{Error, Result},
-    exchange::ExchangeId,
+    exchange::{Channel, ExchangeId},
     symbol::{InstrumentKind, Symbol},
 };
 
@@ -11,8 +11,11 @@ use cryptofeed_core::{
 /// subscriptions or automatically discover new listings in the background.
 #[derive(Debug)]
 pub struct MarketCatalog {
+    exchange: ExchangeId,
+    product: InstrumentKind,
+    channels: Vec<Channel>,
     symbols: Vec<Symbol>,
-    native: std::collections::HashMap<Symbol, String>,
+    markets: std::collections::HashMap<Symbol, crate::market_info::MarketInfo>,
 }
 
 impl MarketCatalog {
@@ -77,23 +80,57 @@ impl MarketCatalog {
             exchange, product, refresh, transport,
         )
         .await?;
-        Ok(Self::from_registry(registry))
+        Ok(Self::from_registry(exchange, product, registry))
     }
 
-    pub(crate) fn from_registry(registry: crate::markets::SymbolRegistry) -> Self {
-        let entries = registry.into_entries();
+    pub(crate) fn from_registry(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        registry: crate::markets::SymbolRegistry,
+    ) -> Self {
+        let entries = registry.into_markets(exchange);
         Self {
-            symbols: entries.iter().map(|(symbol, _)| symbol.clone()).collect(),
-            native: entries.into_iter().collect(),
+            exchange,
+            product,
+            channels: crate::markets::capability_matrix()
+                .iter()
+                .find(|entry| entry.exchange == exchange && entry.product == product)
+                .into_iter()
+                .flat_map(|entry| entry.channels.iter().copied())
+                .filter(|channel| crate::markets::channel_feature_enabled(*channel))
+                .collect(),
+            symbols: entries.iter().map(|info| info.symbol.clone()).collect(),
+            markets: entries
+                .into_iter()
+                .map(|info| (info.symbol.clone(), info))
+                .collect(),
         }
     }
 
+    pub fn exchange(&self) -> ExchangeId {
+        self.exchange
+    }
+    pub fn product(&self) -> InstrumentKind {
+        self.product
+    }
+    /// Public WS capabilities for this exchange/product in this Cargo build.
+    pub fn supported_channels(&self) -> &[Channel] {
+        &self.channels
+    }
+
+    /// Exact directory identity and typed reported metadata from this snapshot.
+    pub fn market(&self, symbol: &Symbol) -> Result<&crate::market_info::MarketInfo> {
+        self.markets
+            .get(symbol)
+            .ok_or_else(|| Error::UnsupportedSymbol(symbol.as_str().to_owned()))
+    }
+    /// All metadata records in the same sorted order as symbols().
+    pub fn markets(&self) -> impl ExactSizeIterator<Item = &crate::market_info::MarketInfo> {
+        self.symbols.iter().map(|symbol| &self.markets[symbol])
+    }
     /// Native name from this exact directory snapshot, without guessing quotes.
     pub fn exchange_symbol(&self, symbol: &Symbol) -> Result<&str> {
-        self.native
-            .get(symbol)
-            .map(String::as_str)
-            .ok_or_else(|| Error::UnsupportedSymbol(symbol.as_str().to_owned()))
+        Ok(&self.market(symbol)?.exchange_symbol)
     }
 
     /// All discovered symbols, sorted by normalized name.
@@ -189,7 +226,7 @@ mod tests {
                 .insert(Symbol::spot(base, quote), &format!("{base}{quote}"))
                 .unwrap();
         }
-        MarketCatalog::from_registry(registry)
+        MarketCatalog::from_registry(ExchangeId::Binance, InstrumentKind::Spot, registry)
     }
 
     #[test]

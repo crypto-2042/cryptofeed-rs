@@ -7,3 +7,7 @@ configuration: {"spot":{"l2_book":["ETH-BTC"],"ticker":["ETH-BTC"],"trades":["ET
 https://api.binance.com/api/v3/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING"},{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","status":"HALT"}]}
 https://fapi.binance.com/fapi/v1/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","contractType":"PERPETUAL","status":"TRADING"},{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","contractType":"PERPETUAL","status":"SETTLING"}]}
 https://dapi.binance.com/dapi/v1/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","contractType":"PERPETUAL","contractStatus":"TRADING","status":"SETTLING"},{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","contractType":"PERPETUAL","contractStatus":"SETTLING"}]}
+
+https://api.binance.com/api/v3/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","filters":[{"filterType":"LOT_SIZE","stepSize":"0.001","minQty":"0.001"},{"filterType":"PRICE_FILTER","tickSize":"0.05"}]}]}
+
+https://dapi.binance.com/dapi/v1/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSD_PERP","baseAsset":"BTC","quoteAsset":"USD","contractType":"PERPETUAL","contractStatus":"TRADING","contractSize":100,"marginAsset":"BTC","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.1"},{"filterType":"LOT_SIZE","stepSize":"1","minQty":"1"}]}]}

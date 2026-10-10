@@ -575,3 +575,31 @@ feature boundaries.
   Full market metadata, global allocation/configurable/weighted resource policies
   and optional public REST/history, recording/replay, sinks/aggregation and NBBO
   remain under the active overall goal. No exchange capability cell expanded.
+
+
+## Usage alignment: typed market metadata — 2026-10-10
+
+- MarketCatalog now exposes immutable MarketInfo records, sorted iteration,
+  exchange/product identity and current-build public WS capabilities. Existing
+  exact native lookup delegates to the same metadata record, preventing drift.
+- Existing directory payloads supply explicit increments, separate decimal-place
+  counts, reported limit minima, native status/type and independent contract
+  value/currency/multiplier/settlement fields. No per-symbol request is added.
+- Current field applicability is verified: Binance filters by name rather than
+  position/precision, Bitget futures multipliers separate from counts, deprecated
+  Bybit Spot minQty omitted, OKX contract fields independent, Gate zeros retained.
+  Inapplicable fields stay None; no price step, currency or event-unit conversion
+  is inferred. Metadata is not an order validator or authenticated capability.
+- Exact JSON/scientific Decimal conversion rejects inexact/malformed known data;
+  duplicate metadata conflicts fail while native ambiguity preserves its typed
+  error. Previous snapshots remain immutable; metadata-only discovery updates do
+  not restart unchanged subscriptions. Sanitized helper fixtures/assertions agree.
+- Live follow-up loaded all ten Spot/Perpetual catalogs, checked BTC metadata/native
+  identity and exited 0. Earlier Binance COIN-M request failure and curl TLS
+  failure are preserved separately, not hidden or labeled an obsolete endpoint.
+- Final verification: 511 workspace tests, strict all-target Clippy, rustdoc,
+  all nine feature checks/tests, no-default compilation/metadata execution,
+  Rust 1.85 against fresh dependency resolution, formatting/links passed.
+- Global allocation/resource policies and optional public REST/history,
+  recording/replay, sinks/aggregation and NBBO remain unfinished under the active
+  overall goal. Full trading-rule/account validation is outside this SDK scope.

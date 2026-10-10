@@ -403,6 +403,14 @@ Broad matches are split by native subscription budgets; configurations exceeding
 Existing capability preflight still applies. These process-local limits do not
 account for other clients sharing your IP.
 
+`catalog.market(&symbol)` and sorted `catalog.markets()` expose `MarketInfo`:
+reported ticks/lot steps, minimum quantity/notional, separate decimal-place counts,
+native status/type and contract value/currency/multiplier. Missing/inapplicable
+fields are None; steps and denominations are not guessed. `exchange()`, `product()`
+and `supported_channels()` expose catalog/build context. See
+[market metadata](docs/market-metadata.md) for current field mappings, deprecated
+constraints, refresh behavior and limits; this is not an order validator.
+
 For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
 repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 `run_with_shutdown` uses your watch signal and installs no signal handler.

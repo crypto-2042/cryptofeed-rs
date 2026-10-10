@@ -45,6 +45,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Explicit transport/proxy](transport.md): shared HTTP/WS routing, authentication,
   direct defaults, cache isolation and TLS/deadline behavior.
 
+- [Market metadata](market-metadata.md): typed directory information, current
+  field mappings, exact precision, capability context and refresh/applicability.
+
 ## Live validation reports
 
 These dated, sanitized reports record manual public-service checks. They are
@@ -52,6 +55,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-10 market metadata](reports/live-smoke-metadata-2026-10-10.md):
+  ten Spot/Perpetual catalogs, typed BTC metadata and the earlier COIN-M request failure.
 - [2026-10-10 sparse packing](reports/live-smoke-packing-2026-10-10.md):
   five Spot feeds, each one socket for Trade BTC/ETH plus L2 BTC, with exact recovery scope.
 - [2026-10-10 authenticated proxy](reports/live-smoke-proxy-2026-10-10.md):

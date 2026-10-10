@@ -22,7 +22,7 @@ local checkout, not claims about every upstream version.
 
 | Workflow | Python evidence | Rust assessment / treatment |
 | --- | --- | --- |
-| Symbol discovery | `exchange.py`: `symbols`, `info`, `symbol_mapping(refresh=...)` | `MarketCatalog::load` exposes sorted symbols; `refresh` bypasses cached responses, including pagination. Exact native lookup is available; precision/full market metadata remains pending. |
+| Symbol discovery | `exchange.py`: `symbols`, `info`, `symbol_mapping(refresh=...)` | `MarketCatalog::load` exposes sorted symbols; `refresh` bypasses cached responses, including pagination. Exact native lookup and typed MarketInfo now expose verified tick/lot/minimum/precision/status/contract fields, plus product/build WS capabilities; order validation is not claimed. |
 | Pattern selection | `feed.py` resolves each supplied name by exact mapping; no general glob expansion found | Phase 1 adds explicit catalog `select` with `*` and `?` as a convenience extension, not Python parity. |
 | Batch configuration | `feed.py`: `symbols` plus `channels` | Multi-symbol feeds already work; phase 1 adds bulk `.symbols` and typed `.instruments`. |
 | Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Implemented `.subscription` / `.subscription_instruments`; exact unequal sets now share native connections and retain per-pair filtering through capacity shards. |
@@ -60,6 +60,9 @@ and consumer delivery limits remain documented in the project README.
 - `FeedHandler::run_with_shutdown(watch_receiver)` exposes existing lifecycle
   behavior. A true watch value or sender closure requests shutdown. Already
   signalled shutdown skips catalog hydration.
+
+Typed [market metadata](market-metadata.md) now extends this phase with current
+field applicability, exact Decimal conversion and product/build capability context.
 
 Acceptance: deterministic selection/order/overlap/error tests, typed bulk
 configuration tests, unsupported-catalog rejection without HTTP, and pre-signalled

@@ -374,3 +374,14 @@ verify capacity slices, rule trimming, pair uniqueness and mappings; runtime
 tests verify handler/broadcast/counter/book filtering and no trade-only depth
 sync/REST work. Separate `packed_public` evidence verifies real confirmations,
 L2 readiness and BTC-only recovery; no global optimum/load guarantee is claimed.
+
+
+## Typed market metadata targets
+
+`market_info::tests` asserts explicit increments versus precision, current field
+applicability/deprecation, contract fields, legal zeros and exact JSON/scientific
+Decimal handling. Catalog helper tests cover five exchanges' Spot/Perpetual rows,
+identity/metadata retention, feature-aware channels and duplicate conflicts.
+`metadata_only_refresh` verifies unchanged subscriptions. Matching sanitized HTTP
+references have provenance; the separate public example records live catalogs.
+No-default metadata tests ensure this surface works without data-channel features.

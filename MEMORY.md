@@ -244,9 +244,9 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - `runtime::run_with_shutdown` already existed; the FeedHandler facade now
   exposes it. Do not claim service-controlled shutdown was previously absent.
 - Public `MarketCatalog` uses current catalog fetchers/cache. Selection is an
-  explicit, product-qualified startup snapshot; unmatched patterns fail, and
-  connection sharding and dynamic discovery remain planned in
-  `docs/python-usage-alignment.md`.
+  explicit, product-qualified snapshot; unmatched initial patterns fail. Native
+  capacity sharding and opt-in listing reconciliation are implemented; see
+  `docs/connection-planning.md` and `docs/discovery.md`.
 
 ## API currency review — 2026-10-09
 
@@ -264,12 +264,14 @@ Project-specific memory for `rust/cryptofeed-rs`.
 
 - `MarketCatalog::load` retains the 24-hour cache default; `refresh` bypasses
   cached pages and returns a new snapshot. Neither changes running feeds.
-- Requests coalesce by exact URL while overlapping, including failed results;
-  later calls retry after failure/cancellation. Distinct URLs are independent.
+- Requests coalesce by exact URL and transport scope while overlapping, including
+  failed results; later calls retry after failure/cancellation. Distinct routes
+  and URLs are independent.
 - Preserve prior cache entries after HTTP/JSON/envelope failure. Cache commits
   are per response, not transactional across pages or parsed registry validation.
-- Catalog discovery reuses its HTTP client. Snapshot clients/concurrency and
-  subscription sizing are separate pending work; do not claim they are solved.
+- Catalog/snapshot clients are reused by transport scope. Snapshot concurrency,
+  start pacing and native subscription sizing are implemented; they are SDK
+  resource policies, not a distributed/shared-IP rate guarantee.
 
 ## Per-channel subscriptions
 
@@ -278,11 +280,11 @@ Project-specific memory for `rust/cryptofeed-rs`.
   be reused. Repeated channels merge; symbols deduplicate in first-seen order.
 - Hydrate the logical union before partitioning so native mapping ambiguity
   cannot escape across channel groups. Explicit native lists follow that union.
-- Identical normalized symbol sets group together, otherwise use independent
-  concrete feeds through unchanged adapters. Low-level callers must compile
-  `connection_feeds` before adapter planning; FeedHandler does so automatically.
-- This does not implement capacity sharding or connection minimization; group
-  status still has exchange-only identity until the lifecycle phase.
+- Exact unequal channel/symbol sets share native connections, with capacity
+  shards and required endpoint/product separation. Low-level callers still
+  compile `connection_feeds` before endpoint planning; FeedHandler does so.
+- Managed state exposes logical identity and physical connection evidence.
+  Contiguous packing does not prove globally minimal connection allocation.
 
 ## Connection and snapshot budgets
 
@@ -318,8 +320,9 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Started means task launch, not remote-ready. Registry entries are not health
   snapshots. Runtime/shutdown aggregate historical terminal failures; command
   validation errors alone do not poison a healthy runtime's final result.
-- Readiness, periodic catalog reconciliation and remaining alignment phases
-  remain active work; see docs/runtime-control.md and the alignment plan.
+- Readiness and opt-in periodic catalog reconciliation are implemented; see
+  docs/runtime-control.md, docs/readiness.md and docs/discovery.md. Optional
+  ecosystem/resource-policy alignment remains active.
 
 ## Readiness evidence
 
@@ -337,8 +340,8 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Snapshot times are local diagnostic receipt/publication times, not replacements
   for model exchange_ts/received_ts. Counts are per configuration generation.
 - Initial invalid configured IDs stay available for repair/query in managed mode;
-  rejected dynamic adds are not committed. Listing reconciliation and later
-  consumer/ecosystem phases remain active work.
+  rejected dynamic adds are not committed. Listing reconciliation, multiple
+  handlers and L2 recovery are implemented; ecosystem/resource work remains.
 
 
 ## Automatic directory reconciliation
@@ -357,7 +360,8 @@ Project-specific memory for `rust/cryptofeed-rs`.
   directory success; query runtime readiness independently. No OI polling fallback.
 - Catalog eligibility is public-data policy, not order permission. Preserve
   Bitget limit_open/limit_close and Gate buyable/sellable; exclude explicit
-  unavailable statuses. Precision/full metadata and phases 4–5 remain pending.
+  unavailable statuses. Typed directory metadata and core consumer policies
+  are implemented; optional ecosystem/resource-policy work remains pending.
 
 
 ## Candle completion policy
@@ -368,7 +372,8 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Never infer completion from receive time, candle end, next bars or reconnect.
   Bitget currently has no finality flag, so strict mode emits no candles there.
 - Python's inspected default is closed-only, but Rust preserves its existing
-  behavior with explicit opt-in. Multi-handler and recoverable L2 work remain.
+  behavior with explicit opt-in. Multiple handlers and recoverable L2 are
+  implemented with separate documented delivery contracts.
 
 
 ## Multiple callback registrations
@@ -419,8 +424,8 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Handshake budget excludes admission/catalog/bootstrap/ack/idle time. Shared
   pacing, heartbeat/idle/ack policies and bounded shutdown remain intact. Callback
   budgets do not enlarge shutdown grace or preempt non-yielding caller code.
-- Explicit HTTP/WS proxy, idle policy and start delay remain unfinished alignment
-  work; Python idle timeout must not be mistaken for a handshake deadline.
+- Explicit HTTP/WS proxy, idle policy and start delay are implemented separately;
+  Python idle timeout must not be mistaken for a handshake deadline.
 
 
 ## Startup and idle policy
@@ -435,8 +440,8 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Heartbeats/Ping-Pong handling and subscription acknowledgement deadlines remain
   active when idle is disabled. Short overrides may reconnect healthy quiet feeds;
   this is caller-owned policy. Startup is separate from connect/idle/ack deadlines.
-- Explicit HTTP/WS proxy remains unfinished; idle and startup policy are now
-  implemented rather than silently equating Python idle timeout with handshake.
+- Explicit HTTP/WS proxy, idle and startup policies are implemented; keep idle
+  receipt detection distinct from establishment/acknowledgement deadlines.
 
 
 ## Explicit transport routing
@@ -455,8 +460,8 @@ Project-specific memory for `rust/cryptofeed-rs`.
   covers proxy TCP/CONNECT/TLS/WS; cancellation owns and drops the socket future.
 - Proxy configurations have process-local opaque cache IDs, never credential keys.
   Clones share results; separate/direct/auth configurations never coalesce caches.
-- HTTPS/SOCKS/PAC/custom CA/mTLS are not claimed. Full market metadata and optional
-  ecosystem work remain active; public feed scope is unchanged.
+- HTTPS/SOCKS/PAC/custom CA/mTLS are not claimed. Typed market metadata is
+  implemented; optional ecosystem work remains active and feed scope unchanged.
 
 
 ## Exact sparse connection packing
@@ -474,5 +479,27 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Changed send selections are captured alongside exact inline parity assertions.
   Five-exchange Spot unequal-set smoke reached Ready with one socket, three
   confirmations and one book each; ETH trades produced no ETH recovery book.
-- Full market metadata, global allocation/resource policies and optional
-  ecosystem work remain unfinished under the active alignment goal.
+- Typed market metadata is implemented. Global allocation/resource policies
+  and optional ecosystem work remain unfinished under the active alignment goal.
+
+
+## Typed directory metadata
+
+- MarketCatalog market/markets retains MarketInfo beside native identity, sorted
+  consistently. Exchange/product and feature-filtered WS capabilities describe
+  the catalog/build, not per-symbol permission or REST-history availability.
+- Use explicit increments and separate decimal-place counts. Binance filters are
+  keyed by filterType, never array position or pricePrecision. Bitget future
+  multipliers/minQty are not Spot constraints; Bybit Spot minQty is deprecated.
+- Preserve null/empty/inapplicable as None, zero as zero, and exact JSON/string
+  Decimal/scientific values without float rounding. Fail applicable malformed,
+  inexact, duplicate-filter or conflicting duplicate metadata rather than guess.
+- Keep contract face value, currency, multiplier and settlement independent;
+  do not infer absent currency or convert public trade/book units. Native limit
+  metadata is not a complete order validator or market-order applicability rule.
+- Metadata uses existing directory HTTP/cache/transport scope, adds no per-symbol
+  request, and is snapshot-only. Metadata-only discovery refresh does not restart
+  sessions. Explicit native mappings still bypass catalog hydration as assertions.
+- Ten live Spot/Perpetual catalogs passed after an earlier COIN-M request/TLS
+  failure; retain both observations. Optional ecosystem/resource-policy work
+  remains active; no private/trading or new product capability was enabled.

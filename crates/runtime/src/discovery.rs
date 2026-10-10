@@ -406,7 +406,7 @@ mod tests {
         for (base, native) in rows {
             registry.insert(Symbol::spot(base, "USDT"), native).unwrap();
         }
-        MarketCatalog::from_registry(registry)
+        MarketCatalog::from_registry(ExchangeId::Binance, InstrumentKind::Spot, registry)
     }
     fn config() -> DiscoveryFeed {
         let mut config = DiscoveryFeed::new(
@@ -483,6 +483,31 @@ mod tests {
                 .resolve(&catalog(&[("BTC", "BTCUSDT")]), true)
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn metadata_only_refresh_does_not_restart_subscriptions() {
+        let (control, _events, _statuses, running, _stop) =
+            crate::runtime::test_managed_runtime(FeedHandler::new());
+        let mut first = true;
+        let handle = config().start_with(control.clone(), move || {
+            let tick = if first { first = false; "0.1" } else { "0.2" };
+            let mut registry = crate::markets::SymbolRegistry::default();
+            registry.insert_market(Symbol::spot("BTC", "USDT"), "BTCUSDT", ExchangeId::Binance,
+                &serde_json::json!({"filters":[{"filterType":"PRICE_FILTER","tickSize":tick}]}), None).unwrap();
+            let catalog = MarketCatalog::from_registry(ExchangeId::Binance, InstrumentKind::Spot, registry);
+            async move { Ok(catalog) }
+        }).await.unwrap();
+        until(&handle, |state| {
+            state.refreshes >= 3 && state.state == DiscoveryState::Current
+        })
+        .await;
+        let stopped = handle.stop().await.unwrap();
+        assert_eq!(stopped.updates, 0);
+        assert_eq!(stopped.identity.generation, 1);
+        control.remove_feed(stopped.identity.id).await.unwrap();
+        control.shutdown().await.unwrap();
+        running.await.unwrap().unwrap();
     }
 
     #[tokio::test]

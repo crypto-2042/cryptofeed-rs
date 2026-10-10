@@ -9,3 +9,7 @@ https://api.gateio.ws/api/v4/delivery/usdt/order_book?contract=BTC_USDT_20260925
 configuration: {"spot":{"l2_book":["BTC-USDT"],"ticker":["BTC-USDT"],"trades":["BTC-USDT"],"candles":["BTC-USDT"]},"usdt_perp":{"l2_book":["BTC-USDT-PERP"]},"btc_perp":{"l2_book":["BTC-USD-PERP"]},"usdt_delivery":{"l2_book":["BTC-USDT-20260925"]}}
 
 https://api.gateio.ws/api/v4/spot/currency_pairs -> 1791580000.000000: [{"id":"BTC_USDT","base":"BTC","quote":"USDT","trade_status":"tradable"},{"id":"OLD_USDT","base":"OLD","quote":"USDT","trade_status":"untradable"}]
+
+https://api.gateio.ws/api/v4/spot/currency_pairs -> 1791580000.000000: [{"id":"BTC_USDT","base":"BTC","quote":"USDT","trade_status":"tradable","precision":2,"amount_precision":6,"min_base_amount":"0.00001","min_quote_amount":"5"}]
+
+https://api.gateio.ws/api/v4/futures/usdt/contracts -> 1791580000.000000: [{"name":"BTC_USDT","type":"direct","in_delisting":false,"quanto_multiplier":"0.0001","order_price_round":"0.1","order_size_min":1}]

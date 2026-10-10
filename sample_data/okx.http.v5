@@ -4,3 +4,7 @@ https://openapi.okx.com/api/v5/public/instruments?instType=FUTURES -> 1710000001
 configuration: {"spot":{"l2_book":["BTC-USDT"],"ticker":["BTC-USDT"],"trades":["BTC-USDT"],"candles":["BTC-USDT"]},"swap":{"l2_book":["BTC-USDT-PERP","BTC-USD-PERP"]},"futures":{"l2_book":["BTC-USDT-240628"]}}
 https://openapi.okx.com/api/v5/public/instruments?instType=SPOT -> 1791510000.000000: {"code":"0","data":[{"instId":"XBB-USDT","instType":"SPOT","state":"preopen","baseCcy":"","quoteCcy":""},{"instId":"BTC-USDT","instType":"SPOT","state":"live","baseCcy":"BTC","quoteCcy":"USDT"}]}
 https://openapi.okx.com/api/v5/public/instruments?instType=SPOT -> 1791510000.100000: {"code":"0","data":[{"instId":"BTC-USDT","instType":"SPOT","state":"live","baseCcy":"","quoteCcy":"USDT"}]}
+
+https://openapi.okx.com/api/v5/public/instruments?instType=SPOT -> 1791580000.000000: {"data":[{"instId":"BTC-USDT","instType":"SPOT","baseCcy":"BTC","quoteCcy":"USDT","state":"live","tickSz":"0.1","lotSz":"0.000001","minSz":"0.00001"}]}
+
+https://openapi.okx.com/api/v5/public/instruments?instType=SWAP -> 1791580000.000000: {"data":[{"instId":"BTC-USD-SWAP","instType":"SWAP","state":"live","tickSz":"0.1","lotSz":"1","minSz":"1","ctVal":"100","ctValCcy":"USD","ctMult":"1","ctType":"inverse","settleCcy":"BTC"}]}

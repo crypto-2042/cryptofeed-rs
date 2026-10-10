@@ -169,3 +169,26 @@ sources were rechecked: [Binance Spot](https://github.com/binance/binance-spot-a
 No market-data parser expectation was changed. Scripted unsolicited ETH depth
 messages verify absence of unrequested sync/bootstrap/cache work; they are not
 claims that a correctly subscribed venue sends those unsolicited messages.
+
+## 2026-10-10 typed market metadata
+
+Appended Spot/Perpetual HTTP rows contain sanitized field-table metadata, with
+substituted symbols/numbers/timestamps, not live constraints. The inline
+`catalog_helpers_populate_verified_metadata_for_all_five_exchanges` regression
+asserts price increments/precision, product identity and native names after actual
+catalog helpers. `market_info::tests` covers the additional fields, applicability,
+filter order, zero/scientific/exact-number conversion and malformed/conflicting
+records. Existing dated-futures identity fixtures remain applicable.
+
+Sources are the current Binance Spot/USD-M/COIN-M directory pages, Bitget v3
+instruments, Bybit v5 instruments, OKX v5 instruments, and Gate v4 Spot/futures
+field tables linked in [the metadata guide](../docs/market-metadata.md). Derivative
+precision is never a tick/step substitute; Bitget multipliers are separate from
+counts; deprecated Bybit Spot minOrderQty is not an active minimum. Contract
+values/multipliers are retained without guessed currency conversions.
+
+The extra Bitget JSON-number minimum-amount row is a synthetic numeric precision
+stress reference (9007199254740993.123456789012), not a real BTC minimum. Its pure
+metadata assertion reads literal JSON with arbitrary_precision before exact
+Decimal conversion. Adversarial unit-only malformed/duplicate/inapplicable fields
+are SDK validation probes, not claims that official endpoints emit those values.

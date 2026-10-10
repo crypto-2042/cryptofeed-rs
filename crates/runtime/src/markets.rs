@@ -411,7 +411,7 @@ fn validate_l2_book_interval(feed: &ExchangeFeed, product: InstrumentKind) -> Re
 }
 
 #[allow(clippy::match_like_matches_macro)] // per-arm `cfg!` cannot use `matches!`
-fn channel_feature_enabled(channel: Channel) -> bool {
+pub(crate) fn channel_feature_enabled(channel: Channel) -> bool {
     match channel {
         Channel::Candles => cfg!(feature = "candles"),
         Channel::Funding => cfg!(feature = "funding"),
@@ -429,6 +429,7 @@ fn channel_feature_enabled(channel: Channel) -> bool {
 
 #[derive(Debug, Default)]
 pub struct SymbolRegistry {
+    metadata: HashMap<Symbol, crate::market_info::MarketInfo>,
     normalized_to_exchange: HashMap<Symbol, String>,
     exchange_to_normalized: HashMap<(String, InstrumentKind), Symbol>,
     exchange_products: HashMap<String, HashSet<InstrumentKind>>,
@@ -439,6 +440,49 @@ impl SymbolRegistry {
         let mut entries: Vec<_> = self.normalized_to_exchange.into_iter().collect();
         entries.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
         entries
+    }
+
+    pub(crate) fn into_markets(
+        mut self,
+        exchange: ExchangeId,
+    ) -> Vec<crate::market_info::MarketInfo> {
+        let mut metadata = std::mem::take(&mut self.metadata);
+        self.into_entries()
+            .into_iter()
+            .map(|(symbol, native)| {
+                metadata.remove(&symbol).unwrap_or_else(|| {
+                    crate::market_info::MarketInfo::new(exchange, symbol, &native)
+                })
+            })
+            .collect()
+    }
+    pub(crate) fn insert_market(
+        &mut self,
+        symbol: Symbol,
+        native: &str,
+        exchange: ExchangeId,
+        row: &Value,
+        settlement: Option<&str>,
+    ) -> Result<()> {
+        let info = crate::market_info::parse(
+            exchange,
+            symbol.clone(),
+            &native.to_ascii_uppercase(),
+            row,
+            settlement,
+        )?;
+        self.insert(symbol.clone(), native)?;
+        if self
+            .metadata
+            .get(&symbol)
+            .is_some_and(|existing| existing != &info)
+        {
+            return Err(Error::MalformedData(format!(
+                "conflicting metadata for {symbol:?}"
+            )));
+        }
+        self.metadata.insert(symbol, info);
+        Ok(())
     }
 
     pub fn insert(&mut self, symbol: Symbol, exchange_symbol: &str) -> Result<()> {
@@ -763,7 +807,7 @@ fn add_binance_markets(
             )?,
             _ => continue,
         };
-        registry.insert(symbol, exchange_symbol)?;
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Binance, item, None)?;
     }
     Ok(())
 }
@@ -801,7 +845,7 @@ fn add_bitget_markets(
             }
             _ => continue,
         };
-        registry.insert(symbol, exchange_symbol)?;
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Bitget, item, None)?;
     }
     Ok(())
 }
@@ -969,7 +1013,7 @@ fn add_bybit_page(
             }
             _ => continue,
         };
-        registry.insert(symbol, exchange_symbol)?;
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Bybit, item, None)?;
     }
 
     let cursor = str_at(payload, &["result", "nextPageCursor"])
@@ -996,6 +1040,8 @@ fn add_okx_spot_markets(registry: &mut SymbolRegistry, payload: &Value) -> Resul
         }
         add_spot_market(
             registry,
+            ExchangeId::Okx,
+            item,
             str_at(item, &["instId"]),
             str_at(item, &["baseCcy"]),
             str_at(item, &["quoteCcy"]),
@@ -1069,7 +1115,7 @@ fn add_okx_markets(
             }
             _ => continue,
         };
-        registry.insert(symbol, exchange_symbol)?;
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Okx, item, None)?;
     }
     Ok(())
 }
@@ -1105,7 +1151,13 @@ fn add_gateio_perpetual_markets(
                 "Gateio {settle} contract {exchange_symbol} has type {contract_type} and quote {quote}"
             )));
         }
-        registry.insert(Symbol::perpetual(base, quote), exchange_symbol)?;
+        registry.insert_market(
+            Symbol::perpetual(base, quote),
+            exchange_symbol,
+            ExchangeId::Gateio,
+            item,
+            Some(settle),
+        )?;
     }
     Ok(())
 }
@@ -1149,7 +1201,13 @@ fn add_gateio_delivery_markets(registry: &mut SymbolRegistry, payload: &Value) -
                 "Gateio delivery contract {exchange_symbol} disagrees with expire_time {expire_time}"
             )));
         }
-        registry.insert(Symbol::futures(base, quote, expiry), exchange_symbol)?;
+        registry.insert_market(
+            Symbol::futures(base, quote, expiry),
+            exchange_symbol,
+            ExchangeId::Gateio,
+            item,
+            Some("USDT"),
+        )?;
     }
     Ok(())
 }
@@ -1301,6 +1359,8 @@ fn add_spot_catalog(
         }
         add_spot_market(
             registry,
+            exchange,
+            item,
             str_at(item, &[keys[0]]),
             str_at(item, &[keys[1]]),
             str_at(item, &[keys[2]]),
@@ -1311,6 +1371,8 @@ fn add_spot_catalog(
 
 fn add_spot_market(
     registry: &mut SymbolRegistry,
+    exchange: ExchangeId,
+    row: &Value,
     exchange_symbol: Option<&str>,
     base: Option<&str>,
     quote: Option<&str>,
@@ -1325,7 +1387,13 @@ fn add_spot_market(
             "instrument has an empty native symbol, base, or quote".to_owned(),
         ));
     }
-    registry.insert(Symbol::spot(base, quote), exchange_symbol)
+    registry.insert_market(
+        Symbol::spot(base, quote),
+        exchange_symbol,
+        exchange,
+        row,
+        None,
+    )
 }
 
 async fn fetch_json(url: &str, refresh: bool, transport: &TransportConfig) -> Result<Value> {
@@ -1636,6 +1704,169 @@ mod tests {
     }
 
     #[test]
+    fn metadata_survives_catalog_assembly_and_duplicate_conflicts_fail() {
+        let symbol = Symbol::spot("BTC", "USDT");
+        let row =
+            json!({"status":"TRADING","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.05"}]});
+        let mut registry = SymbolRegistry::default();
+        registry
+            .insert_market(symbol.clone(), "BTCUSDT", ExchangeId::Binance, &row, None)
+            .unwrap();
+        registry
+            .insert_market(symbol.clone(), "BTCUSDT", ExchangeId::Binance, &row, None)
+            .unwrap();
+        let conflicting =
+            json!({"status":"TRADING","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.10"}]});
+        assert!(
+            registry
+                .insert_market(
+                    symbol.clone(),
+                    "BTCUSDT",
+                    ExchangeId::Binance,
+                    &conflicting,
+                    None
+                )
+                .is_err()
+        );
+        assert!(matches!(
+            registry.insert_market(symbol.clone(), "XBTUSDT", ExchangeId::Binance, &row, None),
+            Err(Error::AmbiguousSymbol(_))
+        ));
+        let catalog = crate::catalog::MarketCatalog::from_registry(
+            ExchangeId::Binance,
+            InstrumentKind::Spot,
+            registry,
+        );
+        let market = catalog.market(&symbol).unwrap();
+        assert_eq!(market.price_increment.unwrap().to_string(), "0.05");
+        assert_eq!(
+            market.exchange_symbol,
+            catalog.exchange_symbol(&symbol).unwrap()
+        );
+        assert_eq!(market.exchange, catalog.exchange());
+        assert_eq!(catalog.product(), InstrumentKind::Spot);
+        assert_eq!(catalog.markets().len(), 1);
+        assert_eq!(
+            catalog
+                .supported_channels()
+                .contains(&cryptofeed_core::exchange::Channel::Trade),
+            cfg!(feature = "trade")
+        );
+        assert!(catalog.market(&Symbol::spot("MISSING", "USDT")).is_err());
+    }
+
+    #[test]
+    fn catalog_helpers_populate_verified_metadata_for_all_five_exchanges() {
+        let cases = [
+            (
+                ExchangeId::Binance,
+                InstrumentKind::Spot,
+                r#"{"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","filters":[{"filterType":"LOT_SIZE","stepSize":"0.001","minQty":"0.001"},{"filterType":"PRICE_FILTER","tickSize":"0.05"}]}]}"#,
+                Some("0.05"),
+            ),
+            (
+                ExchangeId::Bitget,
+                InstrumentKind::Spot,
+                r#"{"data":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"online","pricePrecision":"2","quantityPrecision":"6","minOrderAmount":"5"}]}"#,
+                None,
+            ),
+            (
+                ExchangeId::Bybit,
+                InstrumentKind::Spot,
+                r#"{"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"Trading","priceFilter":{"tickSize":"0.1"},"lotSizeFilter":{"basePrecision":"0.000001","minOrderQty":"0.001","minOrderAmt":"5"}}]}}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Okx,
+                InstrumentKind::Spot,
+                r#"{"data":[{"instId":"BTC-USDT","instType":"SPOT","baseCcy":"BTC","quoteCcy":"USDT","state":"live","tickSz":"0.1","lotSz":"0.000001","minSz":"0.00001"}]}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Gateio,
+                InstrumentKind::Spot,
+                r#"[{"id":"BTC_USDT","base":"BTC","quote":"USDT","trade_status":"tradable","precision":2,"amount_precision":6,"min_base_amount":"0.00001","min_quote_amount":"5"}]"#,
+                None,
+            ),
+            (
+                ExchangeId::Binance,
+                InstrumentKind::Perpetual,
+                r#"{"symbols":[{"symbol":"BTCUSD_PERP","baseAsset":"BTC","quoteAsset":"USD","contractType":"PERPETUAL","contractStatus":"TRADING","contractSize":100,"marginAsset":"BTC","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.1"},{"filterType":"LOT_SIZE","stepSize":"1","minQty":"1"}]}]}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Bitget,
+                InstrumentKind::Perpetual,
+                r#"{"data":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","type":"perpetual","status":"online","pricePrecision":"2","quantityPrecision":"3","priceMultiplier":"0.02","quantityMultiplier":"0.005","minOrderQty":"0.01","minOrderAmount":"5"}]}"#,
+                Some("0.02"),
+            ),
+            (
+                ExchangeId::Bybit,
+                InstrumentKind::Perpetual,
+                r#"{"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"Trading","settleCoin":"USDT","priceScale":"1","priceFilter":{"tickSize":"0.1"},"lotSizeFilter":{"qtyStep":"0.001","minOrderQty":"0.001","minNotionalValue":"5"}}],"nextPageCursor":""}}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Okx,
+                InstrumentKind::Perpetual,
+                r#"{"data":[{"instId":"BTC-USD-SWAP","instType":"SWAP","state":"live","tickSz":"0.1","lotSz":"1","minSz":"1","ctVal":"100","ctValCcy":"USD","ctMult":"1","ctType":"inverse","settleCcy":"BTC"}]}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Gateio,
+                InstrumentKind::Perpetual,
+                r#"[{"name":"BTC_USDT","type":"direct","in_delisting":false,"quanto_multiplier":"0.0001","order_price_round":"0.1","order_size_min":1}]"#,
+                Some("0.1"),
+            ),
+        ];
+        for (exchange, product, raw, tick) in cases {
+            let payload: serde_json::Value = serde_json::from_str(raw).unwrap();
+            let mut registry = SymbolRegistry::default();
+            match (exchange, product) {
+                (ExchangeId::Okx, InstrumentKind::Spot) => {
+                    super::add_okx_spot_markets(&mut registry, &payload).unwrap()
+                }
+                (_, InstrumentKind::Spot) => {
+                    super::add_spot_catalog(&mut registry, &payload, exchange).unwrap()
+                }
+                (ExchangeId::Binance, _) => {
+                    super::add_binance_markets(&mut registry, &payload, product).unwrap()
+                }
+                (ExchangeId::Bitget, _) => {
+                    super::add_bitget_markets(&mut registry, &payload, product).unwrap()
+                }
+                (ExchangeId::Bybit, _) => {
+                    super::add_bybit_page(&mut registry, &payload, product).unwrap();
+                }
+                (ExchangeId::Okx, _) => {
+                    super::add_okx_markets(&mut registry, &payload, product).unwrap()
+                }
+                (ExchangeId::Gateio, _) => {
+                    super::add_gateio_perpetual_markets(&mut registry, &payload, "usdt").unwrap()
+                }
+                _ => unreachable!(),
+            }
+            let catalog = crate::catalog::MarketCatalog::from_registry(exchange, product, registry);
+            let info = catalog.markets().next().unwrap();
+            assert_eq!(catalog.markets().len(), 1);
+            assert_eq!(info.exchange, exchange);
+            assert_eq!(info.symbol.kind(), product);
+            assert_eq!(
+                info.price_increment,
+                tick.map(|value| rust_decimal::Decimal::from_str_exact(value).unwrap()),
+                "{exchange:?}/{product:?}"
+            );
+            if tick.is_none() {
+                assert_eq!(info.price_decimal_places, Some(2));
+            }
+            assert_eq!(
+                catalog.exchange_symbol(&info.symbol).unwrap(),
+                info.exchange_symbol
+            );
+        }
+    }
+
+    #[test]
     fn spot_catalog_eligibility_filters_unavailable_markets_without_guessing() {
         for (exchange, payload) in [
             (
@@ -1740,7 +1971,14 @@ mod tests {
             ("", "BTC", "USDT"),
         ] {
             assert!(matches!(
-                super::add_spot_market(&mut registry, Some(native), Some(base), Some(quote)),
+                super::add_spot_market(
+                    &mut registry,
+                    ExchangeId::Binance,
+                    &json!({}),
+                    Some(native),
+                    Some(base),
+                    Some(quote)
+                ),
                 Err(Error::MalformedData(_))
             ));
         }
