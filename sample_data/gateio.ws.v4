@@ -26,3 +26,12 @@ send: {"time":1710000003,"channel":"futures.tickers","event":"subscribe","payloa
 1791567058.020000: {"channel":"spot.order_book_update","event":"update","result":{"t":1710000000123,"s":"BTC_USDT","U":102,"u":102,"b":[["100","1"]],"a":[]}}
 send: {"time":1791570000,"id":1,"channel":"spot.trades","event":"subscribe","payload":["BTC_USDT"]}
 1791570000.010000: {"id":1,"channel":"spot.trades","event":"subscribe","error":null,"result":{"status":"success"}}
+
+configuration: {"trades":["BTC-USDT","ETH-USDT"],"l2_book":["BTC-USDT"]}
+send: {"time":1791580000,"channel":"spot.trades","event":"subscribe","payload":["BTC_USDT"]}
+send: {"time":1791580000,"channel":"spot.order_book_update","event":"subscribe","payload":["BTC_USDT","100ms"]}
+send: {"time":1791580000,"channel":"spot.trades","event":"subscribe","payload":["ETH_USDT"]}
+
+configuration: {"trades":["BTC-USD-PERP"],"l2_book":["ETH-USDT-PERP"]}
+send: {"time":1791580000,"channel":"futures.trades","event":"subscribe","payload":["BTC_USD"]}
+send: {"time":1791580000,"channel":"futures.order_book_update","event":"subscribe","payload":["ETH_USDT","100ms","100"]}

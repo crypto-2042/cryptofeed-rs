@@ -548,3 +548,30 @@ feature boundaries.
   and optional REST/history, recording/replay, sinks/aggregation and NBBO remain
   unfinished under the overall alignment goal. HTTPS/SOCKS/PAC/custom CA and
   general Python config-file parity are not promised by this HTTP proxy increment.
+
+
+## Usage alignment: exact sparse native packing — 2026-10-10
+
+- Replaced equal-symbol-set grouping with exact pair-aware native subscription
+  generation across all five adapters. Unequal sets share endpoint connections;
+  contiguous union slices respect native budgets and trim empty channel rules.
+  First-seen normalized/native order, global ambiguity and capability checks stay.
+- L2 REST URL lists, initial snapshot jobs, Gate resnapshot indexing, retained
+  readiness and recovery ownership now use only the L2 subset. Unrequested depth
+  cannot create sync/cache/bootstrap work. A manually incomplete public symbol
+  union with remaining private channel rules is rejected before connection.
+- Exact request parity and sanitized references cover five Spot adapters and
+  required Binance USD-M, OKX business/public and Gate settlement-product splits.
+  Capacity tests assert pair uniqueness, native alignment and empty-channel removal;
+  existing handler/event/counter/book filtering remains covered.
+- Five-exchange Spot smoke reached Ready with one connection, three confirmations,
+  one synchronized BTC book and three observed pairs each. Every BTC recovery view
+  was present and ETH absent; all epochs were 1, no last errors, process exit 0.
+  Event observations: Binance 200, Bitget 418, Bybit 134, OKX 86, Gate 145.
+- Final verification: 502 workspace tests (87 public parity), strict all-target
+  Clippy, rustdoc, all nine feature checks/tests, no-default test compilation,
+  Rust 1.85/fresh resolution, formatting and documentation links passed.
+- This is deterministic contiguous packing, not a proven global minimum solver.
+  Full market metadata, global allocation/configurable/weighted resource policies
+  and optional public REST/history, recording/replay, sinks/aggregation and NBBO
+  remain under the active overall goal. No exchange capability cell expanded.

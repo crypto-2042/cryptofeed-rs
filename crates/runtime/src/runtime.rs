@@ -338,6 +338,7 @@ async fn consume_binance_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool
         } else {
             plan.instruments
                 .iter()
+                .filter(|instrument| feed.subscribes(Channel::L2Book, &instrument.symbol))
                 .map(|instrument| instrument.symbol.as_str().to_owned())
                 .collect()
         };
@@ -389,6 +390,7 @@ async fn consume_bitget_feed(
     let books = if feed.channels.contains(&Channel::L2Book) {
         feed.symbols
             .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
             .map(|symbol| symbol.as_str().to_owned())
             .collect()
     } else {
@@ -419,6 +421,7 @@ async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>)
             planned_feed
                 .symbols
                 .iter()
+                .filter(|symbol| planned_feed.subscribes(Channel::L2Book, symbol))
                 .map(|symbol| symbol.as_str().to_owned())
                 .collect()
         } else {
@@ -459,6 +462,7 @@ async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -
             planned_feed
                 .symbols
                 .iter()
+                .filter(|symbol| planned_feed.subscribes(Channel::L2Book, symbol))
                 .map(|symbol| symbol.as_str().to_owned())
                 .collect()
         } else {
@@ -539,6 +543,7 @@ async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
         } else {
             plan.instruments
                 .iter()
+                .filter(|instrument| feed.subscribes(Channel::L2Book, &instrument.symbol))
                 .map(|instrument| instrument.symbol.as_str().to_owned())
                 .collect()
         };
@@ -640,7 +645,12 @@ async fn consume_binance_session(
         std::collections::HashMap::new()
     } else {
         spawn_binance_snapshot_fetches(
-            &plan.instruments,
+            &plan
+                .instruments
+                .iter()
+                .filter(|instrument| feed.subscribes(Channel::L2Book, &instrument.symbol))
+                .cloned()
+                .collect::<Vec<_>>(),
             plan.l2_book_depth.unwrap_or(1000),
             &feed.transport,
         )
@@ -1723,6 +1733,9 @@ async fn apply_binance_sequenced_update(
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
 ) -> Result<()> {
+    if !feed.subscribes(Channel::L2Book, &instrument.symbol) {
+        return Ok(());
+    }
     if feed
         .binance_book_syncs
         .lock()
@@ -1983,6 +1996,7 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                     .get(
                         plan.instruments
                             .iter()
+                            .filter(|candidate| feed.subscribes(Channel::L2Book, &candidate.symbol))
                             .position(|candidate| candidate.symbol.as_str() == key)
                             .expect("gateio resnapshot instrument"),
                     )
@@ -2212,6 +2226,7 @@ fn schedule_gateio_resync_for_plan(
     let index = plan
         .instruments
         .iter()
+        .filter(|candidate| feed.subscribes(Channel::L2Book, &candidate.symbol))
         .position(|candidate| candidate == instrument)
         .ok_or_else(|| Error::Parse("missing gateio resync instrument".to_owned()))?;
     let snapshot_url = plan
@@ -2491,6 +2506,9 @@ async fn process_bybit_orderbook_message(
 
     let update = BybitAdapter::parse_l2_book_update_for_feed(feed, message, received_ts)
         .ok_or_else(|| Error::Parse("failed to parse bybit depth update".to_owned()))?;
+    if !feed.subscribes(Channel::L2Book, update.book.symbol()) {
+        return Ok(true);
+    }
     let symbol_key = match &update.book {
         L2Book::Snapshot(snapshot) => snapshot.symbol.as_str().to_owned(),
         L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
@@ -2650,6 +2668,9 @@ async fn process_okx_orderbook_message(
         return Err(Error::Parse("failed to parse okx depth update".to_owned()));
     }
     for update in updates {
+        if !feed.subscribes(Channel::L2Book, update.book.symbol()) {
+            continue;
+        }
         let symbol_key = match &update.book {
             L2Book::Snapshot(snapshot) => snapshot.symbol.as_str().to_owned(),
             L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
@@ -2730,6 +2751,9 @@ async fn process_bitget_orderbook_message(
                 _ => None,
             })
             .ok_or_else(|| Error::Parse("failed to parse bitget depth update".to_owned()))?;
+        if !feed.subscribes(Channel::L2Book, book.symbol()) {
+            continue;
+        }
         let parse_sequence = |name: &str| {
             row.get(name)
                 .and_then(|value| {
@@ -3426,7 +3450,7 @@ mod tests {
         let groups = super::hydrate_feed_symbols(handler.into_feeds())
             .await
             .unwrap();
-        assert_eq!(groups.len(), 2);
+        assert_eq!(groups.len(), 1);
         let trade = serde_json::json!({"e":"aggTrade","s":"ETHUSDT","a":1,"p":"100","q":"2","m":false,"T":1710000000123u64});
         for feed in &groups {
             super::process_binance_text_message(feed, &trade.to_string(), 1.0)
@@ -3460,9 +3484,58 @@ mod tests {
             crate::feed::FeedEvent::L2Book(_)
         ));
         assert!(events.try_recv().is_err());
-        let states = groups[1].orderbook_states.lock().unwrap();
+        let states = groups[0].orderbook_states.lock().unwrap();
         assert!(states.contains_key("BTC-USDT"));
         assert!(!states.contains_key("ETH-USDT"));
+    }
+
+    #[cfg(all(feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn packed_trade_only_symbol_does_not_create_book_sync_or_rest_work() {
+        use cryptofeed_core::exchange::Channel;
+        let feed = |exchange| {
+            crate::exchange::ExchangeFeedBuilder::new(exchange)
+                .subscription(Channel::Trade, ["ETH-USDT"])
+                .subscription(Channel::L2Book, ["BTC-USDT"])
+                .build()
+        };
+        let binance = feed(ExchangeId::Binance);
+        let plan = BinanceAdapter::connection_plans(&binance)
+            .unwrap()
+            .remove(0);
+        let mut receivers = std::collections::HashMap::new();
+        let mut pending = std::collections::HashMap::new();
+        let message = serde_json::json!({"e":"depthUpdate","s":"ETHUSDT","U":101,"u":102,"b":[["100","1"]],"a":[]});
+        super::process_binance_orderbook_message(
+            &binance,
+            &plan,
+            &message.to_string(),
+            1.0,
+            &mut receivers,
+            &mut pending,
+        )
+        .await
+        .unwrap();
+        assert!(receivers.is_empty() && pending.is_empty());
+        assert!(binance.binance_book_syncs.lock().unwrap().is_empty());
+        let bybit = feed(ExchangeId::Bybit);
+        let message = serde_json::json!({"topic":"orderbook.50.ETHUSDT","type":"delta","ts":1710000000000i64,"data":{"s":"ETHUSDT","b":[["100","1"]],"a":[],"u":102,"seq":102}});
+        super::process_bybit_orderbook_message(&bybit, &message, 1.0)
+            .await
+            .unwrap();
+        assert!(bybit.bybit_book_syncs.lock().unwrap().is_empty());
+        let okx = feed(ExchangeId::Okx);
+        let message = serde_json::json!({"arg":{"channel":"books","instId":"ETH-USDT"},"action":"update","data":[{"bids":[["100","1","0","1"]],"asks":[],"ts":"1710000000000","seqId":102,"prevSeqId":100}]});
+        super::process_okx_orderbook_message(&okx, &message, 1.0)
+            .await
+            .unwrap();
+        assert!(okx.okx_book_syncs.lock().unwrap().is_empty());
+        let bitget = feed(ExchangeId::Bitget);
+        let message = serde_json::json!({"arg":{"instType":"spot","topic":"books","symbol":"ETHUSDT"},"action":"update","data":[{"b":[["100","1"]],"a":[],"ts":"1710000000000","seq":102,"pseq":100}]});
+        super::process_bitget_orderbook_message(&bitget, &message, 1.0)
+            .await
+            .unwrap();
+        assert!(bitget.bitget_book_syncs.lock().unwrap().is_empty());
     }
 
     #[cfg(all(feature = "ticker", feature = "orderbook"))]

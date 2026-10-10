@@ -6,7 +6,9 @@ pub mod gateio;
 pub mod kraken;
 pub mod okx;
 
-use std::collections::{HashMap, HashSet};
+#[cfg(feature = "orderbook")]
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 #[cfg(feature = "orderbook")]
 use std::sync::Mutex;
@@ -240,13 +242,22 @@ impl ExchangeFeed {
                 "each channel subscription must contain at least one symbol".to_owned(),
             ));
         }
+        if self
+            .channel_subscriptions
+            .iter()
+            .any(|(_, symbols)| symbols.iter().any(|symbol| !self.symbols.contains(symbol)))
+        {
+            return Err(Error::InvalidConfiguration(
+                "channel subscription is absent from the feed symbol union".to_owned(),
+            ));
+        }
         Ok(())
     }
 
     /// Compiles per-channel subscriptions into concrete feeds for adapter
-    /// planning. Channels with identical symbol sets share a group. Different
-    /// sets may use separate connections. Groups are then split by native
-    /// subscription budgets, retaining normalized/native symbol alignment.
+    /// planning. Exact channel/symbol pairs share native connections where their
+    /// routes allow, then split by native subscription budgets while retaining
+    /// normalized/native symbol alignment.
     /// Explicit native names map to the first-seen union in `self.symbols`.
     pub fn connection_feeds(&self) -> Result<Vec<Self>> {
         self.validate_subscription_configuration()?;
@@ -257,35 +268,7 @@ impl ExchangeFeed {
         if !self.exchange_symbols.is_empty() {
             self.ensure_symbol_mapping_is_complete()?;
         }
-        let native: HashMap<_, _> = self.symbols.iter().zip(&self.exchange_symbols).collect();
-        let mut groups: Vec<Self> = Vec::new();
-        for (channel, symbols) in &self.channel_subscriptions {
-            let mut symbols = symbols.clone();
-            symbols.sort_by(|left, right| left.as_str().cmp(right.as_str()));
-            if let Some(group) = groups.iter_mut().find(|group| group.symbols == symbols) {
-                group.channels.push(*channel);
-                continue;
-            }
-            let mut group = self.clone();
-            group.channels = vec![*channel];
-            group.exchange_symbols = if self.exchange_symbols.is_empty() {
-                Vec::new()
-            } else {
-                symbols
-                    .iter()
-                    .map(|symbol| native[symbol].clone())
-                    .collect()
-            };
-            group.symbols = symbols;
-            group.channel_subscriptions.clear();
-            group.subscription_mode_conflict = false;
-            groups.push(group);
-        }
-        let mut planned = Vec::new();
-        for group in groups {
-            planned.extend(crate::runtime::planning::shard(&group)?);
-        }
-        Ok(planned)
+        crate::runtime::planning::shard(self)
     }
 
     /// Publishes a normalized event to the `FeedHandler` event stream (when

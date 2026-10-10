@@ -9,8 +9,9 @@ sharing an IP, remote service availability, or optimal socket packing.
 1. Validate all logical feed configurations and their capability/feature cells.
 2. Hydrate each logical normalized-symbol union once, checking explicit native
    mapping ambiguity across all channels.
-3. Group channels with identical symbol sets, retaining native-name alignment.
-4. Split each concrete group into the largest contiguous symbol slices that
+3. Retain the first-seen union and exact channel/symbol membership. All five
+   adapters omit unrequested pairs before serializing native subscriptions.
+4. Split this union into the largest contiguous symbol slices that
    fit native subscription budgets. Topic aliases are deduplicated by the
    existing exchange adapters before measuring each physical endpoint.
 5. Reject a single instrument that exceeds a budget and reject more than 100
@@ -84,9 +85,20 @@ connection exhaustion, paced sends with market reads, cancellation, timestamp
 refresh and snapshot admission. Existing full-session doubles remain enabled.
 No new live load test or all-market throughput certification is claimed.
 
-Per-channel sets with different membership can still open extra sockets.
-Optimized packing, configurable policies, weighted REST budgets, remote readiness/status snapshots and user-facing recovery APIs
-remain in the [usage alignment plan](python-usage-alignment.md).
+Unequal channel sets now share connections wherever endpoint and capacity allow.
+Slicing restricts each channel rule to the shard and removes empty channels.
+Native topic deduplication remains in place; venue-scoped topics can still carry
+extra market data, which exact dispatch filters omit. L2 REST URL lists, initial
+snapshot jobs, resync indexing, retained readiness and recovery ownership contain
+only requested L2 symbols. Unrequested depth does not create sync/bootstrap work.
+
+This is deterministic contiguous-union packing, not a globally minimum bin-packing
+or cross-endpoint allocation solver. Endpoint/product boundaries are preserved;
+configurable/weighted/distributed resource policies remain in the
+[usage alignment plan](python-usage-alignment.md). Retained readiness and L2
+recovery are implemented and documented in their dedicated guides. The
+[Spot smoke](reports/live-smoke-packing-2026-10-10.md) observed one socket per
+exchange for Trade BTC/ETH plus L2 BTC; it is not a throughput certification.
 
 Managed updates now reserve per-handler capacity before committing candidates:
 same-exchange replacement reserves the larger old/new plan; provider changes

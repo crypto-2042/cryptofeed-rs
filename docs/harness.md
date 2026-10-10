@@ -363,3 +363,14 @@ limits, safe diagnostics and cache/client isolation. Planning tests retain the
 same route across channel groups. Default tests open no proxy listener or external
 socket; the separately dated `proxy_public` observation uses an authenticated
 local forwarding proxy against real Binance catalog/WS/REST bootstrap services.
+
+
+## Sparse native packing targets
+
+Public parity asserts exact native topic/arg unions on all five exchanges plus
+required Binance USD-M routes, Gate settlement products and OKX business/public
+separation. Request references are appended with provenance. Subscription tests
+verify capacity slices, rule trimming, pair uniqueness and mappings; runtime
+tests verify handler/broadcast/counter/book filtering and no trade-only depth
+sync/REST work. Separate `packed_public` evidence verifies real confirmations,
+L2 readiness and BTC-only recovery; no global optimum/load guarantee is claimed.

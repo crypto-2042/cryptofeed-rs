@@ -193,8 +193,15 @@ impl OkxAdapter {
         };
         let mut args: Vec<Value> = Vec::new();
         let mut inst_type_subscribed = false;
-        for inst_id in symbols {
+        for (index, inst_id) in symbols.into_iter().enumerate() {
             for channel in &feed.channels {
+                if !feed
+                    .symbols
+                    .get(index)
+                    .is_some_and(|symbol| feed.subscribes(*channel, symbol))
+                {
+                    continue;
+                }
                 let channel = match channel {
                     Channel::Candles => format!(
                         "candle{}",

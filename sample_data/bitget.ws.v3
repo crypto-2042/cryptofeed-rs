@@ -10,3 +10,6 @@ send: {"op":"subscribe","args":[{"instType":"usdt-futures","topic":"ticker","sym
 1736371332.200000: {"arg":{"instType":"usdt-futures","topic":"ticker","symbol":"BTCUSDT"},"action":"snapshot","data":[{"bid1Price":"99999","ask1Price":"100000","markPrice":"99999.12345678","indexPrice":"99998.12345678","openInterest":"123.45678901","fundingRate":"-0.00012345","nextFundingTime":"1736373600000"}],"ts":1736371332162}
 1736371332.200000: {"arg":{"instType":"usdt-futures","topic":"books","symbol":"BTCUSDT261225"},"action":"snapshot","data":[{"b":[["65000","1"]],"a":[["65001","2"]],"seq":7,"pseq":0,"ts":"1736371332162"}]}
 1736371332.200000: {"arg":{"instType":"usdt-futures","topic":"liquidation"},"action":"update","data":[{"symbol":"BTCUSDT","side":"buy","price":"65000","amount":"65000","ts":"1736371332162"},{"symbol":"BTCUSDT261225","side":"sell","price":"65000","amount":"65000","ts":"1736371332163"}]}
+
+configuration: {"trades":["BTC-USDT","ETH-USDT"],"l2_book":["BTC-USDT"]}
+send: {"op":"subscribe","args":[{"instType":"spot","topic":"publicTrade","symbol":"BTCUSDT"},{"instType":"spot","topic":"books","symbol":"BTCUSDT"},{"instType":"spot","topic":"publicTrade","symbol":"ETHUSDT"}]}

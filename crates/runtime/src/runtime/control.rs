@@ -205,7 +205,14 @@ impl Running {
                 feed.channels
                     .contains(&cryptofeed_core::exchange::Channel::L2Book)
             })
-            .flat_map(|feed| feed.symbols.iter().map(|symbol| symbol.as_str().to_owned()))
+            .flat_map(|feed| {
+                feed.symbols
+                    .iter()
+                    .filter(|symbol| {
+                        feed.subscribes(cryptofeed_core::exchange::Channel::L2Book, symbol)
+                    })
+                    .map(|symbol| symbol.as_str().to_owned())
+            })
             .collect();
         prepared.monitor.configure(prepared.connections, books);
         prepared.monitor.lifecycle(FeedState::Started);

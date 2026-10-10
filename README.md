@@ -301,15 +301,15 @@ and every requested channel must pass capability/feature preflight. Handler
 and interval/depth settings are unchanged. Explicit `.exchange_symbol(...)`
 entries correspond to the first-seen deduplicated union in `feed.symbols`.
 
-The runtime resolves this union once, then groups channels with identical
-symbol sets before handing concrete feeds to existing adapters. Different sets
-may open additional connections. Groups are automatically sharded by native
-subscription budgets; optimized packing of unequal sets remains pending.
-[Connection planning and budgets](docs/connection-planning.md) documents limits,
-queued sends, process-local connection admission and REST snapshot pacing. `feed_count()` counts logical feeds before startup; status
-notifications still identify exchanges, not individual subscription groups.
-Low-level adapter callers must plan each `feed.connection_feeds()?` group;
-passing the logical union directly to an adapter does not compile the map.
+The runtime resolves this union once and preserves exact channel/symbol pairs
+while sharing native connections, then shards the first-seen union by actual
+subscription budgets. For example, Trade BTC/ETH plus L2 BTC shares one Spot
+connection without subscribing to ETH depth. Product and public/business routes
+still split when required. [Connection planning and budgets](docs/connection-planning.md)
+documents packing, queued sends and shared admission/snapshot pacing. `feed_count()`
+counts logical feeds; managed snapshots identify physical connections and books.
+Low-level adapter callers must still plan each `feed.connection_feeds()?` shard
+and the adapter's endpoint plans; exact map support alone does not enforce capacity.
 
 ## Managed runtime updates
 

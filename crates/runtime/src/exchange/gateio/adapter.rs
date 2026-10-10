@@ -60,6 +60,7 @@ pub struct GateioConnectionPlan {
     pub product: GateioProduct,
     pub websocket_url: String,
     pub subscription_messages: Vec<String>,
+    /// REST URLs for L2-subscribed instruments only, in their instrument order.
     pub snapshot_urls: Vec<String>,
     pub instruments: Vec<GateioInstrument>,
 }
@@ -153,6 +154,7 @@ impl GateioAdapter {
             &instruments,
             &feed.channels,
             &feed.candle_interval,
+            feed,
         )
     }
 
@@ -178,10 +180,12 @@ impl GateioAdapter {
                 &product_instruments,
                 &feed.channels,
                 &feed.candle_interval,
+                feed,
             );
             let snapshot_urls = if feed.channels.contains(&Channel::L2Book) {
                 product_instruments
                     .iter()
+                    .filter(|instrument| feed.subscribes(Channel::L2Book, &instrument.symbol))
                     .map(|instrument| Self::snapshot_url(instrument, 100))
                     .collect()
             } else {
@@ -316,6 +320,7 @@ impl GateioAdapter {
         instruments: &[GateioInstrument],
         channels: &[Channel],
         candle_interval: &str,
+        feed: &ExchangeFeed,
     ) -> Vec<String> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -331,6 +336,9 @@ impl GateioAdapter {
             let derivative = instrument.product != GateioProduct::Spot;
             let prefix = if derivative { "futures" } else { "spot" };
             for channel in channels {
+                if !feed.subscribes(*channel, &instrument.symbol) {
+                    continue;
+                }
                 let (channel, payload) = match channel {
                     Channel::Candles => (
                         format!("{prefix}.candlesticks"),

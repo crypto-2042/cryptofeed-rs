@@ -134,5 +134,9 @@ required-features = ["orderbook"]
 name = "proxy_public"
 required-features = ["trade", "orderbook"]
 
+[[example]]
+name = "packed_public"
+required-features = ["trade", "orderbook"]
+
 [package.metadata.docs.rs]
 all-features = true

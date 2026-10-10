@@ -25,8 +25,8 @@ local checkout, not claims about every upstream version.
 | Symbol discovery | `exchange.py`: `symbols`, `info`, `symbol_mapping(refresh=...)` | `MarketCatalog::load` exposes sorted symbols; `refresh` bypasses cached responses, including pagination. Exact native lookup is available; precision/full market metadata remains pending. |
 | Pattern selection | `feed.py` resolves each supplied name by exact mapping; no general glob expansion found | Phase 1 adds explicit catalog `select` with `*` and `?` as a convenience extension, not Python parity. |
 | Batch configuration | `feed.py`: `symbols` plus `channels` | Multi-symbol feeds already work; phase 1 adds bulk `.symbols` and typed `.instruments`. |
-| Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Implemented `.subscription` / `.subscription_instruments`; equal symbol sets share a concrete group. Distinct sets may use more connections until packing is optimized. |
-| Connection sizing | `feed.py`: `connect` / `limit_sub`, endpoint-specific limits | Implemented native-topic/message budget sharding, per-request Bybit batches, paced sends, connection budgets and snapshot admission. Optimal packing and configurable/weighted policies remain pending. |
+| Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Implemented `.subscription` / `.subscription_instruments`; exact unequal sets now share native connections and retain per-pair filtering through capacity shards. |
+| Connection sizing | `feed.py`: `connect` / `limit_sub`, endpoint-specific limits | Implemented native-topic/message budget sharding, per-request Bybit batches, paced sends, connection budgets and snapshot admission. Unequal-set packing is implemented; a global minimum solver and configurable/weighted policies remain pending. |
 | Embedding and shutdown | `feedhandler.py`: `run(start_loop=False, install_signal_handlers=False)`, `stop_async` | Existing `runtime::run_with_shutdown` supports a caller-owned watch signal. Phase 1 adds a `FeedHandler` facade; it installs no Ctrl-C handler. |
 | Runtime additions | `feedhandler.py`: `add_feed` starts a new feed when running; `examples/demo_loop.py` | Implemented opt-in RuntimeControl; retained handles can add feeds after startup. Legacy strict startup remains available. |
 | Updating an existing subscription | No general public update/unsubscribe API found in the inspected Python core | Implemented controlled remove/replace with candidate validation and old-task drain. In-place exchange WS updates remain a separate optimization. |
@@ -85,21 +85,21 @@ No exchange wire parser or endpoint changes are part of this phase.
    entries merge; duplicates are removed. Empty sets, unsupported channels or
    features, and mixed products fail preflight. The runtime resolves the
    first-seen union once (including global native-mapping ambiguity checks),
-   then groups channels by identical normalized symbol sets and uses existing
-   adapter/session paths. Dispatch checks exact channel/symbol membership.
-   Explicit native names follow the union's order, then are rebound per group.
-   This prioritizes correctness over minimizing sockets: distinct sets can open
-   additional connections, and existing status reports identify only exchanges.
-   Low-level adapter users must call `connection_feeds` and plan each group;
-   this compilation is automatic through FeedHandler.
+   then retains exact channel/symbol rules through native-topic packing and
+   capacity shards. Dispatch and book bootstrap/sync/readiness/recovery check
+   exact membership. Explicit native names remain aligned to the first-seen union.
+   Unequal sets can share a physical socket; required product/public/business
+   routes remain separate. Low-level adapter users still call `connection_feeds`
+   for capacity partitioning and then plan each shard's endpoint routes.
 3. **Implemented: conservative connection sizing and paced admission.**
    Concrete groups split by actual native topic/message budgets after adapter
    deduplication. Bybit spot args batch at ten per request; a session-owned queue
    paces sends while retaining reads/heartbeats/shutdown. Process-local connection
    slots/start pacing and shared snapshot concurrency/start pacing bound bursts.
    [Connection planning](connection-planning.md) separates official limits from
-   SDK choices and records cancellation and scope. Optimal packing of unequal
-   channel sets, configurable budgets and distributed/weighted quotas remain
+   SDK choices and records cancellation and scope. Unequal channel sets now share
+   native connections using deterministic contiguous-union packing; global minimum
+   allocation, configurable budgets and distributed/weighted quotas remain
    separate improvements, not implied guarantees.
 
 Completed subscription tests cover five-exchange concrete planning, native

@@ -52,6 +52,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-10 sparse packing](reports/live-smoke-packing-2026-10-10.md):
+  five Spot feeds, each one socket for Trade BTC/ETH plus L2 BTC, with exact recovery scope.
 - [2026-10-10 authenticated proxy](reports/live-smoke-proxy-2026-10-10.md):
   actual Binance catalog, WS and REST-assisted L2 readiness through HTTP CONNECT.
 - [2026-10-10 L2 recovery](reports/live-smoke-book-recovery-2026-10-10.md):

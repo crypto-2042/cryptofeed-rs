@@ -135,7 +135,7 @@ mod tests {
     }
     #[cfg(all(feature = "trade", feature = "ticker"))]
     #[test]
-    fn options_survive_per_channel_partitioning() {
+    fn options_survive_sparse_connection_planning() {
         use crate::prelude::*;
         let options = RuntimeOptions::default()
             .max_retries(Some(2))
@@ -156,7 +156,7 @@ mod tests {
             .exchange_symbol("ETHUSDT")
             .build();
         let groups = feed.connection_feeds().unwrap();
-        assert_eq!(groups.len(), 2);
+        assert_eq!(groups.len(), 1);
         assert!(groups.iter().all(|group| group.runtime_options == options));
         assert!(groups.iter().all(|group| group.transport.cache_key("catalog") == transport.cache_key("catalog")));
     }

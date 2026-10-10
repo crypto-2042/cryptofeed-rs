@@ -144,3 +144,28 @@ The discovery engine uses scripted MarketCatalog snapshots to exercise additions
 removals and native aliases. These scripts are SDK policy tests, not exchange
 wire fixtures. Existing OKX live/preopen and Gate derivative delisting references
 remain applicable.
+
+## 2026-10-10 sparse subscription packing
+
+Appended per-channel configurations and send references select Trade BTC/ETH and
+L2 BTC on one Spot endpoint. They are sanitized request-shape references, not live
+traffic. The `sparse_subscriptions_pack_only_requested_native_topics` public parity
+case asserts every selected topic/arg plus L2-only snapshot URLs on all five
+exchanges. Wire shapes remain those of the official sources already listed above;
+selection/capacity is SDK policy. Native confirmation IDs/timestamps retain the
+separate readiness/send policies.
+
+The appended Binance USD-M public/market URLs, Gate USDT/BTC derivative requests
+and OKX public/business topic sets also back
+`sparse_packing_preserves_required_product_and_endpoint_separation`. Current
+sources were rechecked: [Binance Spot](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md),
+[USD-M public](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/public),
+[USD-M market](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/market),
+[Bitget v3 depth](https://www.bitget.com/docs/uta/websocket/public/Order-Book-Channel),
+[Bybit connect](https://bybit-exchange.github.io/docs/v5/ws/connect),
+[OKX subscriptions](https://app.okx.com/docs-v5/en/#overview-websocket-subscribe),
+[Gate Spot](https://www.gate.com/docs/developers/apiv4/ws/) and
+[Gate futures](https://www.gate.com/docs/developers/futures/).
+No market-data parser expectation was changed. Scripted unsolicited ETH depth
+messages verify absence of unrequested sync/bootstrap/cache work; they are not
+claims that a correctly subscribed venue sends those unsolicited messages.

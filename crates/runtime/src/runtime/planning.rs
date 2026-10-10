@@ -78,6 +78,20 @@ pub(crate) fn validate_connection_counts(feeds: &[ExchangeFeed]) -> Result<()> {
 fn slice(feed: &ExchangeFeed, start: usize, len: usize) -> ExchangeFeed {
     let mut planned = feed.clone();
     planned.symbols = feed.symbols[start..start + len].to_vec();
+    if !planned.channel_subscriptions.is_empty() {
+        for (_, symbols) in &mut planned.channel_subscriptions {
+            symbols.retain(|symbol| planned.symbols.contains(symbol));
+        }
+        planned
+            .channel_subscriptions
+            .retain(|(_, symbols)| !symbols.is_empty());
+        planned.channels.retain(|channel| {
+            planned
+                .channel_subscriptions
+                .iter()
+                .any(|(candidate, _)| candidate == channel)
+        });
+    }
     if !feed.exchange_symbols.is_empty() {
         planned.exchange_symbols = feed.exchange_symbols[start..start + len].to_vec();
     }

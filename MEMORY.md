@@ -457,3 +457,22 @@ Project-specific memory for `rust/cryptofeed-rs`.
   Clones share results; separate/direct/auth configurations never coalesce caches.
 - HTTPS/SOCKS/PAC/custom CA/mTLS are not claimed. Full market metadata and optional
   ecosystem work remain active; public feed scope is unchanged.
+
+
+## Exact sparse connection packing
+
+- Preserve exact mapped pairs in adapters and capacity shards; never subscribe
+  to the channel/symbol Cartesian product. Shards trim rules and remove empty
+  channels while preserving first-seen normalized/native alignment.
+- Native deduplication and mandatory product/public/business routes stay intact.
+  Packing uses largest contiguous union slices under existing native budgets;
+  it does not prove a global minimum across endpoints.
+- L2 URLs, initial REST jobs, readiness totals/connection book sets and recovery
+  owners must use the L2 subset. Gate resnapshot URL indexes use the filtered
+  instrument order, not the full trade/book union. Trade-only depth cannot
+  create sync/cache/HTTP bootstrap work.
+- Changed send selections are captured alongside exact inline parity assertions.
+  Five-exchange Spot unequal-set smoke reached Ready with one socket, three
+  confirmations and one book each; ETH trades produced no ETH recovery book.
+- Full market metadata, global allocation/resource policies and optional
+  ecosystem work remain unfinished under the active alignment goal.

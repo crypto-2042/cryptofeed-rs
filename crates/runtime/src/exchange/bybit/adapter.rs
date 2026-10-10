@@ -231,51 +231,58 @@ impl BybitAdapter {
                     .get(index)
                     .map(Self::product_for_symbol)
                     .unwrap_or(BybitProduct::Spot);
-                feed.channels.iter().map(move |channel| match channel {
-                    Channel::Candles => format!(
-                        "kline.{}.{exchange_symbol}",
-                        Self::candle_interval_wire(&feed.candle_interval).unwrap_or("1")
-                    ),
-                    Channel::Ticker if product == BybitProduct::Spot => {
-                        format!("orderbook.1.{exchange_symbol}")
-                    }
-                    Channel::Ticker => format!("tickers.{exchange_symbol}"),
-                    // Option trades are a base-coin stream
-                    // (`publicTrade.BTC`), not per-symbol.
-                    Channel::Trade if product == BybitProduct::Option => {
-                        format!(
-                            "publicTrade.{}",
-                            feed.symbols
-                                .get(index)
-                                .map(|symbol| symbol.as_str().split('-').next().unwrap_or(""))
-                                .unwrap_or("")
-                        )
-                    }
-                    Channel::Trade => format!("publicTrade.{exchange_symbol}"),
-                    Channel::L2Book => format!(
-                        "orderbook.{}.{exchange_symbol}",
-                        // Options expose only `orderbook.{25,100}`; other
-                        // products default to level 50 (verified 2026-08-06).
-                        feed.l2_book_depth
-                            .unwrap_or(if product == BybitProduct::Option {
-                                25
-                            } else {
-                                50
-                            })
-                    ),
-                    // Bybit no longer serves `funding.{symbol}` (verified
-                    // live 2026-08-06): funding rides the derivative
-                    // `tickers.{symbol}` stream alongside OI/index/mark price.
-                    Channel::Funding => format!("tickers.{exchange_symbol}"),
-                    Channel::Liquidations => format!("allLiquidation.{exchange_symbol}"),
-                    // Bybit carries open interest inside the derivative
-                    // tickers stream; there is no standalone channel.
-                    Channel::OpenInterest => format!("tickers.{exchange_symbol}"),
-                    Channel::Index => format!("tickers.{exchange_symbol}"),
-                    Channel::MarkPrice => format!("tickers.{exchange_symbol}"),
-                    Channel::L1Book => format!("orderbook.1.{exchange_symbol}"),
-                    _ => String::new(),
-                })
+                feed.channels
+                    .iter()
+                    .filter(move |channel| {
+                        feed.symbols
+                            .get(index)
+                            .is_some_and(|symbol| feed.subscribes(**channel, symbol))
+                    })
+                    .map(move |channel| match channel {
+                        Channel::Candles => format!(
+                            "kline.{}.{exchange_symbol}",
+                            Self::candle_interval_wire(&feed.candle_interval).unwrap_or("1")
+                        ),
+                        Channel::Ticker if product == BybitProduct::Spot => {
+                            format!("orderbook.1.{exchange_symbol}")
+                        }
+                        Channel::Ticker => format!("tickers.{exchange_symbol}"),
+                        // Option trades are a base-coin stream
+                        // (`publicTrade.BTC`), not per-symbol.
+                        Channel::Trade if product == BybitProduct::Option => {
+                            format!(
+                                "publicTrade.{}",
+                                feed.symbols
+                                    .get(index)
+                                    .map(|symbol| symbol.as_str().split('-').next().unwrap_or(""))
+                                    .unwrap_or("")
+                            )
+                        }
+                        Channel::Trade => format!("publicTrade.{exchange_symbol}"),
+                        Channel::L2Book => format!(
+                            "orderbook.{}.{exchange_symbol}",
+                            // Options expose only `orderbook.{25,100}`; other
+                            // products default to level 50 (verified 2026-08-06).
+                            feed.l2_book_depth
+                                .unwrap_or(if product == BybitProduct::Option {
+                                    25
+                                } else {
+                                    50
+                                })
+                        ),
+                        // Bybit no longer serves `funding.{symbol}` (verified
+                        // live 2026-08-06): funding rides the derivative
+                        // `tickers.{symbol}` stream alongside OI/index/mark price.
+                        Channel::Funding => format!("tickers.{exchange_symbol}"),
+                        Channel::Liquidations => format!("allLiquidation.{exchange_symbol}"),
+                        // Bybit carries open interest inside the derivative
+                        // tickers stream; there is no standalone channel.
+                        Channel::OpenInterest => format!("tickers.{exchange_symbol}"),
+                        Channel::Index => format!("tickers.{exchange_symbol}"),
+                        Channel::MarkPrice => format!("tickers.{exchange_symbol}"),
+                        Channel::L1Book => format!("orderbook.1.{exchange_symbol}"),
+                        _ => String::new(),
+                    })
             })
             .collect();
 

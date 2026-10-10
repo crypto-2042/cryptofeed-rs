@@ -575,3 +575,16 @@ Official sources and synthetic mixed-status references are recorded in
 [fixture provenance](../sample_data/SOURCES.md#2026-10-10-catalog-eligibility),
 with matching inline markets regressions. This review changes catalog filtering,
 not market-data wire normalization or enabled coverage.
+
+## Sparse subscription planning review — 2026-10-10
+
+The active five-exchange adapters now select exact configured channel/symbol
+pairs before serializing existing native topics. Current official subscription
+shapes and Binance USD-M public/market, OKX public/business and Gate derivative
+product routing were rechecked; sources and request references are recorded in
+[fixture provenance](../sample_data/SOURCES.md#2026-10-10-sparse-subscription-packing).
+This changes SDK packing, not wire formats, market models, sequence rules or
+capability cells. L2 REST URL lists and readiness/cache ownership contain only
+subscribed L2 symbols; venue-scoped topics still rely on exact dispatch filters.
+The separate dated Spot smoke reached Ready on all five exchanges with one
+physical connection each; it does not certify global optimal packing.

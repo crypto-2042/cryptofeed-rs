@@ -20,3 +20,9 @@ wss://ws.okx.com/ws/v5/business <-> 1710000001.500000
 send: {"op":"subscribe","args":[{"channel":"candle1m","instId":"BTC-USDT"}]}
 send: {"op":"subscribe","args":[{"channel":"books","instId":"BTC-USDT"}]}
 1791570000.010000: {"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"},"connId":"sanitized"}
+
+configuration: {"trades":["BTC-USDT","ETH-USDT"],"l2_book":["BTC-USDT"]}
+send: {"op":"subscribe","args":[{"channel":"trades","instId":"BTC-USDT"},{"channel":"books","instId":"BTC-USDT"},{"channel":"trades","instId":"ETH-USDT"}]}
+
+configuration: {"trades":["BTC-USDT"],"candles":["ETH-USDT"]}
+send: {"op":"subscribe","args":[{"channel":"trades","instId":"BTC-USDT"},{"channel":"candle1m","instId":"ETH-USDT"}]}

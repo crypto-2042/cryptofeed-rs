@@ -14,3 +14,10 @@ wss://dstream.binance.com/stream?streams=btcusd_perp@bookTicker/btcusd_perp@aggT
 wss://stream.binance.com:9443/stream <-> 1791570000.000000
 send: {"method":"SUBSCRIBE","params":["btcusdt@aggTrade","btcusdt@depth@100ms"],"id":1}
 1791570000.010000: {"result":null,"id":1}
+
+configuration: {"trades":["BTC-USDT","ETH-USDT"],"l2_book":["BTC-USDT"]}
+send: {"method":"SUBSCRIBE","params":["btcusdt@aggTrade","btcusdt@depth@100ms","ethusdt@aggTrade"],"id":1}
+
+configuration: {"trades":["ETH-USDT-PERP"],"l2_book":["BTC-USDT-PERP"]}
+wss://fstream.binance.com/public/stream?streams=btcusdt@depth@100ms <-> 1791580000.000000
+wss://fstream.binance.com/market/stream?streams=ethusdt@aggTrade <-> 1791580000.000000

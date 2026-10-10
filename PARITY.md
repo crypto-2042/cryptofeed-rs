@@ -50,6 +50,10 @@ budgets, startup delay and receipt watchdog overrides/disable, preserving
 heartbeat and confirmation policies.
 [TransportConfig](docs/transport.md) shares explicit proxy routing across
 catalogs, REST book snapshots/resync and WS, with scoped caches and direct defaults.
+Unequal channel/symbol sets now share native connections, with exact request
+args, L2-only snapshot ownership and capacity-preserving rule slices.
+[Five-exchange sparse smoke](docs/reports/live-smoke-packing-2026-10-10.md) reached
+Ready on one Spot socket each; required endpoint/product splits remain asserted.
 Scripted regressions cover listings/removals, native-name changes, empty/failing
 refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
 tracked in [the usage alignment plan](docs/python-usage-alignment.md).
