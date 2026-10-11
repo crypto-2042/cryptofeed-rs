@@ -362,3 +362,22 @@ identity/tick/lot fields, ticker prices/timestamps, four-item book levels/seqId,
 and public trade identity/price/quantity/side/time. No parser normalization or
 native endpoint changed. The example is not automatically loaded by tests;
 inline assertions and the offline CLI verify its documented values separately.
+
+
+## 2026-10-12 native REST quota policy references
+
+`public-rest.native-quota.jsonl` is a synthetic code-classification reference,
+not a live capture and not an HTTP recording. It matches executable inline
+`runtime/quota.rs` tests. The Gate row is an excluded-scope negative case.
+Official references were checked before implementing the policy:
+[Binance Spot errors](https://github.com/binance/binance-spot-api-docs/blob/master/errors.md),
+[USD-M errors](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/error-code),
+[COIN-M errors](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/error-code),
+[Bybit rate limits](https://bybit-exchange.github.io/docs/v5/rate-limit),
+[OKX limits](https://app.okx.com/docs-v5/en/#overview-rate-limits),
+[Bitget v3 codes](https://www.bitget.com/docs/uta/error-code/restapi) and
+[string envelope](https://www.bitget.com/docs/catalog/market-market-data/market-instruments),
+[Gate labels](https://www.gate.com/docs/developers/apiv4/en/).
+Mock HTTP-200 tests are deliberate SDK edge scenarios, not assertions that every
+venue normally returns those quota codes with HTTP 200. No keys/private payloads
+or intentionally induced live throttles are included.

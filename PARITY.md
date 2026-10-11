@@ -859,3 +859,28 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   updated syn 3.0.7→3.0.8; all 721 tests, strict Clippy/rustdoc and standalone/
   minimal feature suites were repeated on that resolved set and passed. No
   declared dependency or lockfile policy change; Cargo.lock/target stay uncommitted.
+
+## Native public REST quota cooldowns — 2026-10-12
+
+- Verified official Binance/Bybit/OKX/Bitget code forms and added exchange-scoped
+  successful-HTTP JSON recognition. Gate remains on HTTP 429; private order/WS
+  and convert labels are not guessed into public REST scope.
+- Preserve the original JSON/result semantics while deferring shared admission.
+  Prefer Retry-After, then valid future Bybit epoch-ms reset, else SDK 60-second
+  fallback; malformed/past hints fall back, existing longer waits never shorten.
+  No diagnostic ban text parsing, fabricated HTTP 429 or automatic REST retry.
+- Known quota envelopes fail before directory cache writes, including numeric
+  Binance errors. Standalone validators and bounded directory retry remain in
+  place; HTTP/scoped slots stay free during cooldown and other exchanges proceed.
+- Nine new deterministic regressions cover code/type/scope, reset/header timing,
+  body identity, fallback/extension, slot/isolation, no live cooldown during replay
+  and no cached native-error directory. No live throttling was intentionally induced.
+- Endpoint weights, native WS controls, distributed coordination, minimum packing
+  and independent capture merging remain active; no endpoint/normalization changed.
+- Gates passed: 730 all-feature workspace tests, no-default/recording/orderbook
+  native-rate suites and every standalone feature check, strict Clippy/rustdoc.
+  CI adds the no-default native-code classifier. COIN-M's current official error
+  page was verified via its redirect; no native endpoint or dependency was changed.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed; resolved
+  dependencies match the tested set. JSON/cache/recording codecs and native API
+  versions stay unchanged; Cargo.lock/target remain uncommitted.

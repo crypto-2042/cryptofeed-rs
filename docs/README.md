@@ -60,6 +60,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Native raw replay](raw-replay.md): current parser/dispatch reuse, per-session
   ticker/WS-book state, lifecycle delivery, limits and unsupported HTTP-bootstrap paths.
 
+- [Native REST rate limits](native-rate-limits.md): verified native codes, public
+  header hints, scoped cooldown, cache rejection and offline replay isolation.
+
 - [Shared resource budgets](resource-budgets.md): stricter HTTP/WS groups, joint
   pacing, cancellation, scoped plan admission and managed replacement reservations.
 

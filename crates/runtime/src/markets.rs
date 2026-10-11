@@ -1492,6 +1492,11 @@ async fn fetch_catalog_json(
             MAX_CATALOG_RESPONSE_BYTES,
         )
         .await?;
+        if let Some(code) = crate::runtime::quota::native_code(exchange, &value) {
+            return Err(Error::Protocol(format!(
+                "{exchange:?} catalog reports native rate limit {code}"
+            )));
+        }
         validate_catalog_envelope(url, &value)?;
         Ok(value)
     };

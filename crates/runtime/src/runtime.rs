@@ -1,6 +1,7 @@
 mod budget;
 #[cfg(all(test, feature = "recording", feature = "orderbook"))]
 mod http_replay_tests;
+pub(crate) mod quota;
 #[cfg(feature = "recording")]
 mod raw_replay;
 #[cfg(test)]

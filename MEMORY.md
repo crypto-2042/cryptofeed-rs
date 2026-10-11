@@ -866,3 +866,18 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   count cache hits as network operations or use budget identity as cache identity.
 - These are unit-cost process-local policies, not native weight/code or IP-wide
   distributed accounting. Subscription/message/frame/heartbeat limits stay intact.
+
+## Native REST rate envelopes
+
+- Recognize only verified exchange/type code forms: Binance integer -1003,
+  Bybit integer 10006, OKX string 50011, Bitget v3 string 429. Do not parse message
+  text or borrow private/WS/convert-only code scopes; Gate uses HTTP 429 here.
+- Keep JSON intact and set shared cooldown using Retry-After, valid future Bybit
+  reset-ms header, or SDK 60s fallback. Never shorten an existing deadline or
+  invent an HTTP status. Quota JSON must not enter the directory response cache.
+- Offline HTTP injection bypasses real cooldown/admission. Captured JSON codes
+  still drive ordinary validators/retries; recorded native delay is not simulated.
+- Use deterministic/mock quota tests, not intentional live throttling. Weight and
+  WS-control/distributed handling remain separate. The official COIN-M redirect
+  resolved to derivatives-trading-coin-futures/error-code and confirms -1003; no
+  live quota result is implied.

@@ -1,0 +1,5 @@
+{"fixture":"synthetic-sdk-policy-case","exchange":"Binance","payload":{"code":-1003},"expected_native_code":"-1003"}
+{"fixture":"synthetic-sdk-policy-case","exchange":"Bybit","payload":{"retCode":10006},"expected_native_code":"10006"}
+{"fixture":"synthetic-sdk-policy-case","exchange":"Okx","payload":{"code":"50011"},"expected_native_code":"50011"}
+{"fixture":"synthetic-sdk-policy-case","exchange":"Bitget","payload":{"code":"429"},"expected_native_code":"429"}
+{"fixture":"synthetic-sdk-policy-case","exchange":"Gateio","payload":{"label":"TOO_MANY_REQUESTS"},"expected_native_code":null}

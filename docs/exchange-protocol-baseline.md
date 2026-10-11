@@ -740,3 +740,17 @@ books document four-item levels and integer seqId; public trades retain native
 IDs, price, quantity, taker side and millisecond time. Spot quantities are base
 amounts. All examples substitute values; no adapter endpoint or normalization
 rule changed. The HTTP replay is a payload source, not a wire/timer simulation.
+
+
+### 2026-10-12 native REST quota code verification
+
+[Native rate handling](native-rate-limits.md) records current official error
+references and SDK timing decisions separately. Binance integer -1003, Bybit
+integer 10006, OKX string 50011 and Bitget v3 string 429 are recognized in their
+own public GET result contexts. Bybit's reset header is epoch milliseconds.
+Gate's convert-only label and private order/WS codes are excluded; existing HTTP
+429 remains authoritative. JSON is preserved, not converted into a fake status.
+The 60-second missing-hint delay is an SDK fallback, not a protocol window.
+The current [COIN-M error page](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/error-code)
+was located through the official redirect and also confirms -1003; the guessed
+coin-m-futures page path was not authoritative. No endpoint changed.

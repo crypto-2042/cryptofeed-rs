@@ -82,7 +82,9 @@ slot reuse and three HTTP queries:
 cargo run -p cryptofeed-rs --example resource_budget_public
 ```
 
-These are process-local unit-cost safeguards, not endpoint weights, native JSON
-quota-code accounting, distributed/shared-IP coordination, fairness guarantees,
+These are process-local unit-cost safeguards, not endpoint weights, native WS quota control, distributed/shared-IP coordination, fairness guarantees,
 global minimum socket packing or sustained throughput certification. Those remain
 separate work under the full alignment plan.
+
+[Native REST codes](native-rate-limits.md) now augment shared HTTP cooldown;
+that is not endpoint-weight accounting or a distributed quota service.

@@ -30,6 +30,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --workspace --no-default-features
       - run: cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features
+      - run: cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features
       - name: Check shared resource scopes independently
         run: |
           cargo test -p cryptofeed-rs --lib resources:: --no-default-features

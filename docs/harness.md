@@ -559,3 +559,11 @@ clone/proxy retention, composite start clocks under global delay, scope exhausti
 active/pacing cancellation and both permit releases. Scoped planning and managed
 admission tests cover rejected excess, same-scope max reservations, scope switching
 and healthy-feed identity. Offline replay guards are checked before resource use.
+
+
+Native quota tests assert official code/type/scope forms against synthetic
+`public-rest.native-quota.jsonl` references. Mock HTTP responses/paused clocks
+cover shared delay, Retry-After/reset precedence, malformed hints, unchanged JSON,
+other-exchange/slot isolation and replay not mutating live cooldowns. The HTTP
+archive catalog test asserts numeric quota responses never become cached successes.
+No intentionally rate-limited live service is part of CI.

@@ -121,6 +121,7 @@ fn requests() -> &'static HttpRequests {
         )
     })
 }
+const DEFAULT_RATE_COOLDOWN: Duration = Duration::from_secs(60);
 fn retry_after(header: Option<&str>, now: SystemTime) -> Option<Duration> {
     let value = header?.trim();
     if let Ok(seconds) = value.parse::<u64>() {
@@ -209,7 +210,7 @@ async fn read_response(
         );
         if matches!(status.as_u16(), 418 | 429) || retry.is_some() {
             limiter
-                .defer(exchange, retry.unwrap_or(Duration::from_secs(60)))
+                .defer(exchange, retry.unwrap_or(DEFAULT_RATE_COOLDOWN))
                 .await?;
         }
         return Err(Error::HttpStatus {
@@ -225,6 +226,22 @@ async fn read_response(
             "{url}: response exceeds {max_bytes} bytes"
         )));
     }
+    let retry = retry_after(
+        response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok()),
+        SystemTime::now(),
+    );
+    let reset = if exchange == ExchangeId::Bybit {
+        response
+            .headers()
+            .get("x-bapi-limit-reset-timestamp")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse::<u64>().ok())
+    } else {
+        None
+    };
     let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()
@@ -233,7 +250,37 @@ async fn read_response(
     {
         append_body(&mut bytes, &chunk, max_bytes, url)?;
     }
-    serde_json::from_slice(&bytes).map_err(|error| Error::MalformedData(format!("{url}: {error}")))
+    let value = serde_json::from_slice(&bytes)
+        .map_err(|error| Error::MalformedData(format!("{url}: {error}")))?;
+    apply_native_cooldown(limiter, exchange, &value, retry, reset, SystemTime::now()).await?;
+    Ok(value)
+}
+async fn apply_native_cooldown(
+    limiter: &HttpRequests,
+    exchange: ExchangeId,
+    value: &serde_json::Value,
+    retry: Option<Duration>,
+    reset: Option<u64>,
+    now: SystemTime,
+) -> Result<()> {
+    if super::quota::native_code(exchange, value).is_some() {
+        let reset = if exchange == ExchangeId::Bybit {
+            reset.and_then(|timestamp| super::quota::reset_delay(timestamp, now))
+        } else {
+            None
+        };
+        let usable = |delay: &Duration| Instant::now().checked_add(*delay).is_some();
+        limiter
+            .defer(
+                exchange,
+                retry
+                    .filter(usable)
+                    .or(reset.filter(usable))
+                    .unwrap_or(DEFAULT_RATE_COOLDOWN),
+            )
+            .await?;
+    }
+    Ok(())
 }
 fn append_body(bytes: &mut Vec<u8>, chunk: &[u8], limit: usize, url: &str) -> Result<()> {
     if bytes.len().saturating_add(chunk.len()) > limit {
@@ -614,5 +661,233 @@ mod scoped_budget_tests {
         }
         assert_eq!(global.slots.available_permits(), 4);
         assert_eq!(local.slots.available_permits(), 1);
+    }
+}
+
+#[cfg(test)]
+mod native_quota_tests {
+    use super::*;
+    use serde_json::json;
+    #[tokio::test(start_paused = true)]
+    async fn successful_http_with_native_quota_preserves_body_and_defers_only_its_exchange() {
+        let limiter = HttpRequests::new(4, Duration::ZERO);
+        let local = crate::resources::Gate::new(2, Duration::ZERO);
+        let body = json!({"retCode":10006,"retMsg":"synthetic message"});
+        let response: reqwest::Response = http::Response::builder()
+            .status(200)
+            .header("Retry-After", "2")
+            .body(body.to_string())
+            .unwrap()
+            .into();
+        assert_eq!(
+            read_response(response, "synthetic", ExchangeId::Bybit, 4096, &limiter)
+                .await
+                .unwrap(),
+            body
+        );
+        let start = Instant::now();
+        let queued = limiter.run_scoped(ExchangeId::Bybit, Some(&local), async { Instant::now() });
+        tokio::pin!(queued);
+        assert!(futures::poll!(queued.as_mut()).is_pending());
+        assert_eq!(limiter.slots.available_permits(), 4);
+        assert_eq!(local.slots.available_permits(), 2);
+        assert_eq!(
+            limiter.run(ExchangeId::Okx, async { Instant::now() }).await,
+            start
+        );
+        assert_eq!(queued.await - start, Duration::from_secs(2));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn native_header_priority_reset_fallback_and_existing_deadline_never_shorten() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+        let body = json!({"retCode":10006});
+        for (retry, reset, expected) in [
+            (Some(Duration::from_secs(7)), Some(12500), 7_000),
+            (None, Some(12500), 2500),
+            (None, Some(9999), 60_000),
+            (None, None, 60_000),
+            (Some(Duration::ZERO), None, 0),
+            (Some(Duration::MAX), Some(12500), 2500),
+            (Some(Duration::MAX), None, 60_000),
+        ] {
+            let limiter = HttpRequests::new(1, Duration::ZERO);
+            let start = Instant::now();
+            apply_native_cooldown(&limiter, ExchangeId::Bybit, &body, retry, reset, now)
+                .await
+                .unwrap();
+            assert_eq!(
+                limiter.clock.lock().await.cooldowns[&ExchangeId::Bybit] - start,
+                Duration::from_millis(expected)
+            );
+        }
+        let limiter = HttpRequests::new(1, Duration::ZERO);
+        let start = Instant::now();
+        apply_native_cooldown(
+            &limiter,
+            ExchangeId::Bybit,
+            &body,
+            Some(Duration::from_secs(10)),
+            None,
+            now,
+        )
+        .await
+        .unwrap();
+        apply_native_cooldown(
+            &limiter,
+            ExchangeId::Bybit,
+            &body,
+            Some(Duration::from_secs(1)),
+            None,
+            now,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            limiter.clock.lock().await.cooldowns[&ExchangeId::Bybit] - start,
+            Duration::from_secs(10)
+        );
+    }
+    #[tokio::test(start_paused = true)]
+    async fn normal_payload_and_other_error_scopes_do_not_apply_rate_headers() {
+        for (exchange, body) in [
+            (
+                ExchangeId::Bybit,
+                json!({"retCode":0,"retMsg":"10006 too many requests"}),
+            ),
+            (ExchangeId::Okx, json!({"code":"50061"})),
+            (ExchangeId::Bitget, json!({"code":"25004"})),
+            (ExchangeId::Gateio, json!({"label":"TOO_MANY_REQUESTS"})),
+        ] {
+            let limiter = HttpRequests::new(1, Duration::ZERO);
+            let response: reqwest::Response = http::Response::builder()
+                .header("Retry-After", "99")
+                .header("X-Bapi-Limit-Reset-Timestamp", "9999999999999")
+                .body(body.to_string())
+                .unwrap()
+                .into();
+            assert_eq!(
+                read_response(response, "synthetic", exchange, 4096, &limiter)
+                    .await
+                    .unwrap(),
+                body
+            );
+            assert!(limiter.clock.lock().await.cooldowns.is_empty());
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn malformed_reset_header_falls_back_without_parsing_server_diagnostics() {
+        let limiter = HttpRequests::new(1, Duration::ZERO);
+        let start = Instant::now();
+        let response: reqwest::Response = http::Response::builder()
+            .header("X-Bapi-Limit-Reset-Timestamp", "not-a-time")
+            .body(r#"{"retCode":10006,"retMsg":"IP ban until 9999999999999"}"#)
+            .unwrap()
+            .into();
+        read_response(response, "synthetic", ExchangeId::Bybit, 4096, &limiter)
+            .await
+            .unwrap();
+        assert_eq!(
+            limiter.clock.lock().await.cooldowns[&ExchangeId::Bybit] - start,
+            Duration::from_secs(60)
+        );
+    }
+    #[cfg(feature = "recording")]
+    #[tokio::test(start_paused = true)]
+    async fn archived_native_rate_payload_does_not_cool_down_live_http() {
+        use crate::recording::{RecordingEnd, RecordingLimits, http::*};
+        let url = "https://api.bybit.com/v5/market/instruments-info?category=spot&status=Trading";
+        let mut bytes = Vec::new();
+        let mut writer = HttpRecordingWriter::new(&mut bytes, RecordingLimits::default())
+            .await
+            .unwrap();
+        for (index, kind) in [
+            HttpObservationKind::Request {
+                request_id: 1,
+                exchange: ExchangeId::Bybit,
+                url: url.into(),
+            },
+            HttpObservationKind::Finished {
+                request_id: 1,
+                outcome: HttpOutcome::Json {
+                    value: json!({"retCode":10006}),
+                    redacted: false,
+                },
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            writer
+                .append(HttpObservation {
+                    sequence: index as u64 + 1,
+                    elapsed_ns: index as u64,
+                    observed_ts: 1.0,
+                    kind,
+                })
+                .await
+                .unwrap();
+        }
+        writer.finish(RecordingEnd::Complete).await.unwrap();
+        let replay = HttpRecordingReader::new(bytes.as_slice(), RecordingLimits::default())
+            .into_replay()
+            .await
+            .unwrap();
+        let transport = crate::TransportConfig::direct().with_http_replay(replay.clone());
+        let before = requests()
+            .clock
+            .lock()
+            .await
+            .cooldowns
+            .get(&ExchangeId::Bybit)
+            .copied();
+        assert_eq!(
+            fetch_json_with_limits(
+                url,
+                &transport,
+                ExchangeId::Bybit,
+                Duration::from_secs(1),
+                4096
+            )
+            .await
+            .unwrap()["retCode"],
+            10006
+        );
+        assert_eq!(
+            requests()
+                .clock
+                .lock()
+                .await
+                .cooldowns
+                .get(&ExchangeId::Bybit)
+                .copied(),
+            before
+        );
+        assert!(replay.verify_complete().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod native_reset_header_test {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn valid_bybit_reset_header_is_used_only_after_native_rate_error() {
+        let limiter = HttpRequests::new(1, Duration::ZERO);
+        let start = Instant::now();
+        let millis = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            + 120_000;
+        let response: reqwest::Response = http::Response::builder()
+            .header("X-Bapi-Limit-Reset-Timestamp", millis.to_string())
+            .body(r#"{"retCode":10006}"#)
+            .unwrap()
+            .into();
+        read_response(response, "synthetic", ExchangeId::Bybit, 4096, &limiter)
+            .await
+            .unwrap();
+        let delay = limiter.clock.lock().await.cooldowns[&ExchangeId::Bybit] - start;
+        assert!(delay > Duration::from_secs(60));
+        assert!(delay <= Duration::from_secs(120));
     }
 }

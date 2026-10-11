@@ -416,6 +416,9 @@ offline, with exact request matching and no network fallback. Original cache/tim
 scheduling and broader ecosystem work remain pending. See [recording](docs/recording.md) for limits, file schema and the
 end-to-end example.
 
+[Native REST quota responses](docs/native-rate-limits.md) now also feed shared
+per-exchange cooldowns while preserving original JSON and existing error semantics.
+
 ## Shared resource budgets
 
 `ResourceBudget` groups transports/feeds/REST clients under stricter HTTP capacity

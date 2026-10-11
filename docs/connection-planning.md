@@ -136,3 +136,6 @@ at 256 entries and 128 MiB serialized JSON/key bytes, with LRU, expiry sweeps an
 wall-clock rollback invalidation. Existing snapshots and in-flight sharing remain
 independent of retention. Offline cache loss cannot implicitly consume a future
 archived refresh. This does not implement weighted/distributed request quotas.
+
+[Native REST quota codes](native-rate-limits.md) now set the existing shared
+per-exchange cooldown even when a failure arrives as successful HTTP JSON.

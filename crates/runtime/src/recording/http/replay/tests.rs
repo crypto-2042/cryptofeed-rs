@@ -470,3 +470,54 @@ async fn cache_eviction_cannot_silently_consume_a_later_catalog_refresh() {
     assert_eq!(replay.report().consumed, 2);
     assert_eq!(replay.report().mismatches, 1);
 }
+#[tokio::test]
+async fn numeric_native_catalog_quota_error_is_not_cached_as_a_successful_response() {
+    use crate::MarketCatalog;
+    use cryptofeed_core::symbol::InstrumentKind;
+    let url = "https://api.binance.com/api/v3/exchangeInfo";
+    let mut saved = Vec::new();
+    let mut writer = HttpRecordingWriter::new(&mut saved, RecordingLimits::default())
+        .await
+        .unwrap();
+    let mut sequence = 0;
+    for request_id in 1..=4 {
+        for kind in [
+            HttpObservationKind::Request {
+                request_id,
+                exchange: ExchangeId::Binance,
+                url: url.into(),
+            },
+            finish(request_id, serde_json::json!({"code":-1003})),
+        ] {
+            sequence += 1;
+            writer
+                .append(HttpObservation {
+                    sequence,
+                    elapsed_ns: sequence,
+                    observed_ts: 1.0,
+                    kind,
+                })
+                .await
+                .unwrap();
+        }
+    }
+    writer.finish(RecordingEnd::Complete).await.unwrap();
+    let replay = HttpRecordingReader::new(saved.as_slice(), RecordingLimits::default())
+        .into_replay()
+        .await
+        .unwrap();
+    let transport = TransportConfig::direct().with_http_replay(replay.clone());
+    assert!(
+        MarketCatalog::load_with_transport(ExchangeId::Binance, InstrumentKind::Spot, &transport)
+            .await
+            .is_err()
+    );
+    assert_eq!(replay.report().consumed, 2);
+    assert!(
+        MarketCatalog::load_with_transport(ExchangeId::Binance, InstrumentKind::Spot, &transport)
+            .await
+            .is_err()
+    );
+    assert_eq!(replay.report().consumed, 4);
+    assert!(replay.verify_complete().is_ok());
+}
