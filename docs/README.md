@@ -66,6 +66,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Public WS observation](raw-capture.md): pre-parser input/output capture,
   sanitization, bounded failure signaling, source context and remaining replay scope.
 
+- [Trade aggregation](aggregation.md): bounded arrival-clock OHLCV, source
+  isolation, native quantities, timer closure and replay reproducibility.
+
 - [Event sinks](sinks.md): sequential fallible storage integration, bounded JSONL
   adapter, lag/deadline/cancellation and finalization contracts.
 
@@ -80,6 +83,11 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
 - [Candle history](candle-history.md): bounded five-venue time windows, calendar
   month boundaries, unknown completion and scoped JSON continuation.
+
+## Offline workflow reports
+
+- [2026-10-11 trade OHLCV](reports/offline-ohlcv-2026-10-11.md): previously captured
+  public trades to one-second bars, count/volume checks and an explicit partial tail.
 
 ## Live validation reports
 

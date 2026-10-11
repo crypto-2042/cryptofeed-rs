@@ -939,3 +939,28 @@ feature boundaries.
   sink tests, no-default/every standalone feature, strict Clippy/rustdoc and
   fresh-resolution Rust 1.85 all-feature/all-target check passed. CI now runs
   the minimal sink feature tests. Cargo.lock/target are not committed.
+
+## Caller-clocked trade OHLCV — 2026-10-11
+
+- Added trade-feature Ohlcv/TradeBar, independent of candles/storage. Preserved
+  Python OHLCV arrival-order OHLC/amount-weighted VWAP semantics with explicit
+  monotonic, whole-second elapsed windows aligned to zero rather than wall time.
+- State is isolated by feed ID/generation/exchange/symbol and bounded to at most
+  4096 configured series. Timer advance closes windows without new trades; large
+  jumps skip empty bars; consuming finish returns an explicitly partial tail.
+- Native quantity units remain intact, including contracts. Checked Decimal
+  arithmetic keeps finite precision/rounding explicit; invalid inputs, backwards
+  consumer clocks, capacity and unrepresentable arithmetic/bounds fail atomically.
+- Twelve regressions cover OHLCV, precision, native units, source/generation
+  isolation, boundary/idle/late-clock behavior, limits, atomic failures and full
+  bar-field equality between direct input and normalized recording replay.
+- Throttle/Renko, custom aggregation, NBBO, broader storage adapters and remaining
+  recording/resource-policy scope stay active; this is not exchange candle parity.
+- Offline example over the earlier 20-trade public OKX recording produced 11
+  populated one-second bars (10 closed, 1 partial), with input/output counts and
+  native amount sums matching; exit 0. [Report](docs/reports/offline-ohlcv-2026-10-11.md).
+- Gates passed: 637 all-feature workspace tests, minimal trade and recording/trade
+  aggregation tests, no-default/every standalone feature, strict Clippy/rustdoc.
+  Fresh-resolution Rust 1.85 all-feature/all-target compilation also passed;
+  resolved dependencies match the tested set. CI now includes the minimal
+  aggregation feature tests.

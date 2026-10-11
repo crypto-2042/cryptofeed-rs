@@ -58,6 +58,9 @@ pub use crate::transport::TransportConfig;
 
 pub use crate::market_info::MarketInfo;
 
+#[cfg(feature = "trade")]
+pub use crate::aggregate::{Ohlcv, TradeBar};
+
 pub use crate::sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
 
 pub use crate::rest::{PublicRestClient, RestSnapshot};

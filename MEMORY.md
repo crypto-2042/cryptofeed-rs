@@ -717,3 +717,18 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - SinkWrite AcceptedAndFull accepts the final event; Full rejects it before
   writing. Both finalize with SinkEnd::LimitReached and an actual prefix summary. No Python backend collection,
   L2 snapshot synthesis, aggregation or NBBO parity is implied by this interface.
+
+## Arrival-clock OHLCV
+
+- Ohlcv lives in runtime behind trade, without candles/storage dependencies.
+  Python's example groups trades by arrival clock, not exchange event time. Rust
+  uses explicit monotonic elapsed time and fixed [start,end) windows anchored at
+  zero; open/close follow arrival order. Out-of-order model clocks are retained.
+- Isolate feed ID/generation/exchange/symbol, cap one-window series (1..=4096),
+  emit in first-seen order, skip empty windows, and expose timer advance/partial
+  consuming finish. Do not merge contract units, sources or generations.
+- Decimal overflow/zero-rounded product and invalid input/clock/capacity/boundary
+  failures are atomic. Finite Decimal precision still rounds products/division;
+  price_volume is not necessarily quote turnover. No ID de-dup or gap recovery.
+- Direct and recording-replay all bar fields match in deterministic tests. EOF
+  does not close the last time window. Consumers handle lag/lifecycle/delivery.

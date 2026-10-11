@@ -373,6 +373,13 @@ continuation. [Recent trades](docs/recent-trades.md) now provides bounded
 five-venue batches with exact IDs and native quantity units. [Native trade history](docs/trade-history.md) now adds scoped continuation
 for Binance aggregate and OKX/Gate individual executions; Gate delivery candles use the documented delivery endpoint.
 
+## Trade aggregation
+
+With `trade`, `Ohlcv` builds source-isolated arrival-time bars with OHLC, native
+amount volume and Decimal VWAP. Caller-clocked windows, timer closure, partial
+tails and bounded state support live consumption and repeatable offline replay.
+See [aggregation semantics and units](docs/aggregation.md).
+
 ## Event sinks
 
 `EventSink` and `run_sink` consume identified events sequentially with explicit

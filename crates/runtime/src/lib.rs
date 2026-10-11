@@ -19,6 +19,8 @@
     )
 )]
 
+#[cfg(feature = "trade")]
+pub mod aggregate;
 #[cfg(feature = "orderbook")]
 pub mod books;
 pub mod catalog;
@@ -57,6 +59,9 @@ pub use options::{IdlePolicy, RuntimeOptions};
 pub use transport::TransportConfig;
 
 pub use market_info::MarketInfo;
+
+#[cfg(feature = "trade")]
+pub use aggregate::{Ohlcv, TradeBar};
 
 pub use sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
 

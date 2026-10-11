@@ -483,3 +483,11 @@ preservation, exact decimals, pre-existing and slow-write broadcast lag,
 write/finalize failures, panics, deadlines, shutdown/watch closure and runner drop.
 Recording-enabled tests validate bounded JSONL accepted counts and strict reader
 roundtrips; lag must leave no valid footer. No backend server is needed.
+
+
+`src/aggregate/tests.rs` covers arrival-clock OHLCV values, Decimal division,
+exact boundary placement, timer-only closure, partial tails, empty-window jumps,
+feed/generation/exchange/symbol isolation, contract amount preservation, late
+exchange clocks, backwards consumer clocks, series bounds and atomic arithmetic
+failures. Recording-enabled replay compares every bar field to direct processing.
+The tests use SDK models, not modified wire fixtures or network data.

@@ -50,6 +50,10 @@ jobs:
         run: |
           cargo test -p cryptofeed-rs --lib sink:: --no-default-features --features trade
           cargo test -p cryptofeed-rs --lib sink:: --no-default-features --features recording,trade
+      - name: Test aggregation with minimal data features
+        run: |
+          cargo test -p cryptofeed-rs --lib aggregate:: --no-default-features --features trade
+          cargo test -p cryptofeed-rs --lib aggregate:: --no-default-features --features recording,trade
       - run: cargo test -p cryptofeed-rs --no-default-features --no-run
 
   msrv:
