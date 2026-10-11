@@ -881,3 +881,12 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   WS-control/distributed handling remain separate. The official COIN-M redirect
   resolved to derivatives-trading-coin-futures/error-code and confirms -1003; no
   live quota result is implied.
+
+- Binance public HTTP weights use current official sources in docs/http-weights.md,
+  not old Python costs. Spot trades is 25; USD-M funding is a separate 500/5m
+  request window. The shared 2400/min futures pool is conservative SDK policy.
+- Weight accounting commits with both start clocks under global admission;
+  waiters release network permits, started requests never refund, replay bypasses
+  charging/metadata learning. ResourcePolicy ceiling is against shared process
+  usage, not a fresh group ledger. Directory minute ceilings only tighten for
+  process lifetime. Other venue weights/distributed coordination remain pending.

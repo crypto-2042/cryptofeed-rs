@@ -64,5 +64,9 @@ reference is `sample_data/public-rest.native-quota.jsonl`, matching inline tests
 
 No live rate limit was intentionally triggered, no native API endpoint changed,
 and no ban duration or new private API support is claimed. Native WS control
-quotas, endpoint weights and distributed/shared-IP coordination remain separate
+quotas, other venue endpoint weights and distributed/shared-IP coordination remain separate
 work under the full plan.
+
+[Binance endpoint weights](http-weights.md) now supplement these reactive
+cooldowns with proactive rolling admission. Other venue weights, native WS
+quota controls and distributed coordination remain separate work.

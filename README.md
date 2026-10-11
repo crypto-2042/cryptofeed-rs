@@ -425,6 +425,8 @@ per-exchange cooldowns while preserving original JSON and existing error semanti
 and start spacing, plus per-exchange WS capacity/spacing. Clones share limits;
 existing process and protocol safeguards remain active. See
 [resource admission and replacement](docs/resource-budgets.md).
+[Binance HTTP weights](docs/http-weights.md) add verified endpoint costs and
+rolling process windows, with an optional stricter policy ceiling.
 
 ## HTTP and WebSocket proxy
 

@@ -11,7 +11,8 @@ use std::time::Duration;
 # fn example() -> Result<(), Box<dyn std::error::Error>> {
 let policy = ResourcePolicy::default()
     .http(1, Duration::from_secs(2))?
-    .websocket(10, Duration::from_secs(2))?;
+    .websocket(10, Duration::from_secs(2))?
+    .binance_weight_ceiling(100)?;
 let shared = ResourceBudget::new(policy);
 let transport = TransportConfig::direct().with_resource_budget(shared.clone());
 let feed = Okx::new().trade().symbol("BTC-USDT").transport(transport.clone()).build();
@@ -31,6 +32,7 @@ identity; cache hits/coalesced directory results create no extra network request
 | Policy | Accepted capacity | Accepted start interval | Scope |
 | --- | --- | --- | --- |
 | HTTP | 1..=4 | 1 second..=1 day | All actual HTTP operations in this budget group, across exchanges |
+| Binance weight ceiling | 1..=6000 | Per native bucket window | Threshold against total process bucket usage, including other groups |
 | WebSocket | 1..=100 | 1.1 seconds..=1 day | Live/queued establishment slots separately for each exchange in this group |
 
 Defaults equal the existing SDK safeguards. The one-day maximum is an SDK clock/
@@ -82,9 +84,10 @@ slot reuse and three HTTP queries:
 cargo run -p cryptofeed-rs --example resource_budget_public
 ```
 
-These are process-local unit-cost safeguards, not endpoint weights, native WS quota control, distributed/shared-IP coordination, fairness guarantees,
+[Binance endpoint weights](http-weights.md) now supplement the process-local
+safeguards. Native WS quota control, distributed/shared-IP coordination, fairness guarantees,
 global minimum socket packing or sustained throughput certification. Those remain
 separate work under the full alignment plan.
 
 [Native REST codes](native-rate-limits.md) now augment shared HTTP cooldown;
-that is not endpoint-weight accounting or a distributed quota service.
+other venue weights and a distributed quota service remain unfinished.

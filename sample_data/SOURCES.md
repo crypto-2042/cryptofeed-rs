@@ -381,3 +381,11 @@ Official references were checked before implementing the policy:
 Mock HTTP-200 tests are deliberate SDK edge scenarios, not assertions that every
 venue normally returns those quota codes with HTTP 200. No keys/private payloads
 or intentionally induced live throttles are included.
+
+## 2026-10-12 Binance weighted admission references
+
+`public-rest.weights.jsonl` is a synthetic public request/cost reference, not
+a network capture. Representative rows match inline `runtime/weights.rs` tests.
+[Verified official sources and fee table](../docs/http-weights.md) cover current
+Spot, USD-M and COIN-M; no keys, headers or private data are present. Rolling
+windows and conservative shared futures usage are SDK policy choices.

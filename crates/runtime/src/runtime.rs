@@ -6,6 +6,7 @@ pub(crate) mod quota;
 mod raw_replay;
 #[cfg(test)]
 mod scope_tests;
+mod weights;
 #[cfg(feature = "recording")]
 pub(crate) use raw_replay::RawParserSession;
 pub mod connection;

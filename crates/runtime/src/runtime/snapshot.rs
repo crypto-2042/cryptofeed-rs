@@ -13,6 +13,7 @@ use tokio::{sync::Semaphore, time::Instant};
 struct Clock {
     next: Instant,
     cooldowns: HashMap<ExchangeId, Instant>,
+    weights: super::weights::Tracker,
 }
 struct HttpRequests {
     slots: Semaphore,
@@ -26,6 +27,7 @@ impl HttpRequests {
             clock: tokio::sync::Mutex::new(Clock {
                 next: Instant::now(),
                 cooldowns: HashMap::new(),
+                weights: Default::default(),
             }),
             interval,
         }
@@ -46,12 +48,32 @@ impl HttpRequests {
     async fn run<F: Future>(&self, exchange: ExchangeId, request: F) -> F::Output {
         self.run_scoped(exchange, None, request).await
     }
+    #[cfg(test)]
     async fn run_scoped<F: Future>(
         &self,
         exchange: ExchangeId,
         scope: Option<&crate::resources::Gate>,
         request: F,
     ) -> F::Output {
+        self.run_admitted(exchange, scope, None, 6000, request)
+            .await
+            .expect("unweighted admission")
+    }
+    async fn run_admitted<F: Future>(
+        &self,
+        exchange: ExchangeId,
+        scope: Option<&crate::resources::Gate>,
+        charge: Option<super::weights::Charge>,
+        ceiling: u32,
+        request: F,
+    ) -> Result<F::Output> {
+        if let Some(charge) = charge {
+            self.clock
+                .lock()
+                .await
+                .weights
+                .ready(charge, ceiling, Instant::now())?;
+        }
         loop {
             // Cooldown waiters must not consume global network slots.
             let cooling = {
@@ -86,13 +108,21 @@ impl HttpRequests {
                 };
                 let now = Instant::now();
                 clock.cooldowns.retain(|_, until| *until > now);
+                let weight_deadline = match charge {
+                    Some(charge) => clock.weights.ready(charge, ceiling, now)?,
+                    None => now,
+                };
                 let deadline = clock
                     .next
                     .max(clock.cooldowns.get(&exchange).copied().unwrap_or(now))
-                    .max(local.as_deref().copied().unwrap_or(now));
+                    .max(local.as_deref().copied().unwrap_or(now))
+                    .max(weight_deadline);
                 if deadline > now {
                     Some(deadline)
                 } else {
+                    if let Some(charge) = charge {
+                        clock.weights.commit(charge, now);
+                    }
                     clock.next = now + self.interval;
                     if let (Some(local), Some(scope)) = (local.as_mut(), scope) {
                         **local = now + scope.interval;
@@ -108,7 +138,7 @@ impl HttpRequests {
             }
             let result = request.await;
             drop(permit);
-            return result;
+            return Ok(result);
         }
     }
 }
@@ -168,23 +198,31 @@ pub(crate) async fn fetch_json_with_limits(
         }
         return result;
     }
-    let result = requests()
-        .run_scoped(
-            exchange,
-            transport.resource_budget().map(|budget| budget.http()),
-            async {
-                let response = transport
-                    .http_client()?
-                    .get(url)
-                    .header(reqwest::header::USER_AGENT, "cryptofeed-rs/0.1")
-                    .timeout(timeout)
-                    .send()
-                    .await
-                    .map_err(|error| Error::Transport(error.to_string()))?;
-                read_response(response, url, exchange, max_bytes, requests()).await
-            },
-        )
-        .await;
+    let result = async {
+        let charge = super::weights::charge(exchange, url)?;
+        requests()
+            .run_admitted(
+                exchange,
+                transport.resource_budget().map(|budget| budget.http()),
+                charge,
+                transport
+                    .resource_budget()
+                    .map_or(6000, |budget| budget.policy().weight_ceiling()),
+                async {
+                    let response = transport
+                        .http_client()?
+                        .get(url)
+                        .header(reqwest::header::USER_AGENT, "cryptofeed-rs/0.1")
+                        .timeout(timeout)
+                        .send()
+                        .await
+                        .map_err(|error| Error::Transport(error.to_string()))?;
+                    read_response(response, url, exchange, max_bytes, requests()).await
+                },
+            )
+            .await?
+    }
+    .await;
     #[cfg(feature = "recording")]
     if let Some(observation) = observation {
         observation.finish(&result);
@@ -252,6 +290,12 @@ async fn read_response(
     }
     let value = serde_json::from_slice(&bytes)
         .map_err(|error| Error::MalformedData(format!("{url}: {error}")))?;
+    limiter
+        .clock
+        .lock()
+        .await
+        .weights
+        .observe_catalog(exchange, url, &value);
     apply_native_cooldown(limiter, exchange, &value, retry, reset, SystemTime::now()).await?;
     Ok(value)
 }
@@ -889,5 +933,211 @@ mod native_reset_header_test {
         let delay = limiter.clock.lock().await.cooldowns[&ExchangeId::Bybit] - start;
         assert!(delay > Duration::from_secs(60));
         assert!(delay <= Duration::from_secs(120));
+    }
+}
+
+#[cfg(test)]
+mod weighted_admission_tests {
+    use super::super::weights::{Bucket, Charge};
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn weight_wait_releases_both_slots_and_commits_only_when_work_starts() {
+        let limiter = HttpRequests::new(4, Duration::ZERO);
+        let local = crate::resources::Gate::new(2, Duration::ZERO);
+        let charge = Charge {
+            bucket: Bucket::Spot,
+            cost: 250,
+        };
+        limiter
+            .run_admitted(
+                ExchangeId::Binance,
+                Some(&local),
+                Some(charge),
+                250,
+                async {},
+            )
+            .await
+            .unwrap();
+        let start = Instant::now();
+        let waiting = limiter.run_admitted(
+            ExchangeId::Binance,
+            Some(&local),
+            Some(charge),
+            250,
+            async { Instant::now() },
+        );
+        tokio::pin!(waiting);
+        assert!(futures::poll!(waiting.as_mut()).is_pending());
+        assert_eq!(limiter.slots.available_permits(), 4);
+        assert_eq!(local.slots.available_permits(), 2);
+        assert_eq!(waiting.await.unwrap() - start, Duration::from_secs(60));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn cancellation_before_admission_does_not_charge_but_started_work_is_not_refunded() {
+        let limiter = HttpRequests::new(1, Duration::ZERO);
+        let charge = Charge {
+            bucket: Bucket::Spot,
+            cost: 250,
+        };
+        {
+            let active = limiter.run_admitted(
+                ExchangeId::Binance,
+                None,
+                Some(charge),
+                250,
+                std::future::pending::<()>(),
+            );
+            tokio::pin!(active);
+            assert!(futures::poll!(active.as_mut()).is_pending());
+        }
+        let start = Instant::now();
+        {
+            let waiting =
+                limiter.run_admitted(ExchangeId::Binance, None, Some(charge), 250, async {});
+            tokio::pin!(waiting);
+            assert!(futures::poll!(waiting.as_mut()).is_pending());
+        }
+        assert_eq!(limiter.slots.available_permits(), 1);
+        assert_eq!(
+            limiter
+                .run_admitted(ExchangeId::Binance, None, Some(charge), 250, async {
+                    Instant::now()
+                })
+                .await
+                .unwrap()
+                - start,
+            Duration::from_secs(60)
+        );
+    }
+    #[tokio::test(start_paused = true)]
+    async fn weight_and_start_clocks_are_joint_and_impossible_cost_fails_before_cooldown() {
+        let limiter = HttpRequests::new(4, Duration::from_secs(1));
+        let local = crate::resources::Gate::new(2, Duration::from_secs(3));
+        let charge = Charge {
+            bucket: Bucket::Spot,
+            cost: 250,
+        };
+        limiter
+            .defer(ExchangeId::Binance, Duration::from_secs(10))
+            .await
+            .unwrap();
+        let start = Instant::now();
+        assert!(
+            limiter
+                .run_admitted(ExchangeId::Binance, Some(&local), Some(charge), 1, async {})
+                .await
+                .is_err()
+        );
+        assert_eq!(Instant::now(), start);
+        let times = futures::future::join_all((0..2).map(|_| {
+            limiter.run_admitted(
+                ExchangeId::Binance,
+                Some(&local),
+                Some(charge),
+                250,
+                async { Instant::now() },
+            )
+        }))
+        .await;
+        assert_eq!(
+            times[0].as_ref().unwrap().duration_since(start),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            times[1].as_ref().unwrap().duration_since(start),
+            Duration::from_secs(70)
+        );
+    }
+    #[tokio::test(start_paused = true)]
+    async fn weighted_window_does_not_hold_other_exchange_operations() {
+        let limiter = HttpRequests::new(4, Duration::ZERO);
+        let charge = Charge {
+            bucket: Bucket::Spot,
+            cost: 250,
+        };
+        limiter
+            .run_admitted(ExchangeId::Binance, None, Some(charge), 250, async {})
+            .await
+            .unwrap();
+        let waiting = limiter.run_admitted(ExchangeId::Binance, None, Some(charge), 250, async {});
+        tokio::pin!(waiting);
+        assert!(futures::poll!(waiting.as_mut()).is_pending());
+        let start = Instant::now();
+        assert_eq!(
+            limiter.run(ExchangeId::Okx, async { Instant::now() }).await,
+            start
+        );
+    }
+}
+
+#[cfg(all(test, feature = "recording"))]
+mod weighted_replay_tests {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn replay_ignores_impossible_live_weight_ceiling_and_does_not_learn_live_limits() {
+        use crate::{
+            ResourceBudget, ResourcePolicy, TransportConfig,
+            recording::{RecordingEnd, RecordingLimits, http::*},
+        };
+        let url = "https://api.binance.com/api/v3/exchangeInfo";
+        let value = serde_json::json!({"symbols":[],"rateLimits":[{"rateLimitType":"REQUEST_WEIGHT","interval":"MINUTE","intervalNum":1,"limit":1}]});
+        let mut bytes = Vec::new();
+        let mut writer = HttpRecordingWriter::new(&mut bytes, RecordingLimits::default())
+            .await
+            .unwrap();
+        for (index, kind) in [
+            HttpObservationKind::Request {
+                request_id: 1,
+                exchange: ExchangeId::Binance,
+                url: url.into(),
+            },
+            HttpObservationKind::Finished {
+                request_id: 1,
+                outcome: HttpOutcome::Json {
+                    value: value.clone(),
+                    redacted: false,
+                },
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            writer
+                .append(HttpObservation {
+                    sequence: index as u64 + 1,
+                    elapsed_ns: index as u64,
+                    observed_ts: 1.0,
+                    kind,
+                })
+                .await
+                .unwrap();
+        }
+        writer.finish(RecordingEnd::Complete).await.unwrap();
+        let replay = HttpRecordingReader::new(bytes.as_slice(), RecordingLimits::default())
+            .into_replay()
+            .await
+            .unwrap();
+        let budget =
+            ResourceBudget::new(ResourcePolicy::default().binance_weight_ceiling(1).unwrap());
+        let transport = TransportConfig::direct()
+            .with_resource_budget(budget.clone())
+            .with_http_replay(replay.clone());
+        let clock = *budget.http().next.lock().await;
+        let start = Instant::now();
+        assert_eq!(
+            fetch_json_with_limits(
+                url,
+                &transport,
+                ExchangeId::Binance,
+                Duration::from_secs(1),
+                4096
+            )
+            .await
+            .unwrap(),
+            value
+        );
+        assert_eq!(Instant::now(), start);
+        assert_eq!(*budget.http().next.lock().await, clock);
+        assert!(replay.verify_complete().is_ok());
     }
 }

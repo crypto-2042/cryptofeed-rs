@@ -567,3 +567,9 @@ cover shared delay, Retry-After/reset precedence, malformed hints, unchanged JSO
 other-exchange/slot isolation and replay not mutating live cooldowns. The HTTP
 archive catalog test asserts numeric quota responses never become cached successes.
 No intentionally rate-limited live service is part of CI.
+
+Binance weighted-admission tests use `public-rest.weights.jsonl` as a synthetic
+fee reference and assert costs inline against current official documentation.
+Paused clocks cover rolling expiry, composite grants, cancellations and free
+network slots while waiting. Replay bypasses weights and directory-limit learning.
+No network saturation or live ban is a test requirement.

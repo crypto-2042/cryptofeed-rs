@@ -22,6 +22,7 @@ pub struct ResourcePolicy {
     http_interval: Duration,
     ws_limit: usize,
     ws_interval: Duration,
+    binance_weight_ceiling: u32,
 }
 impl Default for ResourcePolicy {
     fn default() -> Self {
@@ -30,6 +31,7 @@ impl Default for ResourcePolicy {
             http_interval: HTTP_INTERVAL,
             ws_limit: WS_LIMIT,
             ws_interval: WS_INTERVAL,
+            binance_weight_ceiling: 6000,
         }
     }
 }
@@ -59,6 +61,19 @@ impl ResourcePolicy {
         self.ws_limit = maximum_per_exchange;
         self.ws_interval = start_interval;
         Ok(self)
+    }
+    /// Lower ceiling against shared Binance process usage, per SDK bucket window.
+    pub fn binance_weight_ceiling(mut self, ceiling: u32) -> Result<Self> {
+        if !(1..=6000).contains(&ceiling) {
+            return Err(Error::InvalidConfiguration(
+                "Binance weight ceiling must be 1..=6000".into(),
+            ));
+        }
+        self.binance_weight_ceiling = ceiling;
+        Ok(self)
+    }
+    pub fn weight_ceiling(self) -> u32 {
+        self.binance_weight_ceiling
     }
     pub fn http_capacity(self) -> usize {
         self.http_limit

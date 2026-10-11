@@ -74,8 +74,8 @@ are reused within the selected [transport configuration](transport.md):
 - Sequence bridging, pending-delta bounds, and bounded resnapshot rules remain
   intact. A delayed snapshot never permits skipping sequence validation.
 
-These bounds are not exchange-weight accounting. Other REST calls/processes can
-still consume the shared IP quota. Catalog discovery retains its transport-scoped
+[Binance endpoint weights](http-weights.md) supplement these bounds; other
+processes and external REST clients can still consume the shared IP quota. Catalog discovery retains its transport-scoped
 client/cache and coalescing, but now shares HTTP admission. Per-exchange HTTP
 Retry-After cooldowns recheck queued work without occupying active slots; see
 [public REST](public-rest.md).
@@ -98,7 +98,8 @@ only requested L2 symbols. Unrequested depth does not create sync/bootstrap work
 This is deterministic contiguous-union packing, not a globally minimum bin-packing
 or cross-endpoint allocation solver. Endpoint/product boundaries are preserved;
 stricter caller-shared HTTP/WS policies are now implemented in
-[ResourceBudget](resource-budgets.md); weighted/distributed resource policies remain in the
+[ResourceBudget](resource-budgets.md). Binance weights are implemented; other
+venue weights and distributed resource policies remain in the
 [usage alignment plan](python-usage-alignment.md). Retained readiness and L2
 recovery are implemented and documented in their dedicated guides. The
 [Spot smoke](reports/live-smoke-packing-2026-10-10.md) observed one socket per
@@ -139,3 +140,8 @@ archived refresh. This does not implement weighted/distributed request quotas.
 
 [Native REST quota codes](native-rate-limits.md) now set the existing shared
 per-exchange cooldown even when a failure arrives as successful HTTP JSON.
+
+[Binance HTTP weights](http-weights.md) now augment those admission bounds with
+verified endpoint tiers and process-wide rolling windows. Other exchanges retain
+paced admission and native cooldowns; shared-IP/distributed coordination remains
+unimplemented.

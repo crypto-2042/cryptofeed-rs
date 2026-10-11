@@ -133,3 +133,20 @@ async fn offline_ws_rejection_occurs_before_resource_reservation() {
     ));
     assert!(budget.0.websockets.lock().unwrap().is_empty());
 }
+#[test]
+fn weight_ceiling_can_only_lower_the_shared_native_guard_and_never_be_zero() {
+    assert_eq!(ResourcePolicy::default().weight_ceiling(), 6000);
+    assert!(ResourcePolicy::default().binance_weight_ceiling(0).is_err());
+    assert!(
+        ResourcePolicy::default()
+            .binance_weight_ceiling(6001)
+            .is_err()
+    );
+    assert_eq!(
+        ResourcePolicy::default()
+            .binance_weight_ceiling(250)
+            .unwrap()
+            .weight_ceiling(),
+        250
+    );
+}

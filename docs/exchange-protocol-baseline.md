@@ -754,3 +754,13 @@ The 60-second missing-hint delay is an SDK fallback, not a protocol window.
 The current [COIN-M error page](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/error-code)
 was located through the official redirect and also confirms -1003; the guessed
 coin-m-futures page path was not authoritative. No endpoint changed.
+
+### 2026-10-12 Binance REST cost verification
+
+[Binance HTTP weights](http-weights.md) records current official Spot/derivative
+sources, endpoint tiers and SDK window choices. Spot recent trades is weight 25;
+USD-M funding has a separate 500-request/5-minute scope, while COIN-M funding
+is weight 1. Directory minute limits only tighten compiled ceilings. No endpoint
+or normalized payload shape changed. Synthetic references and inline costs were
+updated together; shared futures usage is conservative SDK policy, not a claim
+about native pool sharing.

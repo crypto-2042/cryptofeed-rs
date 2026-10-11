@@ -884,3 +884,21 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Fresh-resolution Rust 1.85 all-feature/all-target compilation passed; resolved
   dependencies match the tested set. JSON/cache/recording codecs and native API
   versions stay unchanged; Cargo.lock/target remain uncommitted.
+
+## Binance weighted HTTP admission — 2026-10-12
+
+- Verified current official Spot/USD-M/COIN-M public GET costs; current Spot
+  recent trades costs 25, derivative depth/klines use their own tiers, and USD-M
+  funding uses its separate request window. No endpoint or payload shape changed.
+- Process rolling windows enforce Spot 6000/60s, conservatively shared futures
+  2400/60s and USD-M funding 500/300s. Live directory minute limits only tighten.
+  ResourcePolicy can lower each bucket's threshold against total process usage.
+- Weights, scoped/global clocks and cooldowns compose at actual admission.
+  Waiting frees both slots; admitted work is charged even on failure/cancel,
+  waiting cancellation is free. Replay neither charges nor learns live limits.
+- Eleven new regressions; 741 all-feature workspace tests, strict Clippy/rustdoc,
+  no-default and each individual feature compile, and fresh-resolution Rust 1.85
+  all-target compilation passed. No live rate limit was intentionally triggered.
+- [Sources and boundaries](docs/http-weights.md): other venue weights, native WS
+  quotas, distributed coordination, minimum packing and independent capture
+  merging remain unfinished. No shared-IP guarantee or used-weight feedback.
