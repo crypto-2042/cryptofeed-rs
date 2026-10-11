@@ -552,3 +552,10 @@ lifetime, exact JSON numeric roundtrip and 10,000 namespace insertions. HTTP rep
 has a scoped cache-eviction integration test proving retained catalog usability,
 no implicit future-response consumption and explicit refresh chronology. Existing
 failed-refresh/coalescing/cancellation suites remain required.
+
+
+Resource-policy tests plus scoped HTTP/WS paused-clock suites cover validation,
+clone/proxy retention, composite start clocks under global delay, scope exhaustion,
+active/pacing cancellation and both permit releases. Scoped planning and managed
+admission tests cover rejected excess, same-scope max reservations, scope switching
+and healthy-feed identity. Offline replay guards are checked before resource use.

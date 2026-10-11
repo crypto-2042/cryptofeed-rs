@@ -848,3 +848,21 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   non-refresh miss is an audited config error, explicit refresh advances the tape.
   Coalesced waiters can still use their completed response. Mark before unlocking
   the request gate to avoid a cache-eviction race with another loader.
+
+## Caller-shared admission scopes
+
+- ResourceBudget is immutable shared state attached to TransportConfig; clones,
+  auth rebuilds and feed shards retain it. New instances are independent, but
+  scoped HTTP1..4/WS1..100 and minimum intervals never relax SDK global guards.
+- Check/advance global+local clocks together at admission, not nested independent
+  pacing, or global delay can release local pre-approved starts in a burst.
+  HTTP pacing waits hold no network slots; WS slots include queued handshakes and
+  remain with Session. Cancel/failure/drop must release both permits.
+- Managed connection reservations include budget identity/exchange/capacity. Use
+  max on same-scope replace; retain both scopes until old tasks drain on switching.
+  Reject known excess before committing; cross-handler availability still relies
+  on actual permits and is not an atomic distributed reservation.
+- Replay bypasses real HTTP clocks/slots, and rejects WS before admission. Do not
+  count cache hits as network operations or use budget identity as cache identity.
+- These are unit-cost process-local policies, not native weight/code or IP-wide
+  distributed accounting. Subscription/message/frame/heartbeat limits stay intact.

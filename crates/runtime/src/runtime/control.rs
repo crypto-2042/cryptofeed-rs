@@ -37,42 +37,57 @@ fn consume(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> BoxFuture<'st
     super::consume_feed(feed, shutdown).boxed()
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum AdmissionKey {
+    Exchange(ExchangeId),
+    Scope {
+        id: u64,
+        exchange: ExchangeId,
+        limit: usize,
+    },
+}
+type Allocation = (ExchangeId, usize, Option<(u64, usize)>);
 #[derive(Default)]
 struct Admission {
-    rows: Mutex<HashMap<FeedId, HashMap<ExchangeId, usize>>>,
+    rows: Mutex<HashMap<FeedId, HashMap<AdmissionKey, usize>>>,
 }
-
 impl Admission {
-    fn reserve(
-        &self,
-        id: FeedId,
-        old: Option<(ExchangeId, usize)>,
-        next: Option<(ExchangeId, usize)>,
-    ) -> Result<()> {
-        let mut replacement = HashMap::new();
-        if let Some((exchange, count)) = old {
-            replacement.insert(exchange, count);
-        }
-        if let Some((exchange, count)) = next {
-            let entry = replacement.entry(exchange).or_insert(0);
+    fn reserve(&self, id: FeedId, old: Option<Allocation>, next: Option<Allocation>) -> Result<()> {
+        let mut replacement: HashMap<AdmissionKey, usize> = HashMap::new();
+        for (exchange, count, scope) in [old, next].into_iter().flatten() {
+            let entry = replacement
+                .entry(AdmissionKey::Exchange(exchange))
+                .or_insert(0);
             *entry = (*entry).max(count);
+            if let Some((id, limit)) = scope {
+                let entry = replacement
+                    .entry(AdmissionKey::Scope {
+                        id,
+                        exchange,
+                        limit,
+                    })
+                    .or_insert(0);
+                *entry = (*entry).max(count);
+            }
         }
         let mut rows = self.rows.lock().expect("admission lock");
         let mut totals = replacement.clone();
         for (other, counts) in rows.iter() {
-            if *other == id {
-                continue;
-            }
-            for (exchange, count) in counts {
-                *totals.entry(*exchange).or_insert(0) += count;
+            if *other != id {
+                for (key, count) in counts {
+                    *totals.entry(*key).or_insert(0) += count;
+                }
             }
         }
-        if totals
-            .values()
-            .any(|count| *count > super::budget::MAX_CONNECTIONS_PER_EXCHANGE)
-        {
+        if totals.iter().any(|(key, count)| {
+            *count
+                > match key {
+                    AdmissionKey::Exchange(_) => super::budget::MAX_CONNECTIONS_PER_EXCHANGE,
+                    AdmissionKey::Scope { limit, .. } => *limit,
+                }
+        }) {
             return Err(Error::InvalidConfiguration(
-                "managed runtime connection plan exceeds the per-exchange budget".to_owned(),
+                "managed runtime connection plan exceeds exchange or shared resource budget".into(),
             ));
         }
         if replacement.is_empty() {
@@ -124,6 +139,7 @@ struct Preparing {
     monitor: Arc<super::readiness::FeedMonitor>,
     identity: FeedIdentity,
     exchange: ExchangeId,
+    resource_scope: Option<(u64, usize)>,
     future: BoxFuture<'static, Result<Vec<ExchangeFeed>>>,
     reply: Option<Reply<FeedIdentity>>,
     initial: bool,
@@ -139,6 +155,10 @@ impl Preparing {
         services: Services,
     ) -> Self {
         let exchange = feed.exchange;
+        let resource_scope = feed
+            .transport
+            .resource_budget()
+            .map(|budget| (budget.id(), budget.policy().websocket_capacity()));
         let identity = monitor.identity;
         context.attach(&mut feed, identity);
         feed.managed = true;
@@ -148,6 +168,7 @@ impl Preparing {
             monitor,
             identity,
             exchange,
+            resource_scope,
             future: (services.prepare)(feed),
             reply,
             initial,
@@ -169,6 +190,7 @@ struct Prepared {
     initial: bool,
     identity: FeedIdentity,
     exchange: ExchangeId,
+    resource_scope: Option<(u64, usize)>,
     feeds: Vec<ExchangeFeed>,
     reply: Option<Reply<FeedIdentity>>,
 }
@@ -188,6 +210,7 @@ struct Running {
     monitor: Arc<super::readiness::FeedMonitor>,
     connections: usize,
     exchange: ExchangeId,
+    resource_scope: Option<(u64, usize)>,
     shutdown: watch::Sender<bool>,
     task: JoinHandle<Result<()>>,
     stop_at: Option<Instant>,
@@ -229,6 +252,7 @@ impl Running {
             monitor: prepared.monitor,
             connections: prepared.connections,
             exchange: prepared.exchange,
+            resource_scope: prepared.resource_scope,
             shutdown,
             task,
             stop_at: None,
@@ -341,7 +365,11 @@ async fn worker(
                         .reserve(
                             identity.id,
                             None,
-                            Some((candidate.exchange, candidate.connections)),
+                            Some((
+                                candidate.exchange,
+                                candidate.connections,
+                                candidate.resource_scope,
+                            )),
                         )
                         .expect("candidate already admitted");
                     generation = candidate.identity.generation;
@@ -383,12 +411,12 @@ async fn worker(
                 let candidate = preparing.take().expect("completed preparation");
                 let result = result.and_then(|feeds| {
                     let connections = feeds.iter().try_fold(0, |count, feed| super::planning::physical_connection_count(feed).map(|next| count + next))?;
-                    resources.admission.reserve(identity.id, running.as_ref().map(|active| (active.exchange, active.connections)), Some((candidate.exchange, connections)))?;
+                    resources.admission.reserve(identity.id, running.as_ref().map(|active| (active.exchange, active.connections, active.resource_scope)), Some((candidate.exchange, connections, candidate.resource_scope)))?;
                     Ok((feeds, connections))
                 });
                 match result {
                     Ok((feeds, connections)) => {
-                        prepared = Some(Prepared { monitor: candidate.monitor, connections, initial: candidate.initial, identity: candidate.identity, exchange: candidate.exchange, feeds, reply: candidate.reply });
+                        prepared = Some(Prepared { monitor: candidate.monitor, connections, initial: candidate.initial, identity: candidate.identity, exchange: candidate.exchange, resource_scope: candidate.resource_scope, feeds, reply: candidate.reply });
                         if let Some(active) = running.as_mut() { active.request_stop(); }
                     }
                     Err(error) => {
@@ -411,7 +439,7 @@ async fn worker(
             result = async { match running.as_mut() { Some(active) => (&mut active.task).await, None => std::future::pending().await } } => {
                 let active = running.take().expect("completed feed task");
                 record_exit(&active, result, &mut errors);
-                resources.admission.reserve(identity.id, None, prepared.as_ref().map(|candidate| (candidate.exchange, candidate.connections))).expect("releasing old admission");
+                resources.admission.reserve(identity.id, None, prepared.as_ref().map(|candidate| (candidate.exchange, candidate.connections, candidate.resource_scope))).expect("releasing old admission");
             }
             command = commands.recv() => {
                 match command {
@@ -436,7 +464,7 @@ async fn worker(
                         else {
                             info.lock().expect("feed info lock").clone().lifecycle(FeedState::Stopped { forced: false });
                         }
-                        resources.admission.reserve(identity.id, running.as_ref().map(|active| (active.exchange, active.connections)), None).expect("releasing candidate admission");
+                        resources.admission.reserve(identity.id, running.as_ref().map(|active| (active.exchange, active.connections, active.resource_scope)), None).expect("releasing candidate admission");
                         removing = true;
                     }
                     None => return super::terminal_result(errors),
@@ -1118,41 +1146,45 @@ pub(crate) mod tests {
         let first = FeedId::allocate();
         let second = FeedId::allocate();
         admission
-            .reserve(first, None, Some((ExchangeId::Binance, 100)))
+            .reserve(first, None, Some((ExchangeId::Binance, 100, None)))
             .unwrap();
         admission
             .reserve(
                 first,
-                Some((ExchangeId::Binance, 100)),
-                Some((ExchangeId::Binance, 100)),
+                Some((ExchangeId::Binance, 100, None)),
+                Some((ExchangeId::Binance, 100, None)),
             )
             .unwrap();
         assert!(
             admission
-                .reserve(second, None, Some((ExchangeId::Binance, 1)))
+                .reserve(second, None, Some((ExchangeId::Binance, 1, None)))
                 .is_err()
         );
         admission
             .reserve(
                 first,
-                Some((ExchangeId::Binance, 100)),
-                Some((ExchangeId::Bybit, 100)),
+                Some((ExchangeId::Binance, 100, None)),
+                Some((ExchangeId::Bybit, 100, None)),
             )
             .unwrap();
         assert!(
             admission
-                .reserve(second, None, Some((ExchangeId::Bybit, 1)))
+                .reserve(second, None, Some((ExchangeId::Bybit, 1, None)))
                 .is_err()
         );
         admission
-            .reserve(first, None, Some((ExchangeId::Bybit, 100)))
+            .reserve(first, None, Some((ExchangeId::Bybit, 100, None)))
             .unwrap();
         admission
-            .reserve(second, None, Some((ExchangeId::Binance, 100)))
+            .reserve(second, None, Some((ExchangeId::Binance, 100, None)))
             .unwrap();
         admission.release(first);
         admission
-            .reserve(FeedId::allocate(), None, Some((ExchangeId::Bybit, 100)))
+            .reserve(
+                FeedId::allocate(),
+                None,
+                Some((ExchangeId::Bybit, 100, None)),
+            )
             .unwrap();
     }
 
@@ -1203,5 +1235,93 @@ pub(crate) mod tests {
         assert!(!Arc::ptr_eq(&old, &feed.orderbook_states));
         assert!(feed.orderbook_states.lock().unwrap().is_empty());
         assert!(old.lock().unwrap().contains_key("BTC-USDT"));
+    }
+}
+
+#[cfg(all(test, feature = "trade"))]
+mod scoped_admission_tests {
+    use super::*;
+    #[test]
+    fn same_scope_replacement_reserves_maximum_and_switching_scopes_reserves_both_until_drain() {
+        let admission = Admission::default();
+        let id = FeedId::allocate();
+        let other = FeedId::allocate();
+        let a = Some((1, 1));
+        let b = Some((2, 1));
+        admission
+            .reserve(id, None, Some((ExchangeId::Binance, 1, a)))
+            .unwrap();
+        admission
+            .reserve(
+                id,
+                Some((ExchangeId::Binance, 1, a)),
+                Some((ExchangeId::Binance, 1, a)),
+            )
+            .unwrap();
+        assert!(
+            admission
+                .reserve(other, None, Some((ExchangeId::Binance, 1, a)))
+                .is_err()
+        );
+        admission
+            .reserve(
+                id,
+                Some((ExchangeId::Binance, 1, a)),
+                Some((ExchangeId::Binance, 1, b)),
+            )
+            .unwrap();
+        assert!(
+            admission
+                .reserve(other, None, Some((ExchangeId::Binance, 1, b)))
+                .is_err()
+        );
+        admission
+            .reserve(id, None, Some((ExchangeId::Binance, 1, b)))
+            .unwrap();
+        admission
+            .reserve(other, None, Some((ExchangeId::Binance, 1, a)))
+            .unwrap();
+    }
+}
+
+#[cfg(all(test, feature = "trade"))]
+mod scoped_actor_tests {
+    use super::*;
+    use crate::{ResourceBudget, ResourcePolicy, TransportConfig, exchange::binance::Binance};
+    fn feed(base: &str, budget: &ResourceBudget) -> ExchangeFeed {
+        Binance::new()
+            .trade()
+            .symbol(&format!("{base}-USDT"))
+            .exchange_symbol(&format!("{base}USDT"))
+            .transport(TransportConfig::direct().with_resource_budget(budget.clone()))
+            .build()
+    }
+    #[tokio::test]
+    async fn dynamic_add_and_provider_budget_replacement_reject_before_disturbing_active_feeds() {
+        let shared = ResourceBudget::new(
+            ResourcePolicy::default()
+                .websocket(1, std::time::Duration::from_millis(1100))
+                .unwrap(),
+        );
+        let independent = ResourceBudget::new(shared.policy());
+        let (control, _events, _statuses, running, _stop) = tests::start(FeedHandler::new());
+        let first = control.add_feed(feed("BTC", &shared)).await.unwrap();
+        assert!(control.add_feed(feed("ETH", &shared)).await.is_err());
+        assert_eq!(control.feeds().await.unwrap().len(), 1);
+        let replaced = control
+            .replace_feed(first.id, feed("SOL", &shared))
+            .await
+            .unwrap();
+        let second = control.add_feed(feed("ETH", &independent)).await.unwrap();
+        assert!(
+            control
+                .replace_feed(replaced.id, feed("LTC", &independent))
+                .await
+                .is_err()
+        );
+        assert_eq!(control.state(replaced.id).await.unwrap().identity, replaced);
+        assert_eq!(control.state(second.id).await.unwrap().identity, second);
+        control.shutdown().await.unwrap();
+        running.await.unwrap().unwrap();
     }
 }

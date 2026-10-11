@@ -200,6 +200,10 @@ name = "http_replay"
 required-features = ["recording", "ticker", "orderbook", "trade"]
 
 [[example]]
+name = "resource_budget_public"
+required-features = ["trade", "ticker", "orderbook"]
+
+[[example]]
 name = "raw_parser_replay"
 required-features = ["recording"]
 

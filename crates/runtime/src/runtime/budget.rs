@@ -15,8 +15,13 @@ use tokio::{
 // Bitget documents 100 simultaneous connections per IP. This is also the
 // SDK's process-local resource ceiling for the other exchanges, not a claim
 // about their remote limits or the activity of other processes sharing an IP.
-pub(crate) const MAX_CONNECTIONS_PER_EXCHANGE: usize = 100;
-const CONNECTION_INTERVAL: Duration = Duration::from_millis(1100);
+pub(crate) const MAX_CONNECTIONS_PER_EXCHANGE: usize = crate::resources::WS_LIMIT;
+const CONNECTION_INTERVAL: Duration = crate::resources::WS_INTERVAL;
+#[derive(Debug)]
+pub(super) struct ConnectionSlots {
+    _global: OwnedSemaphorePermit,
+    _scope: Option<OwnedSemaphorePermit>,
+}
 
 struct ConnectionBudget {
     slots: Arc<Semaphore>,
@@ -33,20 +38,54 @@ impl ConnectionBudget {
         }
     }
 
-    async fn acquire(&self) -> Result<OwnedSemaphorePermit> {
-        let permit = self.slots.clone().try_acquire_owned().map_err(|_| {
+    #[cfg(test)]
+    async fn acquire(&self) -> Result<ConnectionSlots> {
+        self.acquire_scoped(None).await
+    }
+    async fn acquire_scoped(
+        &self,
+        scope: Option<&crate::resources::Gate>,
+    ) -> Result<ConnectionSlots> {
+        let local = match scope {
+            Some(scope) => Some(scope.slots.clone().try_acquire_owned().map_err(|_| {
+                Error::InvalidConfiguration("shared resource WebSocket budget exhausted".into())
+            })?),
+            None => None,
+        };
+        let global = self.slots.clone().try_acquire_owned().map_err(|_| {
             Error::InvalidConfiguration(
-                "process-local WebSocket connection budget exhausted".to_owned(),
+                "process-local WebSocket connection budget exhausted".into(),
             )
         })?;
-        let mut next = self.next.lock().await;
-        tokio::time::sleep_until(*next).await;
-        *next = Instant::now() + self.interval;
-        Ok(permit)
+        loop {
+            let mut next = self.next.lock().await;
+            let mut scoped = match scope {
+                Some(scope) => Some(scope.next.lock().await),
+                None => None,
+            };
+            let now = Instant::now();
+            let deadline = (*next).max(scoped.as_deref().copied().unwrap_or(now));
+            if deadline <= now {
+                *next = now + self.interval;
+                if let (Some(scoped), Some(scope)) = (scoped.as_mut(), scope) {
+                    **scoped = now + scope.interval;
+                }
+                return Ok(ConnectionSlots {
+                    _global: global,
+                    _scope: local,
+                });
+            }
+            drop(scoped);
+            drop(next);
+            tokio::time::sleep_until(deadline).await;
+        }
     }
 }
 
-pub(super) async fn acquire(exchange: ExchangeId) -> Result<OwnedSemaphorePermit> {
+pub(super) async fn acquire(
+    exchange: ExchangeId,
+    scope: Option<Arc<crate::resources::Gate>>,
+) -> Result<ConnectionSlots> {
     static BUDGETS: OnceLock<Mutex<HashMap<ExchangeId, Arc<ConnectionBudget>>>> = OnceLock::new();
     let budget = BUDGETS
         .get_or_init(|| Mutex::new(HashMap::new()))
@@ -60,7 +99,7 @@ pub(super) async fn acquire(exchange: ExchangeId) -> Result<OwnedSemaphorePermit
             ))
         })
         .clone();
-    budget.acquire().await
+    budget.acquire_scoped(scope.as_deref()).await
 }
 
 #[cfg(test)]
@@ -103,5 +142,50 @@ mod tests {
         task.abort();
         assert!(task.await.unwrap_err().is_cancelled());
         assert_eq!(budget.slots.available_permits(), 1);
+    }
+}
+
+#[cfg(test)]
+mod scoped_tests {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn composite_start_clocks_prevent_burst_after_global_delay() {
+        let global = ConnectionBudget::new(4, Duration::from_secs(1));
+        let local = crate::resources::Gate::new(4, Duration::from_secs(3));
+        let start = Instant::now();
+        *global.next.lock().await = start + Duration::from_secs(10);
+        let tasks = (0..2).map(|_| async {
+            let slot = global.acquire_scoped(Some(&local)).await.unwrap();
+            (Instant::now(), slot)
+        });
+        let results = futures::future::join_all(tasks).await;
+        assert_eq!(results[0].0 - start, Duration::from_secs(10));
+        assert!(results[1].0 - results[0].0 >= Duration::from_secs(3));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn scoped_exhaustion_is_explicit_and_drop_releases_both_slots() {
+        let global = ConnectionBudget::new(3, Duration::ZERO);
+        let local = crate::resources::Gate::new(1, Duration::ZERO);
+        let first = global.acquire_scoped(Some(&local)).await.unwrap();
+        assert!(global.acquire_scoped(Some(&local)).await.is_err());
+        assert_eq!(global.slots.available_permits(), 2);
+        drop(first);
+        assert_eq!(global.slots.available_permits(), 3);
+        assert_eq!(local.slots.available_permits(), 1);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn cancelling_scoped_pacing_releases_live_and_queued_capacity() {
+        let global = Arc::new(ConnectionBudget::new(3, Duration::from_secs(10)));
+        let local = Arc::new(crate::resources::Gate::new(1, Duration::from_secs(10)));
+        drop(global.acquire_scoped(Some(&local)).await.unwrap());
+        {
+            let waiting = global.acquire_scoped(Some(&local));
+            tokio::pin!(waiting);
+            assert!(futures::poll!(waiting.as_mut()).is_pending());
+            assert_eq!(local.slots.available_permits(), 0);
+            assert_eq!(global.slots.available_permits(), 2);
+        }
+        assert_eq!(local.slots.available_permits(), 1);
+        assert_eq!(global.slots.available_permits(), 3);
     }
 }

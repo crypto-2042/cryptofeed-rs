@@ -97,7 +97,8 @@ only requested L2 symbols. Unrequested depth does not create sync/bootstrap work
 
 This is deterministic contiguous-union packing, not a globally minimum bin-packing
 or cross-endpoint allocation solver. Endpoint/product boundaries are preserved;
-configurable/weighted/distributed resource policies remain in the
+stricter caller-shared HTTP/WS policies are now implemented in
+[ResourceBudget](resource-budgets.md); weighted/distributed resource policies remain in the
 [usage alignment plan](python-usage-alignment.md). Retained readiness and L2
 recovery are implemented and documented in their dedicated guides. The
 [Spot smoke](reports/live-smoke-packing-2026-10-10.md) observed one socket per

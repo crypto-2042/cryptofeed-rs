@@ -57,6 +57,7 @@ pub use crate::options::{IdlePolicy, RuntimeOptions};
 pub use crate::transport::TransportConfig;
 
 pub use crate::market_info::MarketInfo;
+pub use crate::resources::{ResourceBudget, ResourcePolicy};
 
 #[cfg(feature = "orderbook")]
 pub use crate::nbbo::{Nbbo, NbboLeg, NbboQuantityUnit, NbboQuote, NbboSource, NbboUpdate};

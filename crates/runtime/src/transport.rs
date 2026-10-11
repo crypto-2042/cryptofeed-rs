@@ -15,6 +15,7 @@ use url::Url;
 #[derive(Clone, Default)]
 pub struct TransportConfig {
     proxy: Option<Arc<HttpProxy>>,
+    resource_budget: Option<crate::resources::ResourceBudget>,
     #[cfg(feature = "recording")]
     http_capture: Option<crate::recording::http::HttpCaptureHandle>,
     #[cfg(feature = "recording")]
@@ -78,7 +79,8 @@ impl TransportConfig {
         let mut header = reqwest::header::HeaderValue::from_str(&format!("Basic {encoded}"))
             .map_err(|_| Error::InvalidConfiguration("invalid proxy authentication".into()))?;
         header.set_sensitive(true);
-        let rebuilt = Self::build(proxy.endpoint.clone(), Some(header))?;
+        let mut rebuilt = Self::build(proxy.endpoint.clone(), Some(header))?;
+        rebuilt.resource_budget = self.resource_budget.clone();
         #[cfg(feature = "recording")]
         let rebuilt = Self {
             http_capture: self.http_capture.clone(),
@@ -100,6 +102,7 @@ impl TransportConfig {
             .build()
             .map_err(|_| Error::Transport("could not build proxy HTTP client".into()))?;
         Ok(Self {
+            resource_budget: None,
             proxy: Some(Arc::new(HttpProxy {
                 endpoint,
                 authorization,
@@ -111,6 +114,22 @@ impl TransportConfig {
             #[cfg(feature = "recording")]
             http_replay: None,
         })
+    }
+    pub fn with_resource_budget(mut self, budget: crate::resources::ResourceBudget) -> Self {
+        self.resource_budget = Some(budget);
+        self
+    }
+    pub(crate) fn resource_budget(&self) -> Option<&crate::resources::ResourceBudget> {
+        self.resource_budget.as_ref()
+    }
+    pub(crate) fn check_websocket_available(&self) -> Result<()> {
+        #[cfg(feature = "recording")]
+        if self.http_replay.is_some() {
+            return Err(Error::UnsupportedCapability(
+                "offline HTTP replay disables WebSockets".into(),
+            ));
+        }
+        Ok(())
     }
     pub(crate) fn cache_key(&self, url: &str) -> String {
         #[cfg(feature = "recording")]
@@ -227,12 +246,7 @@ impl TransportConfig {
         url: &Url,
         config: WebSocketConfig,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-        #[cfg(feature = "recording")]
-        if self.http_replay.is_some() {
-            return Err(Error::UnsupportedCapability(
-                "offline HTTP replay disables WebSockets".into(),
-            ));
-        }
+        self.check_websocket_available()?;
         let Some(proxy) = &self.proxy else {
             return tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false)
                 .await

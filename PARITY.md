@@ -829,3 +829,33 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   1.0.152→1.0.154. Re-ran all 709 workspace tests, strict Clippy/rustdoc,
   no-default/standalone feature and minimal cache/replay checks on that exact
   resolved set; all passed, including numeric precision regressions.
+
+## Caller-shared stricter resource scopes — 2026-10-12
+
+- Added ResourcePolicy/ResourceBudget and transport attachment. Clones share local
+  HTTP capacity/start clocks and per-exchange WS live/queued capacity/start clocks;
+  independent groups remain under unchanged process/native guards. Invalid or
+  weaker policy bounds fail during construction; policies stay immutable.
+- Composite admission checks/advances both clocks at actual SDK start, avoiding
+  bunched starts after global waiting. HTTP pacing releases network permits;
+  cancellation and session drop release both layers. Proxy auth keeps the group.
+- Known plans preflight scoped capacity. Managed admission reserves scope as well
+  as exchange: max old/new for same scope, both on scope/provider change until
+  drain. Excess add/replacement is rejected without stopping healthy feeds.
+- Offline HTTP bypasses both budgets and WS rejects before slot reservation.
+  Twelve new tests cover policy bounds/clones, composite pacing, exhaustion/drop/
+  cancel, planning, managed reservations/actors and offline guards.
+- Unit-cost/process-local policy is implemented; endpoint weights/native quota
+  codes, distributed coordination, minimum packing and independent capture merging
+  remain active. No protocol endpoint or normalization change occurred.
+- Public OKX trade/REST smoke rejected excess add, retained the healthy feed,
+  replaced on the same ID, removed/reused a live slot and completed directory/
+  ticker/book queries under one group; managed shutdown and exit 0. [Report](docs/reports/live-smoke-resource-budget-2026-10-12.md).
+- Gates passed: 721 all-feature workspace tests, no-default/scoped admission and
+  minimal recording/trade resource/actor tests, every standalone feature checks,
+  strict Clippy/rustdoc. CI adds minimal scope coverage. No new dependency/native
+  endpoint or protocol fixture change.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed. Resolution
+  updated syn 3.0.7→3.0.8; all 721 tests, strict Clippy/rustdoc and standalone/
+  minimal feature suites were repeated on that resolved set and passed. No
+  declared dependency or lockfile policy change; Cargo.lock/target stay uncommitted.

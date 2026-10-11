@@ -42,7 +42,16 @@ impl HttpRequests {
             .or_insert(until);
         Ok(())
     }
+    #[cfg(test)]
     async fn run<F: Future>(&self, exchange: ExchangeId, request: F) -> F::Output {
+        self.run_scoped(exchange, None, request).await
+    }
+    async fn run_scoped<F: Future>(
+        &self,
+        exchange: ExchangeId,
+        scope: Option<&crate::resources::Gate>,
+        request: F,
+    ) -> F::Output {
         loop {
             // Cooldown waiters must not consume global network slots.
             let cooling = {
@@ -53,6 +62,17 @@ impl HttpRequests {
                 tokio::time::sleep_until(until).await;
                 continue;
             }
+            let scoped = match scope {
+                Some(scope) => Some(
+                    scope
+                        .slots
+                        .clone()
+                        .acquire_owned()
+                        .await
+                        .expect("resource semaphore open"),
+                ),
+                None => None,
+            };
             let permit = self
                 .slots
                 .acquire()
@@ -60,20 +80,29 @@ impl HttpRequests {
                 .expect("HTTP semaphore stays open");
             let wait = {
                 let mut clock = self.clock.lock().await;
+                let mut local = match scope {
+                    Some(scope) => Some(scope.next.lock().await),
+                    None => None,
+                };
                 let now = Instant::now();
                 clock.cooldowns.retain(|_, until| *until > now);
                 let deadline = clock
                     .next
-                    .max(clock.cooldowns.get(&exchange).copied().unwrap_or(now));
+                    .max(clock.cooldowns.get(&exchange).copied().unwrap_or(now))
+                    .max(local.as_deref().copied().unwrap_or(now));
                 if deadline > now {
                     Some(deadline)
                 } else {
                     clock.next = now + self.interval;
+                    if let (Some(local), Some(scope)) = (local.as_mut(), scope) {
+                        **local = now + scope.interval;
+                    }
                     None
                 }
             };
             if let Some(until) = wait {
                 drop(permit);
+                drop(scoped);
                 tokio::time::sleep_until(until).await;
                 continue;
             }
@@ -85,7 +114,12 @@ impl HttpRequests {
 }
 fn requests() -> &'static HttpRequests {
     static REQUESTS: std::sync::OnceLock<HttpRequests> = std::sync::OnceLock::new();
-    REQUESTS.get_or_init(|| HttpRequests::new(4, Duration::from_secs(1)))
+    REQUESTS.get_or_init(|| {
+        HttpRequests::new(
+            crate::resources::HTTP_LIMIT,
+            crate::resources::HTTP_INTERVAL,
+        )
+    })
 }
 fn retry_after(header: Option<&str>, now: SystemTime) -> Option<Duration> {
     let value = header?.trim();
@@ -134,17 +168,21 @@ pub(crate) async fn fetch_json_with_limits(
         return result;
     }
     let result = requests()
-        .run(exchange, async {
-            let response = transport
-                .http_client()?
-                .get(url)
-                .header(reqwest::header::USER_AGENT, "cryptofeed-rs/0.1")
-                .timeout(timeout)
-                .send()
-                .await
-                .map_err(|error| Error::Transport(error.to_string()))?;
-            read_response(response, url, exchange, max_bytes, requests()).await
-        })
+        .run_scoped(
+            exchange,
+            transport.resource_budget().map(|budget| budget.http()),
+            async {
+                let response = transport
+                    .http_client()?
+                    .get(url)
+                    .header(reqwest::header::USER_AGENT, "cryptofeed-rs/0.1")
+                    .timeout(timeout)
+                    .send()
+                    .await
+                    .map_err(|error| Error::Transport(error.to_string()))?;
+                read_response(response, url, exchange, max_bytes, requests()).await
+            },
+        )
         .await;
     #[cfg(feature = "recording")]
     if let Some(observation) = observation {
@@ -523,5 +561,58 @@ mod tests {
             .await
             .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod scoped_budget_tests {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn composite_http_pacing_does_not_bunch_after_global_cooldown() {
+        let global = HttpRequests::new(4, Duration::from_secs(1));
+        let local = crate::resources::Gate::new(4, Duration::from_secs(3));
+        let start = Instant::now();
+        global
+            .defer(ExchangeId::Binance, Duration::from_secs(10))
+            .await
+            .unwrap();
+        let times = futures::future::join_all((0..2).map(|_| {
+            global.run_scoped(ExchangeId::Binance, Some(&local), async { Instant::now() })
+        }))
+        .await;
+        assert_eq!(times[0] - start, Duration::from_secs(10));
+        assert!(times[1] - times[0] >= Duration::from_secs(3));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn waiting_for_scoped_pacing_holds_no_network_slots() {
+        let global = HttpRequests::new(4, Duration::from_secs(1));
+        let local = crate::resources::Gate::new(1, Duration::from_secs(3));
+        global
+            .run_scoped(ExchangeId::Okx, Some(&local), async {})
+            .await;
+        {
+            let waiting = global.run_scoped(ExchangeId::Okx, Some(&local), async {});
+            tokio::pin!(waiting);
+            assert!(futures::poll!(waiting.as_mut()).is_pending());
+            assert_eq!(global.slots.available_permits(), 4);
+            assert_eq!(local.slots.available_permits(), 1);
+        }
+        assert_eq!(global.slots.available_permits(), 4);
+        assert_eq!(local.slots.available_permits(), 1);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn cancellation_during_active_scoped_request_releases_both_budgets() {
+        let global = HttpRequests::new(4, Duration::from_secs(1));
+        let local = crate::resources::Gate::new(1, Duration::from_secs(3));
+        {
+            let active =
+                global.run_scoped(ExchangeId::Okx, Some(&local), std::future::pending::<()>());
+            tokio::pin!(active);
+            assert!(futures::poll!(active.as_mut()).is_pending());
+            assert_eq!(global.slots.available_permits(), 3);
+            assert_eq!(local.slots.available_permits(), 0);
+        }
+        assert_eq!(global.slots.available_permits(), 4);
+        assert_eq!(local.slots.available_permits(), 1);
     }
 }

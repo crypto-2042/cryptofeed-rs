@@ -30,6 +30,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --workspace --no-default-features
       - run: cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features
+      - name: Check shared resource scopes independently
+        run: |
+          cargo test -p cryptofeed-rs --lib resources:: --no-default-features
+          cargo test -p cryptofeed-rs --lib scoped_ --no-default-features
+          cargo test -p cryptofeed-rs --lib resources:: --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib scoped_actor_tests --no-default-features --features trade
       - name: Check every runtime feature independently
         run: |
           for feature in ticker trade orderbook candles funding index liquidations markprice openinterest recording; do

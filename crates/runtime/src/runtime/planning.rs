@@ -57,8 +57,18 @@ pub(crate) fn physical_connection_count(feed: &ExchangeFeed) -> Result<usize> {
 
 pub(crate) fn validate_connection_counts(feeds: &[ExchangeFeed]) -> Result<()> {
     let mut counts = std::collections::HashMap::new();
+    let mut scoped = std::collections::HashMap::new();
     for feed in feeds {
         let connections = physical_connection_count(feed)?;
+        if let Some(budget) = feed.transport.resource_budget() {
+            let count = scoped.entry((budget.id(), feed.exchange)).or_insert(0);
+            *count += connections;
+            if *count > budget.policy().websocket_capacity() {
+                return Err(Error::InvalidConfiguration(
+                    "planned connections exceed shared resource WebSocket budget".into(),
+                ));
+            }
+        }
         let count = counts.entry(feed.exchange).or_insert(0);
         *count += connections;
         if *count > super::budget::MAX_CONNECTIONS_PER_EXCHANGE {

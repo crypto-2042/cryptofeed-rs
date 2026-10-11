@@ -94,3 +94,8 @@ Sources: [HTTP CONNECT semantics, RFC 9110 §9.3.6](https://www.rfc-editor.org/r
 [reqwest 0.12 Proxy source](https://github.com/seanmonstar/reqwest/blob/v0.12.24/src/proxy.rs),
 [tokio-tungstenite 0.24 TLS client source](https://github.com/snapview/tokio-tungstenite/blob/v0.24.0/src/tls.rs).
 These transport references do not replace exchange-specific protocol baselines.
+
+
+Transport clones and Basic-auth rebuilds preserve an optional caller-shared
+[ResourceBudget](resource-budgets.md). It adds stricter admission while routing,
+cache identity, credential privacy and process-wide safeguards remain unchanged.

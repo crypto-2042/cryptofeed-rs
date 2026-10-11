@@ -416,6 +416,13 @@ offline, with exact request matching and no network fallback. Original cache/tim
 scheduling and broader ecosystem work remain pending. See [recording](docs/recording.md) for limits, file schema and the
 end-to-end example.
 
+## Shared resource budgets
+
+`ResourceBudget` groups transports/feeds/REST clients under stricter HTTP capacity
+and start spacing, plus per-exchange WS capacity/spacing. Clones share limits;
+existing process and protocol safeguards remain active. See
+[resource admission and replacement](docs/resource-budgets.md).
+
 ## HTTP and WebSocket proxy
 
 Use `.transport(TransportConfig::http_proxy("http://127.0.0.1:8080")?)` to route

@@ -197,7 +197,12 @@ impl WsConnection {
     const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
     pub async fn connect(&self) -> Result<Session<WebSocketStream<MaybeTlsStream<TcpStream>>>> {
-        let slot = super::budget::acquire(self.exchange).await?;
+        self.transport.check_websocket_available()?;
+        let scoped = self
+            .transport
+            .resource_budget()
+            .map(|budget| budget.websocket(self.exchange));
+        let slot = super::budget::acquire(self.exchange, scoped).await?;
         let config = WebSocketConfig {
             max_write_buffer_size: 1024 * 1024,
             max_message_size: Some(Self::MAX_MESSAGE_BYTES),
@@ -232,7 +237,7 @@ pub struct Session<S> {
     idle_timeout: Option<Duration>,
     next_heartbeat: Option<Instant>,
     pending_subscriptions: std::collections::VecDeque<String>,
-    _connection_slot: Option<tokio::sync::OwnedSemaphorePermit>,
+    _connection_slot: Option<super::budget::ConnectionSlots>,
     readiness: Option<super::readiness::ConnectionAttempt>,
     next_subscription: Instant,
     retry_progress: Option<std::sync::Arc<super::supervisor::RetryProgress>>,

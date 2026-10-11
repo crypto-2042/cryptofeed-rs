@@ -36,6 +36,7 @@ pub mod options;
 pub mod prelude;
 #[cfg(feature = "recording")]
 pub mod recording;
+pub mod resources;
 pub mod rest;
 pub mod runtime;
 pub mod sink;
@@ -60,6 +61,7 @@ pub use options::{IdlePolicy, RuntimeOptions};
 pub use transport::TransportConfig;
 
 pub use market_info::MarketInfo;
+pub use resources::{ResourceBudget, ResourcePolicy};
 
 #[cfg(feature = "orderbook")]
 pub use nbbo::{Nbbo, NbboLeg, NbboQuantityUnit, NbboQuote, NbboSource, NbboUpdate};

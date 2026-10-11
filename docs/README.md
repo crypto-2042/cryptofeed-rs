@@ -60,6 +60,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Native raw replay](raw-replay.md): current parser/dispatch reuse, per-session
   ticker/WS-book state, lifecycle delivery, limits and unsupported HTTP-bootstrap paths.
 
+- [Shared resource budgets](resource-budgets.md): stricter HTTP/WS groups, joint
+  pacing, cancellation, scoped plan admission and managed replacement reservations.
+
 - [Directory cache bounds](catalog-cache.md): shared entry/byte/LRU/TTL retention,
   snapshot lifetime, numeric fidelity and explicit offline cache-loss handling.
 
@@ -116,6 +119,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-12 shared resource scopes](reports/live-smoke-resource-budget-2026-10-12.md):
+  OKX excess-add rejection, same-ID replacement, slot reuse and shared REST group.
 - [2026-10-11 public HTTP recording](reports/live-smoke-http-recording-2026-10-11.md):
   OKX directory/ticker/book/trades, four attempts/eight observations and offline validation.
 - [2026-10-11 raw series](reports/live-smoke-raw-series-2026-10-11.md): 40 OKX
