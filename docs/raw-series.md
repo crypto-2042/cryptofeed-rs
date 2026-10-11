@@ -102,5 +102,5 @@ before later corruption is found; effects are not rolled back. Replay cancellati
 callback failure and partial I/O cannot restart by skipping pending input.
 
 [Public HTTP result recording](http-recording.md) now covers shared directory/
-REST/bootstrap calls separately. Its file validator is not yet offline SDK HTTP
-response injection or a replacement for consumed-session L2 causality.
+REST/bootstrap calls separately. [HTTP payload replay](http-replay.md) now injects these responses into existing
+directory/REST APIs. It does not replace consumed-session L2 causality.

@@ -532,3 +532,15 @@ versions/counts/private URLs/payloads, queue/line bounds, clone cache namespaces
 proxy auth retention and sleeping receiver failure notification. Raw WS has a
 matching private-frame wakeup regression. These are deterministic HTTP-result
 ledger assertions, not yet offline response-injection/catalog-query tests.
+
+
+`src/recording/http/replay/tests.rs` asserts invocation-order matching despite
+reordered completion, no skipping unfinished requests, failure/retry/cancellation
+boundaries, exact source/URL/body budgets, fresh/full file validation, isolated
+caches, HTTP/WS guard behavior and existing SDK catalog/ticker/book/trade use.
+The synthetic sample_data/recording.public-http.v1.jsonl matches the executable
+inline SDK fixture values; its CLI is separate verification, not implicit test loading.
+
+The catalog waiter regression and v2 re-recording case prove cancellation cannot
+be shared/reclassified into automatic retry or steal a following caller's result.
+Version-1 fixtures remain readable; v2-only metadata is rejected under a v1 header.

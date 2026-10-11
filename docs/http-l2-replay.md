@@ -76,7 +76,7 @@ recovery store. Consumers still use source/session lifecycle and ending reason.
 
 Live coverage in this increment is Binance/Gate Spot full-depth. Existing
 product-qualified parsers/plans are used for derivative/dated or partial inputs,
-but those have no new live certification here. Catalog/general REST response injection,
+but those have no new live certification here. General replay timing/cache audits,
 independent-capture merge, broader replay edge audits, broader storage and
 advanced resource policies remain under the full alignment objective.
 [JSONL sinks](sinks.md), [trade/custom aggregation](aggregation.md) and [NBBO](nbbo.md)
@@ -95,5 +95,5 @@ See [dated evidence](reports/live-smoke-http-l2-replay-2026-10-11.md).
 across ordered physical parts. It does not merge unrelated capture origins.
 
 [Public HTTP result recording](http-recording.md) now covers shared directory/
-REST/bootstrap calls separately. Its file validator is not yet offline SDK HTTP
-response injection or a replacement for consumed-session L2 causality.
+REST/bootstrap calls separately. [HTTP payload replay](http-replay.md) now injects these responses into existing
+directory/REST APIs. It does not replace consumed-session L2 causality.

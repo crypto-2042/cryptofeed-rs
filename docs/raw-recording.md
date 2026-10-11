@@ -96,7 +96,7 @@ prove filesystem durability. There is no cryptographic integrity claim.
 The next_observation API persists/validates transport input without executing
 parsers. [Native replay](raw-replay.md) is now separately available through replay,
 including three WS-native L2 paths. Consumed HTTP/bootstrap and Binance/Gate L2 now have v2 replay support;
-HTTP response injection/catalog replay and transport activity simulation remain unfinished; plain JSON iteration is not
+HTTP payload replay is implemented separately; transport activity simulation remains unfinished; plain JSON iteration is not
 proof of those paths.
 
 Offline: `cargo test -p cryptofeed-rs --features recording --lib recording::raw::file`.
@@ -107,5 +107,5 @@ Manual public capture + offline file validation:
 A synthetic segment reference is in sample_data/recording.raw-ws.v1.jsonl with matching executable inline tests; it is not an actual exchange recording.
 
 [Public HTTP result recording](http-recording.md) now covers shared directory/
-REST/bootstrap calls separately. Its file validator is not yet offline SDK HTTP
-response injection or a replacement for consumed-session L2 causality.
+REST/bootstrap calls separately. [HTTP payload replay](http-replay.md) now injects these responses into existing
+directory/REST APIs. It does not replace consumed-session L2 causality.

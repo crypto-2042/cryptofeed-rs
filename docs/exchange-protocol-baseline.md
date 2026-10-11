@@ -729,3 +729,14 @@ API versions. HTTP JSON/original receipt time feed the existing snapshot parsers
 Gate optional IDs/time anchoring and Binance depth/sequence bridges are not
 relaxed. Fresh public Spot capture replay exactly matched native L2 models on both
 venues with two consumed snapshots each. See [scope](http-l2-replay.md).
+
+
+### 2026-10-11 public HTTP replay fixture recheck
+
+Rechecked the current [OKX v5 guide](https://app.okx.com/docs-v5/en/) for the
+synthetic offline SDK fixtures: instruments retain base/quote, live status and
+explicit tick/lot fields; ticker uses bid/ask prices and millisecond time; REST
+books document four-item levels and integer seqId; public trades retain native
+IDs, price, quantity, taker side and millisecond time. Spot quantities are base
+amounts. All examples substitute values; no adapter endpoint or normalization
+rule changed. The HTTP replay is a payload source, not a wire/timer simulation.

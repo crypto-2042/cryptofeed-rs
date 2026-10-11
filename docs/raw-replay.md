@@ -95,7 +95,7 @@ resume after consuming an undelivered input; reopen from the beginning. Generic
 callbacks may perform user-chosen actions, but the library replay path itself
 opens no network connection or HTTP client request.
 
-The larger objective still includes HTTP response injection/catalog replay, broader L2
+The larger objective still includes broader L2
 replay edge audits, independent-capture merge, broader storage
 and resource policy work. [Sinks](sinks.md), [trade/custom aggregation](aggregation.md)
 and [NBBO](nbbo.md) are implemented separately. Consumed Binance/Gate bootstrap replay is now implemented in v2. WS-native state replay does not certify those remaining paths.
@@ -110,5 +110,5 @@ See [dated evidence](reports/live-smoke-raw-replay-2026-10-11.md).
 across ordered physical parts. It does not merge unrelated capture origins.
 
 [Public HTTP result recording](http-recording.md) now covers shared directory/
-REST/bootstrap calls separately. Its file validator is not yet offline SDK HTTP
-response injection or a replacement for consumed-session L2 causality.
+REST/bootstrap calls separately. [HTTP payload replay](http-replay.md) now injects these responses into existing
+directory/REST APIs. It does not replace consumed-session L2 causality.

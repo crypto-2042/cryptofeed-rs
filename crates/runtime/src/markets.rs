@@ -1463,7 +1463,11 @@ where
     if let Ok(value) = &result {
         write_catalog_cache(url, value);
     }
-    *completed = Some((std::time::Instant::now(), result.clone()));
+    // Configuration failures are not shareable completed HTTP work. A cancelled
+    // replay call must let another waiter make its own next request.
+    if !matches!(result, Err(Error::InvalidConfiguration(_))) {
+        *completed = Some((std::time::Instant::now(), result.clone()));
+    }
     result
 }
 
@@ -1486,10 +1490,12 @@ async fn fetch_catalog_json(
     };
     match attempt(1).await {
         Ok(value) => Ok(value),
-        Err(first @ Error::HttpStatus { .. }) => Err(first),
+        Err(first @ (Error::HttpStatus { .. } | Error::InvalidConfiguration(_))) => Err(first),
         Err(first) => match attempt(2).await {
             Ok(value) => Ok(value),
-            Err(second @ Error::HttpStatus { .. }) => Err(second),
+            Err(second @ (Error::HttpStatus { .. } | Error::InvalidConfiguration(_))) => {
+                Err(second)
+            }
             Err(second) => Err(Error::Transport(format!(
                 "catalog fetch failed twice for {url}: first: {first}; second: {second}"
             ))),
@@ -3049,5 +3055,34 @@ mod tests {
             resolve_feed_symbols(&feed).await,
             Err(Error::InvalidConfiguration(_))
         ));
+    }
+}
+
+#[cfg(all(test, feature = "recording"))]
+mod replay_waiter_tests {
+    use super::*;
+    #[tokio::test]
+    async fn cancelled_replay_work_is_not_shared_as_a_completed_request_with_waiters() {
+        let key = "sdk-http-replay-cancelled-waiter-regression";
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let (release, waiting) = tokio::sync::oneshot::channel();
+        let first = tokio::spawn(fetch_catalog_with(key, true, || async move {
+            let _ = entered.send(());
+            let _ = waiting.await;
+            Err(Error::InvalidConfiguration(
+                "recorded HTTP cancellation".into(),
+            ))
+        }));
+        started.await.unwrap();
+        let second =
+            fetch_catalog_with(key, true, || async { Ok(serde_json::json!({"next":true})) });
+        tokio::pin!(second);
+        assert!(futures::poll!(second.as_mut()).is_pending());
+        release.send(()).unwrap();
+        assert!(matches!(
+            first.await.unwrap(),
+            Err(Error::InvalidConfiguration(_))
+        ));
+        assert_eq!(second.await.unwrap(), serde_json::json!({"next":true}));
     }
 }

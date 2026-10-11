@@ -17,6 +17,8 @@ use tokio::sync::mpsc;
 use url::Url;
 mod file;
 pub use file::{HttpRecordingReader, HttpRecordingWriter, record_http_stream};
+mod replay;
+pub use replay::{HttpReplay, HttpReplayReport};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -28,6 +30,8 @@ pub enum HttpOutcome {
     Failure {
         kind: RawSnapshotFailure,
         retry_after: Option<std::time::Duration>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        configuration_error: Option<bool>,
     },
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -207,6 +211,11 @@ fn public_url(exchange: ExchangeId, input: &str) -> Result<()> {
 }
 fn validate_outcome(outcome: &HttpOutcome) -> Result<()> {
     match outcome {
+        HttpOutcome::Failure {
+            kind,
+            configuration_error: Some(true),
+            ..
+        } if !matches!(kind, RawSnapshotFailure::Other) => return Err(invalid()),
         HttpOutcome::Json { value, redacted } => {
             let mut changed = false;
             let clean = sanitize(value, 0, &mut changed).map_err(|_| invalid())?;
@@ -221,6 +230,7 @@ fn validate_outcome(outcome: &HttpOutcome) -> Result<()> {
         HttpOutcome::Failure {
             kind,
             retry_after: Some(_),
+            ..
         } if !matches!(kind, RawSnapshotFailure::HttpStatus { .. }) => return Err(invalid()),
         _ => {}
     }
@@ -376,6 +386,8 @@ impl RequestGuard {
             }
             Err(error) => HttpOutcome::Failure {
                 kind: RawSnapshotFailure::from_error(error),
+                configuration_error: matches!(error, Error::InvalidConfiguration(_))
+                    .then_some(true),
                 retry_after: match error {
                     Error::HttpStatus { retry_after, .. } => *retry_after,
                     _ => None,

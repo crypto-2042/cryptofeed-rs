@@ -348,3 +348,17 @@ anchoring, source HTTP429 without error text, stale/strict-overlap resnapshot an
 causal/version/scope failures. Snapshot body/error capture uses no URL/headers.
 Public live evidence separately compared all resulting L2 fields/clocks on both
 Spot venues; no real HTTP response body was committed.
+
+
+## 2026-10-11 public HTTP replay format reference
+
+`recording.public-http.v1.jsonl` is a **synthetic SDK-format example**, not an
+exchange capture. Its four request/result pairs match the executable inline OKX
+catalog/ticker/book/trade fixtures in
+`crates/runtime/src/recording/http/replay/tests.rs`. Prices, quantities, IDs and
+times are substituted test values. The current official
+[OKX v5 guide](https://app.okx.com/docs-v5/en/) was rechecked for instrument
+identity/tick/lot fields, ticker prices/timestamps, four-item book levels/seqId,
+and public trade identity/price/quantity/side/time. No parser normalization or
+native endpoint changed. The example is not automatically loaded by tests;
+inline assertions and the offline CLI verify its documented values separately.

@@ -126,6 +126,13 @@ pub(crate) async fn fetch_json_with_limits(
 ) -> Result<serde_json::Value> {
     #[cfg(feature = "recording")]
     let observation = transport.begin_http(url, exchange);
+    #[cfg(feature = "recording")]
+    if let Some(result) = transport.replay_http(url, exchange, max_bytes) {
+        if let Some(observation) = observation {
+            observation.finish(&result);
+        }
+        return result;
+    }
     let result = requests()
         .run(exchange, async {
             let response = transport

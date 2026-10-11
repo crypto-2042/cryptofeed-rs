@@ -42,6 +42,7 @@ jobs:
       - name: Check normalized recording boundaries
         run: |
           cargo test -p cryptofeed-rs --lib recording:: --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib replay_waiter_tests --no-default-features --features recording
           cargo test -p cryptofeed-rs --lib recording:: --no-default-features --features recording,trade
           cargo test -p cryptofeed-rs --lib recording::raw::file::series:: --no-default-features --features recording,orderbook
           cargo test -p cryptofeed-rs --lib recording::http:: --no-default-features --features recording,orderbook

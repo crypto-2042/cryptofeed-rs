@@ -89,7 +89,7 @@ impl<W: AsyncWrite + Unpin> HttpRecordingWriter<W> {
         let header = encode(
             &Record::Header {
                 format: FORMAT.into(),
-                version: 1,
+                version: 2,
             },
             limits.max_record_bytes,
         )?;
@@ -176,10 +176,20 @@ pub struct HttpRecordingReader<R> {
     trace: Trace,
     bytes: u64,
     header: bool,
+    format_version: u16,
     poisoned: bool,
     summary: Option<RecordingSummary>,
 }
 impl<R: AsyncBufRead + Unpin> HttpRecordingReader<R> {
+    /// Validate a fresh complete file before exposing any offline responses.
+    pub async fn into_replay(mut self) -> Result<HttpReplay> {
+        if self.header || self.poisoned || self.summary.is_some() {
+            return Err(Error::InvalidConfiguration(
+                "HTTP replay requires a fresh reader".into(),
+            ));
+        }
+        super::replay::load(&mut self).await
+    }
     pub fn new(reader: R, limits: RecordingLimits) -> Self {
         Self {
             reader,
@@ -187,6 +197,7 @@ impl<R: AsyncBufRead + Unpin> HttpRecordingReader<R> {
             trace: Trace::default(),
             bytes: 0,
             header: false,
+            format_version: 0,
             poisoned: false,
             summary: None,
         }
@@ -201,13 +212,33 @@ impl<R: AsyncBufRead + Unpin> HttpRecordingReader<R> {
         if !self.header {
             let bytes = self.line().await?.ok_or_else(invalid)?;
             match serde_json::from_slice::<Record>(&bytes).map_err(|_| invalid())? {
-                Record::Header { format, version: 1 } if format == FORMAT => self.header = true,
+                Record::Header {
+                    format,
+                    version: version @ (1 | 2),
+                } if format == FORMAT => {
+                    self.header = true;
+                    self.format_version = version;
+                }
                 _ => return Err(invalid()),
             }
         }
         let bytes = self.line().await?.ok_or_else(invalid)?;
         match serde_json::from_slice::<Record>(&bytes).map_err(|_| invalid())? {
             Record::Observation { record } => {
+                if self.format_version == 1
+                    && matches!(
+                        record.kind,
+                        HttpObservationKind::Finished {
+                            outcome: HttpOutcome::Failure {
+                                configuration_error: Some(_),
+                                ..
+                            },
+                            ..
+                        }
+                    )
+                {
+                    return Err(invalid());
+                }
                 if self.trace.sequence >= self.limits.max_events {
                     return Err(invalid());
                 }

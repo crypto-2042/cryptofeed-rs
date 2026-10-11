@@ -116,3 +116,6 @@ pub use crate::recording::http::{
     HttpCaptureHandle, HttpCaptureReceiver, HttpObservation, HttpObservationKind, HttpOutcome,
     HttpRecordingReader, HttpRecordingWriter, http_capture_channel, record_http_stream,
 };
+
+#[cfg(feature = "recording")]
+pub use crate::recording::http::{HttpReplay, HttpReplayReport};

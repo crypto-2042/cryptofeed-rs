@@ -1107,3 +1107,39 @@ feature boundaries.
 - Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
   the new public HTTP example. Resolved dependencies match the tested set; no new
   dependency/native endpoint/protocol fixture or lockfile policy change occurred.
+
+## Offline HTTP payload injection — 2026-10-11
+
+- Added fresh-file into_replay/HttpReplay/HttpReplayReport and explicit transport
+  replay mode. Entire bounded ledger/privacy/footer validates before responses
+  are available. Keys are exact exchange/URL and outcomes follow invocation IDs,
+  even when completion reordered; cloned cursors are shared, instance caches isolated.
+- Existing directory/REST methods now work from archived payloads. Shared fetch
+  intercepts before HTTP admission/client access; HTTP client and WS entry guards
+  prevent fallback, including proxy authentication rebuilding. No live quota/cooldown
+  is consumed. Unknown/pending/exhausted/over-budget attempts consume nothing and
+  fail strict audit; unrelated keys remain usable.
+- Cancellations/configuration mismatches terminate the current catalog operation
+  rather than retrying or sharing it as completed HTTP work. A later explicit
+  call can consume its response; captured real transport failures still retry.
+- Twelve new regressions cover order, source/cursor/budget checks, pending starts, failures,
+  cancellation/retry boundaries, fresh-file validation, no-network entry guards,
+  cache isolation and existing catalog/ticker/book/recent-trade normalization.
+- This is immediate JSON payload injection; receive clocks are SDK execution time.
+  Original cache expiry, failure coalescing/scheduling and cancellation timers are
+  not simulated. Independent-capture merging and advanced resource work remain active.
+- HTTP file v2 adds optional permanent configuration-error classification, retaining
+  v1 read compatibility. Re-recording a replay cancellation must not lose its
+  terminal class and revive catalog retry. Tests also prove waiting callers do
+  not inherit cancelled work as an HTTP completion; genuine transient failures retry.
+- Archived public OKX data re-created 1,152 symbols, ticker, five bids/five asks
+  and five recent trades using normal SDK calls; 4/4 consumed, no unfinished/
+  cancelled/mismatched requests, exit 0. [Report](docs/reports/offline-http-sdk-replay-2026-10-11.md).
+  The synthetic v1 reference also passed the same offline CLI with one symbol/trade.
+- Gates passed: 702 all-feature workspace tests, recording-only/trade/orderbook
+  HTTP/replay suites plus the waiter test, every standalone/no-default compilation,
+  strict Clippy/rustdoc. CI now includes minimal waiter coverage.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed. Resolved
+  dependencies match the tested set; no new dependency, native endpoint or
+  normalization rule changed. Original receipt clocks/cache timers remain out of
+  this payload mode's claims; exact normalized tape replay is already separate.

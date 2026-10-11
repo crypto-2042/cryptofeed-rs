@@ -45,7 +45,8 @@ async fn request_identity_completion_order_cancellation_and_safe_payload_are_rec
         HttpObservationKind::Finished {
             outcome: HttpOutcome::Failure {
                 kind: RawSnapshotFailure::HttpStatus { status: 429 },
-                retry_after: Some(delay)
+                retry_after: Some(delay),
+                ..
             },
             ..
         } if delay == std::time::Duration::from_secs(2)

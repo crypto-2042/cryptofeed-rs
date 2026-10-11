@@ -60,6 +60,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Native raw replay](raw-replay.md): current parser/dispatch reuse, per-session
   ticker/WS-book state, lifecycle delivery, limits and unsupported HTTP-bootstrap paths.
 
+- [Offline HTTP replay](http-replay.md): validated payload injection into existing
+  directory/REST APIs, request-order matching, strict audit and no network fallback.
+
 - [Public HTTP recording](http-recording.md): scoped GET attempts/results/cancels,
   shared transport integration, sanitized bounded JSONL and remaining replay work.
 
@@ -96,6 +99,8 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
 ## Offline workflow reports
 
+- [2026-10-11 HTTP SDK replay](reports/offline-http-sdk-replay-2026-10-11.md): saved
+  public payloads recreate 1,152 markets and ticker/book/trades with four consumed requests.
 - [2026-10-11 custom aggregation](reports/offline-custom-aggregation-2026-10-11.md):
   recorded trades to bounded per-source buy/sell counts, windows and partial tail.
 - [2026-10-11 trade OHLCV](reports/offline-ohlcv-2026-10-11.md): previously captured

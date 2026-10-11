@@ -17,6 +17,8 @@ pub struct TransportConfig {
     proxy: Option<Arc<HttpProxy>>,
     #[cfg(feature = "recording")]
     http_capture: Option<crate::recording::http::HttpCaptureHandle>,
+    #[cfg(feature = "recording")]
+    http_replay: Option<crate::recording::http::HttpReplay>,
 }
 struct HttpProxy {
     endpoint: Url,
@@ -26,6 +28,10 @@ struct HttpProxy {
 }
 impl std::fmt::Debug for TransportConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[cfg(feature = "recording")]
+        if self.http_replay.is_some() {
+            return formatter.write_str("TransportConfig(offline HTTP replay; network disabled)");
+        }
         formatter.write_str(if self.proxy.is_some() {
             "TransportConfig(HTTP proxy; credentials hidden)"
         } else {
@@ -76,6 +82,7 @@ impl TransportConfig {
         #[cfg(feature = "recording")]
         let rebuilt = Self {
             http_capture: self.http_capture.clone(),
+            http_replay: self.http_replay.clone(),
             ..rebuilt
         };
         Ok(rebuilt)
@@ -101,12 +108,22 @@ impl TransportConfig {
             })),
             #[cfg(feature = "recording")]
             http_capture: None,
+            #[cfg(feature = "recording")]
+            http_replay: None,
         })
     }
     pub(crate) fn cache_key(&self, url: &str) -> String {
+        #[cfg(feature = "recording")]
+        let key = if let Some(replay) = &self.http_replay {
+            format!("http-replay-{}:{url}", replay.id())
+        } else {
+            url.to_owned()
+        };
+        #[cfg(not(feature = "recording"))]
+        let key = url.to_owned();
         let key = match &self.proxy {
-            Some(proxy) => format!("proxy-{}:{url}", proxy.id),
-            None => url.to_owned(),
+            Some(proxy) => format!("proxy-{}:{key}", proxy.id),
+            None => key,
         };
         #[cfg(feature = "recording")]
         if let Some(capture) = &self.http_capture {
@@ -129,7 +146,31 @@ impl TransportConfig {
             .as_ref()
             .and_then(|capture| capture.begin(url, exchange))
     }
+    /// Replay intercepts public HTTP before network admission; WebSockets are blocked.
+    #[cfg(feature = "recording")]
+    pub fn with_http_replay(mut self, replay: crate::recording::http::HttpReplay) -> Self {
+        self.http_replay = Some(replay);
+        self.http_capture = None;
+        self
+    }
+    #[cfg(feature = "recording")]
+    pub(crate) fn replay_http(
+        &self,
+        url: &str,
+        exchange: cryptofeed_core::exchange::ExchangeId,
+        maximum: usize,
+    ) -> Option<Result<serde_json::Value>> {
+        self.http_replay
+            .as_ref()
+            .map(|replay| replay.take(exchange, url, maximum))
+    }
     pub(crate) fn http_client(&self) -> Result<&reqwest::Client> {
+        #[cfg(feature = "recording")]
+        if self.http_replay.is_some() {
+            return Err(Error::UnsupportedCapability(
+                "offline HTTP replay disables network clients".into(),
+            ));
+        }
         if let Some(proxy) = &self.proxy {
             return Ok(&proxy.client);
         }
@@ -149,6 +190,12 @@ impl TransportConfig {
         url: &Url,
         config: WebSocketConfig,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+        #[cfg(feature = "recording")]
+        if self.http_replay.is_some() {
+            return Err(Error::UnsupportedCapability(
+                "offline HTTP replay disables WebSockets".into(),
+            ));
+        }
         let Some(proxy) = &self.proxy else {
             return tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false)
                 .await

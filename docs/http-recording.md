@@ -59,12 +59,18 @@ cargo run -p cryptofeed-rs --features recording --example http_recording_public 
 
 One UTF-8 JSON object per newline, externally tagged:
 
-- `header`: format `cryptofeed-rs.public-http`, version 1.
+- `header`: format `cryptofeed-rs.public-http`; new writers use version 2, readers accept 1 and 2.
 - `observation.record`: global sequence, elapsed_ns, observed_ts and kind.
 - `end`: observation count and Complete/Stopped/LimitReached reason.
 
 Request contains request_id, exchange and public URL. IDs start at one and are
-allocated in invocation order. Finished references the ID and contains either
+allocated in invocation order. Version 2 adds optional `configuration_error` on a failure. It preserves permanent
+SDK configuration errors (including re-recorded replay cancellation) so a future
+catalog call cannot reinterpret them as retryable protocol work. Version 1 cannot
+claim this field; old ordinary outcomes remain readable. Code constructing Failure
+values now supplies `configuration_error: None` unless explicitly classifying it.
+
+Finished references the ID and contains either
 sanitized arbitrary-precision JSON or a safe failure category/optional retry
 duration (integer seconds/nanoseconds). Cancelled references the same ID. Completion order can differ from
 start order; the reader matches IDs instead of guessing from URL equality.
@@ -114,12 +120,11 @@ header/line/footer, extra input, version/count/lifecycle/privacy and limit failu
 are errors. Async flush does not promise fsync; earlier bytes or query effects
 are not rolled back. File prefixes retain original request IDs and pending starts.
 
-## Remaining replay work
+## Offline payload replay
 
-`next_observation()` currently validates/iterates this ledger. **It does not yet
-inject archived responses into TransportConfig, recreate catalogs/REST queries
-offline, or reproduce cache/readiness/transport timers.** Those are the next
-integration steps; no HTTP replay or exact normalized-clock parity is claimed by
-this recording increment. Existing [raw v2 L2 replay](http-l2-replay.md) still uses
-session-scoped consumed snapshots, not this standalone request ledger.
-HTTP ledgers, normalized files and raw WS series are separate formats.
+`next_observation()` validates/iterates this ledger. [Offline HTTP replay](http-replay.md)
+now validates a fresh file into HttpReplay and injects responses through existing
+SDK directory/REST APIs. It never falls back to HTTP/WS, but does not simulate
+original cache/timer scheduling or normalized receipt clocks. Existing
+[raw v2 L2 replay](http-l2-replay.md) uses session-scoped consumed snapshots instead.
+HTTP ledgers, normalized files and raw WS series remain separate formats.

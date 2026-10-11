@@ -811,3 +811,26 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - File iteration is not HTTP transport injection or offline catalog/REST replay.
   Preserve original pending starts for future missing-response rejection; no online
   fallback, timer replay or normalized receipt-clock equality is implied yet.
+
+## Offline HTTP payload source
+
+- Build HttpReplay only from a fresh fully validated file, retaining per-URL
+  request invocation order instead of response completion order. Clones share
+  consumption; new replay instances get isolated cache keys. No network fallback.
+- Missing/pending/exhausted/budget mismatch never consumes or skips a head entry;
+  report mismatches and require zero plus complete consumption for strict audit.
+  Recorded errors/cancels are known outcomes, not successful normalized queries.
+- A recorded cancellation must be terminal inside catalog retry, or retry would
+  steal the next explicit caller's response. Do not share permanent replay/config
+  errors as completed HTTP work with waiting callers. Real captured transport
+  failures keep existing retry behavior.
+- Network client/WS guards must survive config clone/proxy-auth rebuild. Payload
+  injection bypasses live HTTP admission/cooldowns, not caller-chosen code.
+- Local receive clocks, cache expiry, concurrent failure sharing and original
+  scheduling are not reconstructed by payload replay. Native JSON clocks survive;
+  exact normalized clocks use normalized tapes, causal L2 uses raw v2 snapshots.
+
+- Public HTTP v2 preserves configuration-error class on re-recorded failures;
+  otherwise a replay cancellation becomes generic Other/Protocol and can trigger
+  a later catalog retry incorrectly. Reader accepts v1, but rejects v2-only
+  metadata under a v1 header. Successful v1 payloads remain directly usable.
