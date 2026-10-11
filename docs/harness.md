@@ -516,3 +516,11 @@ source-preserving custom state and partial tails. Recording/trade compares every
 custom state/window field for deterministic identical input and elapsed clocks.
 The example separately bounds application groups and verifies recorded buy/sell
 counts; the generic SDK cap does not bound arbitrary callback allocations.
+
+
+`src/recording/raw/file/series/tests.rs` verifies ordered physical composition,
+exact observation/causal context retention, missing/truncated/extra/reordered and
+same-length corrupt files, manifest scope/budget/summary mismatches, hard part
+ceilings, global prefix limits, create_new and poisoned capture/replay. Native
+trade and Binance HTTP/L2 replay compare full output fields/summary against a
+single logical file, retaining parser/buffer/bridge state across parts.

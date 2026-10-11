@@ -77,7 +77,7 @@ recovery store. Consumers still use source/session lifecycle and ending reason.
 Live coverage in this increment is Binance/Gate Spot full-depth. Existing
 product-qualified parsers/plans are used for derivative/dated or partial inputs,
 but those have no new live certification here. Catalog/general REST capture,
-rotation/merge, broader replay edge audits, broader storage and
+independent-capture merge, broader replay edge audits, broader storage and
 advanced resource policies remain under the full alignment objective.
 [JSONL sinks](sinks.md), [trade/custom aggregation](aggregation.md) and [NBBO](nbbo.md)
 are implemented separately, without extending this live replay evidence.
@@ -90,3 +90,6 @@ frozen versions, legacy compatibility and unprocessed receive prefixes.
 Manual public comparison (captures each runtime, shuts it down, then replays):
 `cargo run -p cryptofeed-rs --features recording --example raw_l2_replay_public`.
 See [dated evidence](reports/live-smoke-http-l2-replay-2026-10-11.md).
+
+[Raw series rotation](raw-series.md) now preserves this logical replay state
+across ordered physical parts. It does not merge unrelated capture origins.

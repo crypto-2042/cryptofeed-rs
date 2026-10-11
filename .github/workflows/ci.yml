@@ -43,6 +43,7 @@ jobs:
         run: |
           cargo test -p cryptofeed-rs --lib recording:: --no-default-features --features recording
           cargo test -p cryptofeed-rs --lib recording:: --no-default-features --features recording,trade
+          cargo test -p cryptofeed-rs --lib recording::raw::file::series:: --no-default-features --features recording,orderbook
           for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
             cargo check -p cryptofeed-rs --lib --no-default-features --features "recording,$feature"
           done

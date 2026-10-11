@@ -1,4 +1,5 @@
 //! Validated raw-observation segments. Protocol execution is a separate layer.
+mod series;
 use super::{
     RawCaptureReceiver, RawObservation, RawObservationKind, RawPayload, RawSessionInfo, sanitize,
 };
@@ -12,6 +13,7 @@ use cryptofeed_core::{
     symbol::InstrumentKind,
 };
 use serde::{Deserialize, Serialize};
+pub use series::{RawSeriesLimits, RawSeriesReader, RawSeriesWriter, record_raw_series};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -339,7 +341,12 @@ impl<W: AsyncWrite + Unpin> RawRecordingWriter<W> {
         self.write(&bytes).await?;
         Ok(true)
     }
-    pub async fn finish(mut self, end: RecordingEnd) -> Result<RecordingSummary> {
+    pub async fn finish(self, end: RecordingEnd) -> Result<RecordingSummary> {
+        self.finish_with_writer(end)
+            .await
+            .map(|(_, summary)| summary)
+    }
+    async fn finish_with_writer(mut self, end: RecordingEnd) -> Result<(W, RecordingSummary)> {
         if self.poisoned || !self.state.ended(end) {
             return Err(invalid());
         }
@@ -355,11 +362,12 @@ impl<W: AsyncWrite + Unpin> RawRecordingWriter<W> {
             .await
             .map_err(|_| Error::Transport("raw recording flush deadline".into()))?
             .map_err(io)?;
-        Ok(RecordingSummary {
+        let summary = RecordingSummary {
             events: self.state.sequence,
             bytes: self.bytes,
             end,
-        })
+        };
+        Ok((self.writer, summary))
     }
 }
 pub async fn record_raw_stream<W: AsyncWrite + Unpin>(

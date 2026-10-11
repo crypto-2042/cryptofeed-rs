@@ -105,3 +105,8 @@ pub use crate::recording::raw::{
 
 #[cfg(feature = "recording")]
 pub use crate::recording::raw::RawSnapshotFailure;
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::{
+    RawSeriesLimits, RawSeriesReader, RawSeriesWriter, record_raw_series,
+};

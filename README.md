@@ -405,6 +405,8 @@ original model clocks, immediate/recorded timing and explicit failure/stop behav
 Broadcast lag is an error; incomplete files are rejected. A separate
 [sanitized WS observation channel](docs/raw-capture.md) now captures text before
 control/market parsing. [Raw WS files](docs/raw-recording.md) now persist and validate those observations.
+[Raw series rotation](docs/raw-series.md) preserves one logical stream across
+ordered files, with bounded manifests and continuous native replay.
 [Native parser/state replay](docs/raw-replay.md) now supports five public families
 and WS-native L2 for Bybit/OKX/Bitget. [Consumed HTTP snapshots](docs/http-l2-replay.md) now enable Binance/Gate L2
 replay without online fallback. General catalog HTTP capture and broader ecosystem

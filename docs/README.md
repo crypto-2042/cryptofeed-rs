@@ -60,6 +60,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Native raw replay](raw-replay.md): current parser/dispatch reuse, per-session
   ticker/WS-book state, lifecycle delivery, limits and unsupported HTTP-bootstrap paths.
 
+- [Raw series rotation](raw-series.md): record-aligned physical parts, ordered
+  manifest composition, size/checksum gates and continuous native replay.
+
 - [Raw WS files](raw-recording.md): bounded segments, privacy revalidation,
   lifecycle/context integrity and explicit prefix/footer semantics.
 
@@ -102,6 +105,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-11 raw series](reports/live-smoke-raw-series-2026-10-11.md): 40 OKX
+  observations across three files, clean runtime shutdown and 17 offline models.
 - [2026-10-11 NBBO](reports/live-smoke-nbbo-2026-10-11.md): Binance/OKX Spot
   L1, twenty best changes and explicit final withdrawal before clean shutdown.
 - [2026-10-11 JSONL sink](reports/live-smoke-sink-2026-10-11.md):

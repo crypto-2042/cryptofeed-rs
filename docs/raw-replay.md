@@ -96,7 +96,7 @@ callbacks may perform user-chosen actions, but the library replay path itself
 opens no network connection or HTTP client request.
 
 The larger objective still includes generic catalog/HTTP capture, broader L2
-replay edge audits, raw segment rotation/merge, broader storage
+replay edge audits, independent-capture merge, broader storage
 and resource policy work. [Sinks](sinks.md), [trade/custom aggregation](aggregation.md)
 and [NBBO](nbbo.md) are implemented separately. Consumed Binance/Gate bootstrap replay is now implemented in v2. WS-native state replay does not certify those remaining paths.
 
@@ -105,3 +105,6 @@ Pure offline CLI: `cargo run -p cryptofeed-rs --features recording --example raw
 Public capture/live-vs-offline comparison:
 `cargo run -p cryptofeed-rs --features recording --example raw_replay_public`.
 See [dated evidence](reports/live-smoke-raw-replay-2026-10-11.md).
+
+[Raw series rotation](raw-series.md) now preserves this logical replay state
+across ordered physical parts. It does not merge unrelated capture origins.

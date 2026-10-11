@@ -58,10 +58,11 @@ requires every connected session to close. Stopped/LimitReached intentionally
 allow an open-session prefix. This validates a file prefix, not successful feed
 health, peer close acknowledgement or exchange-wide completeness.
 
-The segment starts at the beginning of a fresh capture channel. Mid-stream
-resumption, file rotation/merging and implicit session reconstruction are not
-implemented. Reopening a reader restarts this segment; it does not resume a
-partially consumed native session or restore authoritative L2 state.
+A standalone segment starts at the beginning of a fresh capture channel.
+[Raw series rotation](raw-series.md) now stores one logical v2 stream across
+ordered physical parts, preserving session/causal state for continuous replay.
+Mid-stream resumption, independent-capture merging and implicit session/state
+reconstruction remain unsupported. Reopening starts the logical capture again.
 
 ## Validation, privacy and bounds
 

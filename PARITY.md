@@ -702,3 +702,33 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
   the custom replay example. Resolved dependencies match the tested set; no new
   dependency/protocol/fixture or Cargo.lock policy change was introduced.
+
+## Raw series rotation and continuous replay — 2026-10-11
+
+- Added RawSeriesWriter/Reader/record_raw_series behind recording. Physical files
+  contain record-aligned fragments of one unchanged logical raw v2 stream, with
+  an ordered bounded manifest of byte counts/FNV-1a64 and logical footer summary.
+- Preserve global sequence/session metadata/Processing references/consumed HTTP
+  across boundaries. Reader lazily feeds the existing validator/native replay;
+  no per-part restart, online fallback or relaxed L2 bridge rule.
+- create_new reserves the manifest and each part, staging one record at a time.
+  Default 16 MiB parts, at most 1024; existing logical budgets apply globally.
+  Physical ceiling/I/O errors are terminal; logical cutoffs retain LimitReached.
+  Manifest finalizes after data flush; checksums are not authentication/fsync.
+- Ten regressions cover exact observations, ordered composition, missing/extra/
+  truncated/reordered/corrupt files, manifest/summary mismatch, limits, overwrite
+  protection, cancellation/error poisoning and native trade replay. A Binance
+  HTTP bootstrap/Processing/L2 scenario matches all single-file outputs/summary
+  across more than two parts.
+- Independent-capture merging, generic catalog/HTTP capture, broader replay audits
+  and advanced resource-policy work remain active.
+- Public OKX capture: 40 observations/23,676 logical bytes across 3 physical
+  files; managed shutdown then 17 offline trade models, validated manifest/footer,
+  exit 0. [Report](docs/reports/live-smoke-raw-series-2026-10-11.md). Captures stay temporary.
+- Gates passed: 681 all-feature workspace tests; recording-only/trade/orderbook
+  series suites (7/9/8); every standalone/no-default feature compilation and
+  strict Clippy/rustdoc. CI adds recording/orderbook series coverage alongside
+  existing recording-only/trade jobs. No new dependency/protocol fixture change.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
+  the public rotation example. Resolved dependencies match the tested set;
+  Cargo.lock/target and unsanitized capture artifacts remain uncommitted.

@@ -8,6 +8,7 @@ use cryptofeed_core::{
     symbol::Symbol,
 };
 pub use file::{RawRecordingLimits, RawRecordingReader, RawRecordingWriter, record_raw_stream};
+pub use file::{RawSeriesLimits, RawSeriesReader, RawSeriesWriter, record_raw_series};
 pub use replay::{RawReplayEvent, RawReplayItem, RawReplayOptions, RawReplaySummary};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

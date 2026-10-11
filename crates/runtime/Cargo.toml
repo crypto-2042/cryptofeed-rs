@@ -188,6 +188,10 @@ name = "raw_recording_public"
 required-features = ["recording", "trade"]
 
 [[example]]
+name = "raw_series_public"
+required-features = ["recording", "trade"]
+
+[[example]]
 name = "raw_parser_replay"
 required-features = ["recording"]
 

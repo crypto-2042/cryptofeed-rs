@@ -777,3 +777,19 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Identical deterministic callbacks/inputs/clocks replay identically; arbitrary
   user effects, random/wall clocks and external storage are not reproducibility
   guarantees. No async callback deadline or automatic state serialization is implied.
+
+## Raw physical series
+
+- RawSeries physical parts form one v2 JSONL byte stream; keep one validator/
+  native replay map, global sequence, session/HTTP/Processing state across files.
+  Middle parts lack standalone headers; never guess separate session starts.
+- Bounded manifest lists sizes/FNV-1a64 and final logical summary. Checksums only
+  catch accidental corruption; raw privacy/lifecycle/schema gates still apply.
+  Do not imply authentication or arbitrary independent-capture merge semantics.
+- create_new protects all paths. Reserve manifest empty during capture; finalize
+  after data flush. Logical budgets span all files; max-parts/create/I/O errors
+  fail without a certified prefix. Do not auto-delete old files or resume after
+  cancellation. A complete readable manifest proves bytes, not fsync/task commit.
+- Reader streams parts lazily; EOF certifies all parts/footer/manifest together.
+  Earlier callbacks can occur before later corruption; no effect rollback. Native
+  replay is fresh-only, and cancellation/failed delivery forbids skipping input.
