@@ -83,5 +83,6 @@ The existing `record_stream` convenience API remains supported.
 Python's `backends/backend.py` is the semantic reference for asynchronous
 callback-to-storage workflows. This Rust boundary adds explicit bounded-source
 and failure behavior; it does not claim Python's full adapter collection, L2
-snapshot synthesis, batching or multiprocessing parity. Aggregation and NBBO
-remain separate work.
+snapshot synthesis, batching or multiprocessing parity.
+[Trade aggregation](aggregation.md) and [NBBO](nbbo.md) are implemented as separate
+local helpers; they do not change this sink delivery contract.

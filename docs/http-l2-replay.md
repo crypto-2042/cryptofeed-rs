@@ -77,8 +77,10 @@ recovery store. Consumers still use source/session lifecycle and ending reason.
 Live coverage in this increment is Binance/Gate Spot full-depth. Existing
 product-qualified parsers/plans are used for derivative/dated or partial inputs,
 but those have no new live certification here. Catalog/general REST capture,
-rotation/merge, broader replay edge audits, sinks/aggregation, NBBO and advanced
-resource policies remain under the full alignment objective.
+rotation/merge, broader replay edge audits, broader storage/custom aggregation and
+advanced resource policies remain under the full alignment objective.
+[JSONL sinks](sinks.md), [trade aggregation](aggregation.md) and [NBBO](nbbo.md)
+are implemented separately, without extending this live replay evidence.
 
 Offline regressions compare exact native-vs-replay snapshot/buffer/delta outputs
 and their observation origins, including id-less Gate timestamp anchoring, safe

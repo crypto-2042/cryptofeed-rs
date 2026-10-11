@@ -58,6 +58,9 @@ pub use crate::transport::TransportConfig;
 
 pub use crate::market_info::MarketInfo;
 
+#[cfg(feature = "orderbook")]
+pub use crate::nbbo::{Nbbo, NbboLeg, NbboQuantityUnit, NbboQuote, NbboSource, NbboUpdate};
+
 #[cfg(feature = "trade")]
 pub use crate::aggregate::{Ohlcv, RenkoBrick, RenkoDirection, RenkoFixed, TradeBar};
 

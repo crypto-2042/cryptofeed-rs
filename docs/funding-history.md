@@ -103,9 +103,10 @@ The separate [live report](reports/live-smoke-funding-history-2026-10-10.md) ver
 first/continued batches on five public services. Run `funding_history_public`
 for a seven-day, two-batch bounded observation.
 
-Public trade/candle history and pagination, recording/replay, sinks/aggregation,
-NBBO and advanced resource policies remain unfinished. This increment is not a
-claim of full Python REST parity or complete exchange retention coverage.
+Public trade/candle history, recording/replay, sinks, trade aggregation and
+NBBO are now implemented in their documented scopes; remaining edge audits and
+resource policies are tracked in [the alignment plan](python-usage-alignment.md).
+This increment does not claim full Python REST parity or complete exchange retention.
 
 Primary sources: [Binance USD-M](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data),
 [COIN-M](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-coin-m-futures/api/rest-api/market-data),

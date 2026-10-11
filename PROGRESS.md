@@ -990,3 +990,34 @@ feature boundaries.
   feature compilation. Resolved dependencies match the tested set. CI now also
   tests no-data aggregation. Existing OHLCV source/tests moved byte-for-byte into
   their own feature-gated submodule; no OHLCV behavior changed.
+
+## Scoped cross-exchange NBBO — 2026-10-11
+
+- Added orderbook-feature Nbbo over complete L1/reconstructed L2 tops: highest
+  bid/lowest ask, selected native sizes and configured-order ties. One exact
+  public symbol, at most 64 distinct feed IDs and pinned generations.
+- Explicit per-leg Base/Quote/Contracts labels retain native units without
+  aggregating or converting contract sizes; caller verifies price/unit metadata.
+  Cross-venue crossed quotes are flagged, invalid local snapshots rejected.
+- Separate source-observation and consumer clocks account for queued age. Inclusive
+  expiry produces fallback/last-source withdrawal, timer advance works without
+  packets, and errors leave state unchanged. Availability suspension blocks queued
+  input; newer-generation replacement rejects the old scope.
+- Twelve regressions cover prices/sizes, ties, expiry, availability, queued input,
+  replacement, product/unit scope, cross/invalid/clock/configuration boundaries
+  and all emitted fields after identical normalized-recording replay inputs.
+- Ran sibling Python NBBO._update on synthetic two-exchange books; Rust price,
+  selected size and source golden assertions match. No native protocol changed.
+- Caller owns L2 reconstruction/anchors, status signals, clock mapping and output
+  delivery. Normalized files alone do not prove live ingress-age/lifecycle replay.
+  Custom aggregation, broader storage and remaining recording/resource work stay active.
+- Public Binance/OKX Spot L1 smoke observed both sources and 20 best changes;
+  explicit source suspension produced the asserted final withdrawal before clean
+  managed shutdown/exit 0. [Report](docs/reports/live-smoke-nbbo-2026-10-11.md).
+- 660 all-feature workspace tests, minimal orderbook/recording-orderbook tests,
+  every standalone/no-default feature compilation, strict Clippy/rustdoc passed.
+  CI now includes the two minimal NBBO test combinations.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed; resolved
+  dependencies match the tested set. Source/protocol fixtures are unchanged and
+  Cargo.lock/target remain uncommitted. Current sibling guides now link the
+  implemented sinks/aggregation/NBBO instead of reporting them as wholly pending.

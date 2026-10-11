@@ -30,6 +30,8 @@ pub mod handler;
 pub mod market_info;
 #[doc(hidden)]
 pub mod markets;
+#[cfg(feature = "orderbook")]
+pub mod nbbo;
 pub mod options;
 pub mod prelude;
 #[cfg(feature = "recording")]
@@ -58,6 +60,9 @@ pub use options::{IdlePolicy, RuntimeOptions};
 pub use transport::TransportConfig;
 
 pub use market_info::MarketInfo;
+
+#[cfg(feature = "orderbook")]
+pub use nbbo::{Nbbo, NbboLeg, NbboQuantityUnit, NbboQuote, NbboSource, NbboUpdate};
 
 #[cfg(feature = "trade")]
 pub use aggregate::{Ohlcv, RenkoBrick, RenkoDirection, RenkoFixed, TradeBar};

@@ -118,8 +118,11 @@ side effects before a later corruption/error/cancellation is found: replay is
 not transactional, and footer validation is necessary to certify the file ended.
 There is no checksum/signature or cryptographic tamper-proof claim.
 
-This is the normalized-event portion of the alignment plan. Sanitized raw protocol
-capture/replay, storage sinks, aggregation and NBBO remain subsequent increments.
+This is the normalized-event portion of the alignment plan.
+[Raw replay](raw-replay.md), [consumed HTTP/L2 replay](http-l2-replay.md),
+[sinks](sinks.md), [trade aggregation](aggregation.md) and [NBBO](nbbo.md) are
+implemented separately; general HTTP capture, rotation and broader edge audits
+remain under the full plan.
 
 Offline: `cargo test -p cryptofeed-rs --features recording --lib recording::`.
 Public end-to-end smoke (creates a new file, captures 20 OKX trades, stops runtime,
@@ -132,4 +135,5 @@ The footer certifies the captured file prefix, not exchange-wide completeness or
 
 Incompatible normalized model/schema changes require a recording format migration or version change; do not silently reinterpret older records.
 
-A separate [public WS observation channel](raw-capture.md) now provides sanitized pre-parser text/context. It is not accepted by this normalized codec. [Raw WS files](raw-recording.md) provide their own bounded reader/writer; native protocol replay remains pending.
+A separate [public WS observation channel](raw-capture.md) now provides sanitized pre-parser text/context. It is not accepted by this normalized codec. [Raw WS files](raw-recording.md) provide their own bounded reader/writer; [native protocol replay](raw-replay.md) and [v2 HTTP/L2 replay](http-l2-replay.md)
+use those files separately.

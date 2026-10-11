@@ -373,6 +373,13 @@ continuation. [Recent trades](docs/recent-trades.md) now provides bounded
 five-venue batches with exact IDs and native quantity units. [Native trade history](docs/trade-history.md) now adds scoped continuation
 for Binance aggregate and OKX/Gate individual executions; Gate delivery candles use the documented delivery endpoint.
 
+## Cross-exchange best bid/ask
+
+With `orderbook`, `Nbbo` selects fresh best bid/ask quotes for an exact public
+symbol, retaining per-leg source generations and native size units. Bounded
+sources, timer expiry and explicit lifecycle withdrawal prevent silent stale
+quotes. See [NBBO inputs, units and lifecycle](docs/nbbo.md).
+
 ## Throttle and trade aggregation
 
 With `trade`, `Ohlcv` builds source-isolated arrival-time bars with OHLC, native

@@ -128,6 +128,10 @@ name = "readiness_public"
 required-features = ["trade", "orderbook"]
 
 [[example]]
+name = "nbbo_public"
+required-features = ["orderbook"]
+
+[[example]]
 name = "discovery_public"
 required-features = ["trade"]
 

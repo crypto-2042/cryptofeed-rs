@@ -164,4 +164,5 @@ trade seeds a new anchor. Old generations are not automatically removed. Recreat
 the helper to discard all state. There is no missing-trade recovery, deduplication,
 network call, timer or output queue. Consumers own lifecycle and lag handling.
 
-Custom callback aggregation and NBBO remain separate work.
+[Cross-exchange NBBO](nbbo.md) is implemented separately under `orderbook`.
+Custom callback aggregation remains a separate workstream.

@@ -55,6 +55,10 @@ jobs:
           cargo test -p cryptofeed-rs --lib aggregate:: --no-default-features
           cargo test -p cryptofeed-rs --lib aggregate:: --no-default-features --features trade
           cargo test -p cryptofeed-rs --lib aggregate:: --no-default-features --features recording,trade
+      - name: Test NBBO with minimal data features
+        run: |
+          cargo test -p cryptofeed-rs --lib nbbo:: --no-default-features --features orderbook
+          cargo test -p cryptofeed-rs --lib nbbo:: --no-default-features --features recording,orderbook
       - run: cargo test -p cryptofeed-rs --no-default-features --no-run
 
   msrv:

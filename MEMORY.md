@@ -745,3 +745,19 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   with remove on gaps/removal. No partial brick, trade-ID dedup or time reordering.
   Throttle is intentional loss, so apply after book reconstruction/all-trade
   aggregates. Do not present either helper as a lossless callback pipeline.
+
+## Scoped NBBO
+
+- Keep sources bounded/pinned by feed ID/generation/exchange, one exact public
+  Symbol per helper. Choose best prices and source-native sizes; tie by configured
+  order, never add native contract sizes or infer multipliers. Label per-leg units.
+- Observation elapsed time differs from dequeue/consumer time. Reject old queued
+  observations, drive inclusive expiry on timer ticks, and explicitly emit final
+  unavailability. Availability false blocks queued input until a fresh resume;
+  replacement requires the newer managed generation of the same feed ID.
+- Economic changes exclude clock-only refreshes; output is not a keepalive. Source
+  lifecycle/recovery/anchor ordering remain caller-owned. Suspend on unusable book,
+  disconnect, lag/resync/removal before passing a fresh full top after recovery.
+- Normalized recording elapsed clocks alone lack original monotonic ingress age
+  and all lifecycle transitions. Deterministic replay proof requires identical
+  explicit times/signals. Do not claim full live NBBO/reconnect equivalence.

@@ -38,7 +38,7 @@ local checkout, not claims about every upstream version.
 | Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Implemented PublicRestClient ticker/book snapshots on current five-exchange routes, normalized models and optional native time/IDs; bounded funding settlement history/cursors are now implemented; five-venue candle history is implemented; five-venue recent trade batches are implemented; Binance/OKX/Gate historical pagination is implemented; Bybit/Bitget remain recent-only; Gate delivery history is range-only with SourceLimit on a full page; Gate delivery candles use the documented delivery endpoint. |
 | Recording/replay | `raw_data_collection.py`: recording and playback | Implemented opt-in normalized JSONL recording/replay with explicit format, source labels, limits, timing and strict lag/truncation/cancellation behavior. Pre-parser sanitized WS observation is implemented; bounded raw WS file capture/validation is implemented; native WS parser/state replay (including three WS-L2 families) is implemented; v2 consumed HTTP bootstrap and Binance/Gate L2 replay are implemented; generic HTTP/catalog capture and broader edge audits remain pending. |
 | Storage/aggregation | `backends/`: database/message-bus/socket adapters, aggregate callbacks | Implemented a small EventSink/run_sink contract and bounded JSONL adapter using RecordingWriter. Caller-clocked throttle, bounded source-isolated OHLCV and Python-rule Renko are implemented. Database/message-bus adapters remain pending; the default SDK adds no storage dependency. |
-| Cross-exchange NBBO | `feedhandler.py`: `add_nbbo`; `nbbo.py` | No Rust aggregation helper. Later opt-in work, with stale-source and symbol/unit compatibility rules. |
+| Cross-exchange NBBO | `feedhandler.py`: `add_nbbo`; `nbbo.py` | Implemented bounded orderbook-feature Nbbo over complete L1/reconstructed L2 tops, exact public symbols, pinned source generations, per-leg native unit labels, observation age, lifecycle suspension and explicit withdrawals. Caller owns recovery/signals and unit/price metadata verification. |
 
 Decimal prices/quantities, separate receive/exchange timestamps, multi-symbol
 subscriptions, reconnects, and clean shutdown already exist. Their exact Python
@@ -189,7 +189,8 @@ Generic HTTP/catalog capture and broader replay audits remain pending.
 [Trade OHLCV](aggregation.md) now adds bounded source-isolated bars with explicit
 arrival-clock windows, timer closure, native units and partial tails. Throttle
 and bounded per-source Python-rule Renko are now implemented in the same guide.
-Custom aggregation, broader storage adapters and NBBO remain
+[NBBO](nbbo.md) now adds bounded scoped source selection, freshness and lifecycle
+withdrawal. Custom aggregation and broader storage adapters remain
 separate increments after the subscription/lifecycle contract is stable.
 Do not promise full Python backend parity as part of the 0.1 core SDK. Each
 increment needs a concrete caller workflow, bounded resource behavior, and

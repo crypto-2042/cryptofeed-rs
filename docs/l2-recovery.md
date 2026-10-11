@@ -104,6 +104,8 @@ shared initialization, resync, disconnect/retry and stopping. The separate dated
 [public smoke report](reports/live-smoke-book-recovery-2026-10-10.md) records actual
 OKX observation without presenting scripted lag as live packet loss.
 
-This completes the planned L2 recovery interface. Needed runtime policies,
-full market metadata and the optional REST/history, recording/sinks/aggregation
-and NBBO workstreams remain unfinished in the broader alignment plan.
+This completes the planned L2 recovery interface. Runtime policies, market
+metadata, public REST/history, recording, sinks and aggregation have progressed
+under [the alignment plan](python-usage-alignment.md). [NBBO](nbbo.md) can consume
+tops derived from recovered full books; the caller must suspend it on invalidation
+and recover before resuming. Remaining plan items are tracked in that guide.

@@ -499,3 +499,11 @@ large elapsed clocks, independent instances and atomic backwards-clock errors.
 threshold/down/up/reversal/gap behavior, source scopes, retirement/capacity,
 invalid input, Decimal increments and recording-replay brick/decision equality.
 No-default tests run throttle alone; trade and recording/trade add all helpers.
+
+
+`src/nbbo/tests.rs` covers highest/lowest selection and native sizes, stable ties,
+clock-only suppression, inclusive expiry/fallback/final withdrawal, queue-age
+rejection, suspend/resume, generation pinning/replacement, exact symbol/product
+and unit labels, crossed venues and invalid local quotes/clocks/configuration.
+Recording/orderbook-only tests compare all emitted fields for identical explicit
+source-observation/consumer clocks. No transport lifecycle replay is inferred.
