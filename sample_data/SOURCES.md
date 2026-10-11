@@ -398,3 +398,11 @@ public error. [Verified sources and runtime behavior](../docs/ws-control-errors.
 cover OKX/Bitget frequency and service codes plus Gate service code 3. Sixty
 seconds is SDK retry policy; no real quota was triggered and no private data
 or credentials are present.
+
+## 2026-10-12 WS lifecycle policy references
+
+`public-ws.lifecycle.jsonl` is synthetic, matching inline status/close tests.
+[Protocol sources and SDK policy](../docs/ws-lifecycle-failures.md) distinguish
+RFC close meanings, OKX-specific codes and retry choices. Only public delay/code
+fields are included; no credentials, cookies, real private data or live ban
+evidence. Loopback upgrade/CONNECT tests verify transport behavior independently.

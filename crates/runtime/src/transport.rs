@@ -1,6 +1,8 @@
 //! Explicit shared HTTP/WebSocket routing. Proxy credentials are never URL data.
+mod failure;
 use base64::Engine;
 use cryptofeed_core::error::{Error, Result};
+pub(crate) use failure::retry_after;
 use std::sync::{
     Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
@@ -251,7 +253,7 @@ impl TransportConfig {
             return tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false)
                 .await
                 .map(|(stream, _)| stream)
-                .map_err(|error| Error::Transport(error.to_string()));
+                .map_err(|error| failure::handshake(error, false));
         };
         let host = socket_host(&proxy.endpoint)?;
         let port = proxy
@@ -268,7 +270,7 @@ impl TransportConfig {
         tokio_tungstenite::client_async_tls_with_config(url.as_str(), stream, Some(config), None)
             .await
             .map(|(stream, _)| stream)
-            .map_err(|_| Error::Transport("proxied WebSocket TLS/handshake failed".into()))
+            .map_err(|error| failure::handshake(error, true))
     }
 }
 fn socket_host(url: &Url) -> Result<String> {
@@ -350,9 +352,10 @@ async fn tunnel<S: AsyncRead + AsyncWrite + Unpin>(
                 ));
             }
             Some(status) => {
-                return Err(Error::Transport(format!(
-                    "HTTP proxy CONNECT rejected with status {status}"
-                )));
+                return Err(Error::HttpStatus {
+                    status,
+                    retry_after: failure::proxy_retry_after(&headers),
+                });
             }
             None => return Err(Error::Transport("invalid HTTP proxy CONNECT status".into())),
         }

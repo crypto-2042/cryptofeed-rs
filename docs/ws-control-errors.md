@@ -57,6 +57,7 @@ notifications and offline raw replay. `sample_data/public-ws.control-errors.json
 is a synthetic reference matching inline assertions, not a live throttling capture.
 
 Existing connection/topic/frame budgets and paced subscription sends remain active.
-WS handshake status/header handling, close-code distinctions, distributed/shared-IP
-coordination and adaptive per-connection send quotas remain separate work. This
+[WS handshake status and scoped close-code distinctions](ws-lifecycle-failures.md)
+are now implemented. Distributed/shared-IP coordination and adaptive
+per-connection send quotas remain separate work. This
 change does not certify sustained throughput or intentionally trigger a live ban.

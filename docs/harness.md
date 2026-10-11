@@ -579,3 +579,9 @@ Public WS control tests assert official frequency/service codes against syntheti
 Paused clocks test readiness withdrawal, retry floors, false watch notifications,
 shutdown and queued admission/cancellation. Raw replay returns failures without
 changing live clocks; no live throttling is part of the default harness.
+
+WS lifecycle regressions use `public-ws.lifecycle.jsonl` synthetic status/close
+references. Real local loopback servers reject upgrades and CONNECT, then test
+connection-slot reuse; no exchange service is called. These tests require local
+socket-bind permission. Paused clocks verify retry floors and typed close policy;
+in-memory WS pairs verify readiness withdrawal and clean shutdown precedence.

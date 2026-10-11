@@ -898,3 +898,11 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   must not be promoted to public market subscriptions.
 - A false shutdown watch update must keep the pinned retry timer; resetting or
   dropping it allows early retries. Permanent errors still bypass retry loops.
+
+- HTTP upgrades and proxy CONNECT failures preserve status/delay and omit server
+  response material. Proxy 407 remains invalid configuration. Shared Retry-After
+  accepts unsigned seconds or HTTP-date, not signed/fractional numbers.
+- Valid WS Close frames preserve numeric codes in WebSocketClosed. Retry policy
+  is SDK-owned: known RFC/configuration failures terminal, normal/unknown closes
+  retry; OKX private codes are not guessed for another exchange. Caller shutdown
+  wins. Local handshake tests need loopback bind permission, not external access.

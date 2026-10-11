@@ -40,6 +40,10 @@ pub fn is_permanent(error: &cryptofeed_core::error::Error) -> bool {
             | cryptofeed_core::error::Error::UnsupportedCapability(_)
             | cryptofeed_core::error::Error::InvalidConfiguration(_)
             | cryptofeed_core::error::Error::Subscription(_)
+            | cryptofeed_core::error::Error::WebSocketClosed {
+                retryable: false,
+                ..
+            }
     )
 }
 
@@ -200,6 +204,9 @@ fn retry_delay(
 ) -> std::time::Duration {
     match error {
         cryptofeed_core::error::Error::RateLimited { retry_after, .. } => backoff.max(*retry_after),
+        cryptofeed_core::error::Error::HttpStatus { .. } => {
+            super::quota::handshake_delay(error).map_or(backoff, |delay| backoff.max(delay))
+        }
         _ => backoff,
     }
 }
@@ -545,5 +552,85 @@ mod ws_quota_tests {
         assert!(matches!(result, Err(Error::RateLimited { .. })));
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
         assert_eq!(tokio::time::Instant::now() - start, Duration::from_secs(60));
+    }
+}
+
+#[cfg(test)]
+mod ws_lifecycle_tests {
+    use super::*;
+    use cryptofeed_core::error::Error;
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+    #[tokio::test(start_paused = true)]
+    async fn ws_lifecycle_http_status_retry_uses_hint_or_quota_fallback_without_early_false_updates()
+     {
+        for (status, hint, seconds) in [(429, None, 60), (503, Some(Duration::from_secs(17)), 17)] {
+            let attempts = AtomicUsize::new(0);
+            let (tx, rx) = tokio::sync::watch::channel(false);
+            let start = tokio::time::Instant::now();
+            let run =
+                retry_with_backoff_until_shutdown(Some(1), Backoff::new(1, 8), rx, || async {
+                    if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                        Err(Error::HttpStatus {
+                            status,
+                            retry_after: hint,
+                        })
+                    } else {
+                        Ok(())
+                    }
+                });
+            tokio::pin!(run);
+            assert!(futures::poll!(run.as_mut()).is_pending());
+            tx.send(false).unwrap();
+            assert!(futures::poll!(run.as_mut()).is_pending());
+            assert!(run.await.unwrap().is_some());
+            assert_eq!(
+                tokio::time::Instant::now() - start,
+                Duration::from_secs(seconds)
+            );
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn ws_lifecycle_terminal_close_and_handshake_status_fail_once_while_normal_close_retries()
+    {
+        for error in [
+            Error::WebSocketClosed {
+                code: Some(1009),
+                retryable: false,
+            },
+            Error::HttpStatus {
+                status: 403,
+                retry_after: Some(Duration::from_secs(60)),
+            },
+        ] {
+            let attempts = AtomicUsize::new(0);
+            let start = tokio::time::Instant::now();
+            assert!(
+                retry_with_backoff::<(), _, _>(10, Backoff::new(1, 8), || async {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    Err(error.clone())
+                })
+                .await
+                .is_err()
+            );
+            assert_eq!(attempts.load(Ordering::SeqCst), 1);
+            assert_eq!(tokio::time::Instant::now(), start);
+        }
+        let attempts = AtomicUsize::new(0);
+        retry_with_backoff(1, Backoff::new(0, 0), || async {
+            if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(Error::WebSocketClosed {
+                    code: Some(1000),
+                    retryable: true,
+                })
+            } else {
+                Ok(())
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 }

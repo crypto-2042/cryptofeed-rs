@@ -773,3 +773,12 @@ order-entry exclusions. The runtime now distinguishes known transient responses
 from permanent subscription rejection; no market wire shape or endpoint changes.
 Inline regressions and the synthetic control reference were added together.
 SDK retry floors/shared process cooldown are policy, not exchange reset hints.
+
+### 2026-10-12 WS handshake and close verification
+
+[WS lifecycle failure rules](ws-lifecycle-failures.md) cite RFC 6455 close meanings,
+RFC 9110/6585 HTTP delay semantics and the current OKX close-frame table. Native
+close codes are scoped to their venue; SDK retry decisions are stated separately.
+No endpoints or market normalization changed. Synthetic lifecycle references and
+inline assertions were added together; local HTTP/CONNECT tests do not contact
+exchange services or prove a live quota threshold.

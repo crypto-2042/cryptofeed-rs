@@ -59,6 +59,42 @@ pub(crate) fn websocket_error(
     })
 }
 
+/// Known protocol/configuration failures are terminal; unknown venue codes retry.
+pub(super) fn close_error(
+    exchange: Option<ExchangeId>,
+    code: Option<u16>,
+) -> cryptofeed_core::error::Error {
+    let terminal = matches!(code, Some(1002 | 1003 | 1007 | 1008 | 1009 | 1010))
+        || (exchange == Some(ExchangeId::Okx)
+            && matches!(code, Some(4001 | 4002 | 4003 | 4008 | 4009)));
+    cryptofeed_core::error::Error::WebSocketClosed {
+        code,
+        retryable: !terminal,
+    }
+}
+
+/// Missing/invalid/out-of-range quota hints use the SDK fallback. Successful
+/// responses and permanent status errors must never create a cooldown.
+pub(super) fn handshake_delay(error: &cryptofeed_core::error::Error) -> Option<Duration> {
+    use cryptofeed_core::error::Error;
+    if super::supervisor::is_permanent(error) {
+        return None;
+    }
+    let Error::HttpStatus {
+        status,
+        retry_after,
+    } = error
+    else {
+        return None;
+    };
+    if *status < 400 {
+        return None;
+    }
+    let usable =
+        retry_after.filter(|delay| tokio::time::Instant::now().checked_add(*delay).is_some());
+    usable.or_else(|| matches!(status, 418 | 429).then_some(Duration::from_secs(60)))
+}
+
 pub(super) fn reset_delay(millis: u64, now: SystemTime) -> Option<Duration> {
     let target = UNIX_EPOCH.checked_add(Duration::from_millis(millis))?;
     target
@@ -69,6 +105,69 @@ pub(super) fn reset_delay(millis: u64, now: SystemTime) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ws_lifecycle_close_codes_keep_rfc_and_venue_scopes_separate() {
+        use cryptofeed_core::error::Error;
+        for code in [1002, 1003, 1007, 1008, 1009, 1010] {
+            let error = close_error(None, Some(code));
+            assert!(
+                matches!(error,Error::WebSocketClosed{code:Some(found),retryable:false} if found==code)
+            );
+            assert!(crate::runtime::supervisor::is_permanent(&error));
+        }
+        for code in [
+            None,
+            Some(1000),
+            Some(1001),
+            Some(1011),
+            Some(1012),
+            Some(4999),
+        ] {
+            assert!(!crate::runtime::supervisor::is_permanent(&close_error(
+                None, code
+            )));
+        }
+        for code in [4001, 4002, 4003, 4008, 4009] {
+            assert!(crate::runtime::supervisor::is_permanent(&close_error(
+                Some(ExchangeId::Okx),
+                Some(code)
+            )));
+            assert!(!crate::runtime::supervisor::is_permanent(&close_error(
+                Some(ExchangeId::Binance),
+                Some(code)
+            )));
+        }
+        for code in [4004, 4005, 4006, 4007, 4013, 4999] {
+            assert!(!crate::runtime::supervisor::is_permanent(&close_error(
+                Some(ExchangeId::Okx),
+                Some(code)
+            )));
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn ws_lifecycle_handshake_delay_preserves_valid_zero_and_rejects_unusable_hints() {
+        use cryptofeed_core::error::Error;
+        for (status, hint, expected) in [
+            (429, None, Some(60)),
+            (418, None, Some(60)),
+            (429, Some(0), Some(0)),
+            (429, Some(17), Some(17)),
+            (503, Some(25), Some(25)),
+            (503, None, None),
+            (403, Some(25), None),
+            (200, Some(25), None),
+            (429, Some(u64::MAX), Some(60)),
+            (503, Some(u64::MAX), None),
+        ] {
+            assert_eq!(
+                handshake_delay(&Error::HttpStatus {
+                    status,
+                    retry_after: hint.map(Duration::from_secs)
+                }),
+                expected.map(Duration::from_secs)
+            );
+        }
+    }
     #[tokio::test]
     async fn ws_control_processing_without_readiness_preserves_native_error_class() {
         use crate::exchange::ExchangeFeedBuilder;

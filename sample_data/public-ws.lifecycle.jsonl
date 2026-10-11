@@ -1,0 +1,9 @@
+{"transport": "upgrade", "status": 429, "retry_after": "17", "expected": "http_status", "delay_seconds": 17}
+{"transport": "proxy_connect", "status": 429, "retry_after": "17", "expected": "http_status", "delay_seconds": 17}
+{"transport": "upgrade", "status": 403, "expected": "permanent_http_status"}
+{"exchange": "generic", "close_code": 1000, "retryable": true}
+{"exchange": "generic", "close_code": 1009, "retryable": false}
+{"exchange": "okx", "close_code": 4009, "retryable": false}
+{"exchange": "binance", "close_code": 4009, "retryable": true}
+{"exchange": "okx", "close_code": 4007, "retryable": true}
+{"exchange": "generic", "close_code": 4999, "retryable": true}

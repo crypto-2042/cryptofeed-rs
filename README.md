@@ -419,6 +419,8 @@ end-to-end example.
 [Public WS control failures](docs/ws-control-errors.md) now distinguish verified
 frequency/service errors from permanent subscription rejection, with shutdown-aware
 retry floors and shared connection-start cooldowns.
+[Handshake and close failures](docs/ws-lifecycle-failures.md) preserve status/delay
+and numeric close codes, distinguishing retryable failures from known permanent ones.
 
 [Native REST quota responses](docs/native-rate-limits.md) now also feed shared
 per-exchange cooldowns while preserving original JSON and existing error semantics.

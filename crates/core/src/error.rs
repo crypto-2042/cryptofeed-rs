@@ -24,6 +24,8 @@ pub enum Error {
         code: String,
         retry_after: std::time::Duration,
     },
+    #[error("WebSocket closed (code {code:?}, retryable {retryable})")]
+    WebSocketClosed { code: Option<u16>, retryable: bool },
     #[error("malformed market data: {0}")]
     MalformedData(String),
     #[error("HTTP status {status} (Retry-After: {retry_after:?})")]

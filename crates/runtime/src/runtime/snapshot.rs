@@ -1,3 +1,4 @@
+use crate::transport::retry_after;
 use cryptofeed_core::{
     error::{Error, Result},
     exchange::ExchangeId,
@@ -152,15 +153,6 @@ fn requests() -> &'static HttpRequests {
     })
 }
 const DEFAULT_RATE_COOLDOWN: Duration = Duration::from_secs(60);
-fn retry_after(header: Option<&str>, now: SystemTime) -> Option<Duration> {
-    let value = header?.trim();
-    if let Ok(seconds) = value.parse::<u64>() {
-        return Some(Duration::from_secs(seconds));
-    }
-    httpdate::parse_http_date(value)
-        .ok()
-        .map(|time| time.duration_since(now).unwrap_or_default())
-}
 #[cfg(any(
     feature = "ticker",
     feature = "orderbook",

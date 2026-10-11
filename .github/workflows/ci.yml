@@ -31,6 +31,10 @@ jobs:
       - run: cargo check --workspace --no-default-features
       - run: cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features
       - run: cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features
+      - name: Check WebSocket lifecycle failures independently
+        run: |
+          cargo test -p cryptofeed-rs --lib ws_lifecycle --no-default-features
+          cargo test -p cryptofeed-rs --lib ws_lifecycle --no-default-features --features recording
       - name: Check public WS cooldowns independently
         run: |
           cargo test -p cryptofeed-rs --lib ws_quota --no-default-features

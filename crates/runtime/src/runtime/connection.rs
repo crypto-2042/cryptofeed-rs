@@ -209,10 +209,20 @@ impl WsConnection {
             max_frame_size: Some(Self::MAX_FRAME_BYTES),
             ..WebSocketConfig::default()
         };
-        let stream = self
+        let stream = match self
             .handshake(self.transport.websocket(&self.url, config))
-            .await?;
+            .await
+        {
+            Ok(stream) => stream,
+            Err(error) => {
+                if let Some(delay) = super::quota::handshake_delay(&error) {
+                    super::budget::defer(self.exchange, delay).await?;
+                }
+                return Err(error);
+            }
+        };
         let mut session = Session::new(stream, self.heartbeat).runtime_options(self.options);
+        session.exchange = Some(self.exchange);
         session._connection_slot = Some(slot);
         #[cfg(feature = "recording")]
         {
@@ -232,6 +242,7 @@ pub struct Session<S> {
     #[cfg(feature = "recording")]
     last_raw_sequence: Option<u64>,
     stream: S,
+    exchange: Option<ExchangeId>,
     heartbeat: HeartbeatPolicy,
     last_received: Instant,
     idle_timeout: Option<Duration>,
@@ -319,6 +330,7 @@ impl<S> Session<S> {
             #[cfg(feature = "recording")]
             last_raw_sequence: None,
             stream,
+            exchange: None,
             heartbeat,
             last_received: now,
             idle_timeout: Some(heartbeat.idle_timeout),
@@ -488,11 +500,14 @@ where
                             self.last_received = Instant::now();
                             if let Some(readiness) = &self.readiness { readiness.received(); }
                         }
-                        Some(Ok(Message::Close(_))) | None => {
-                            if *shutdown.borrow() {
-                                return Ok(None);
-                            }
-                            return Err(Error::Transport("websocket closed by remote peer".to_owned()));
+                        Some(Ok(Message::Close(frame))) => {
+                            if *shutdown.borrow() { return Ok(None); }
+                            let exchange = self.exchange.or_else(|| self.readiness.as_ref().map(|attempt| attempt.exchange()));
+                            return Err(super::quota::close_error(exchange, frame.map(|frame| u16::from(frame.code))));
+                        }
+                        None => {
+                            if *shutdown.borrow() { return Ok(None); }
+                            return Err(super::quota::close_error(self.exchange, None));
                         }
                         Some(Err(error)) => return Err(Error::Transport(error.to_string())),
                     }
@@ -505,6 +520,54 @@ where
 #[cfg(test)]
 mod option_tests {
     use super::*;
+    #[tokio::test]
+    async fn ws_lifecycle_rejected_handshake_releases_scoped_capacity_for_next_session() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            while !bytes.ends_with(b"\r\n\r\n") {
+                bytes.push(first.read_u8().await.unwrap());
+                assert!(bytes.len() < 16384);
+            }
+            first
+                .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            drop(first);
+            let (second, _) = listener.accept().await.unwrap();
+            tokio_tungstenite::accept_async(second).await.unwrap();
+        });
+        let budget = crate::ResourceBudget::new(
+            crate::ResourcePolicy::default()
+                .websocket(1, Duration::from_millis(1100))
+                .unwrap(),
+        );
+        let scope = budget.websocket(ExchangeId::Coinbase);
+        let connection = WsConnection::new(
+            Url::parse(&format!("ws://{address}/public")).unwrap(),
+            ExchangeId::Coinbase,
+        )
+        .transport(crate::TransportConfig::direct().with_resource_budget(budget));
+        assert!(matches!(
+            connection.connect().await,
+            Err(Error::HttpStatus { status: 403, .. })
+        ));
+        assert_eq!(scope.slots.available_permits(), 1);
+        let session = tokio::time::timeout(Duration::from_secs(5), connection.connect())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(scope.slots.available_permits(), 0);
+        drop(session);
+        assert_eq!(scope.slots.available_permits(), 1);
+        server.await.unwrap();
+    }
     #[tokio::test]
     async fn configured_handshake_deadline_bounds_stalled_establishment_and_keeps_results() {
         let connection = WsConnection::new(
@@ -558,6 +621,84 @@ mod tests {
         tokio::join!(client, server)
     }
 
+    #[tokio::test]
+    async fn ws_lifecycle_close_frames_preserve_codes_withdraw_readiness_and_scope_venue_rules() {
+        use crate::feed::{FeedId, FeedIdentity, FeedState};
+        for (exchange, code, permanent) in [
+            (ExchangeId::Okx, 4009, true),
+            (ExchangeId::Binance, 4009, false),
+            (ExchangeId::Okx, 1000, false),
+            (ExchangeId::Okx, 1009, true),
+        ] {
+            let monitor = std::sync::Arc::new(crate::runtime::readiness::FeedMonitor::new(
+                FeedIdentity {
+                    id: FeedId::allocate(),
+                    generation: 1,
+                },
+                exchange,
+                None,
+            ));
+            monitor.configure(1, vec![]);
+            monitor.lifecycle(FeedState::Started);
+            let tracker = monitor.register("synthetic".into(), vec![]);
+            let attempt = tracker.begin();
+            attempt.connected();
+            let (client, mut server) = websocket_pair().await;
+            let mut session = Session::new(
+                client,
+                HeartbeatPolicy::for_test(None, Duration::from_secs(60), Duration::from_secs(90)),
+            );
+            session.set_readiness(Some(attempt));
+            server
+                .send(Message::Close(Some(
+                    tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                        code: code.into(),
+                        reason: "untrusted secret reason".into(),
+                    },
+                )))
+                .await
+                .unwrap();
+            let (_tx, mut rx) = watch::channel(false);
+            let error = session.next_text_or_shutdown(&mut rx).await.unwrap_err();
+            assert!(matches!(error,Error::WebSocketClosed{code:Some(found),..} if found==code));
+            assert_eq!(crate::runtime::supervisor::is_permanent(&error), permanent);
+            assert!(!error.to_string().contains("secret"));
+            let state = monitor.snapshot();
+            assert!(!state.connections[0].connected);
+            assert!(
+                state.connections[0]
+                    .last_error
+                    .as_ref()
+                    .unwrap()
+                    .contains(&code.to_string())
+            );
+        }
+    }
+    #[tokio::test]
+    async fn ws_lifecycle_shutdown_wins_over_a_pending_terminal_close() {
+        let (client, mut server) = websocket_pair().await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(None, Duration::from_secs(60), Duration::from_secs(90)),
+        );
+        server
+            .send(Message::Close(Some(
+                tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                    code: 1009.into(),
+                    reason: "".into(),
+                },
+            )))
+            .await
+            .unwrap();
+        let (_tx, mut rx) = watch::channel(true);
+        assert!(
+            session
+                .next_text_or_shutdown(&mut rx)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
     #[tokio::test]
     async fn missing_acknowledgement_times_out_and_updates_retained_state() {
         use crate::feed::{FeedId, FeedIdentity, FeedState};
@@ -877,7 +1018,13 @@ mod tests {
             .next_text_or_shutdown(&mut shutdown_rx)
             .await
             .unwrap_err();
-        assert!(matches!(error, Error::Transport(message) if message.contains("closed")));
+        assert!(matches!(
+            error,
+            Error::WebSocketClosed {
+                code: None,
+                retryable: true
+            }
+        ));
     }
 
     #[tokio::test]

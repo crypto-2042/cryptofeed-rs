@@ -921,3 +921,22 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Gates passed: 751 all-feature workspace tests, strict Clippy/rustdoc, no-default
   and every isolated data/recording feature compile, minimal WS regressions and
   fresh-resolution Rust 1.85 all-target check.
+
+## WS handshake status and scoped close failures — 2026-10-12
+
+- Direct/proxied upgrades and CONNECT rejection preserve HTTP status/Retry-After,
+  omitting untrusted reasons/headers/bodies; proxy 407 retains its configuration
+  failure. HTTP delay floors extend shared venue WS pacing and both retry APIs.
+- Shared unsigned/date parsing preserves zero/past dates; unusable quota hints
+  use SDK 60-second fallback, permanent statuses never install a cooldown.
+- Typed WebSocketClosed preserves numeric code/retryability. Known RFC and OKX
+  configuration closes fail fast, normal/unknown remote closes retry, and an
+  already requested shutdown remains clean. Venue codes are not cross-promoted.
+- Eleven new regressions include real loopback upgrade/CONNECT failures and
+  one-slot failure/reconnect reuse, plus paused/in-memory lifecycle coverage.
+  [Sources and scope](docs/ws-lifecycle-failures.md) separate protocol facts from
+  retry policy. Adaptive send/distributed quotas, minimum packing and independent
+  capture merging remain unfinished; no live rate limit was triggered.
+- Gates passed: 762 all-feature workspace tests, strict Clippy/rustdoc, no-default
+  and each isolated data/recording feature compile, minimal lifecycle regressions
+  and fresh-resolution Rust 1.85 all-target compilation.

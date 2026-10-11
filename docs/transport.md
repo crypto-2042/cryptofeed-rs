@@ -99,3 +99,9 @@ These transport references do not replace exchange-specific protocol baselines.
 Transport clones and Basic-auth rebuilds preserve an optional caller-shared
 [ResourceBudget](resource-budgets.md). It adds stricter admission while routing,
 cache identity, credential privacy and process-wide safeguards remain unchanged.
+
+[WS lifecycle failures](ws-lifecycle-failures.md) now preserve structured HTTP
+status/Retry-After for upgrade and CONNECT failures while omitting untrusted
+response reasons/headers/bodies. Proxy 407 still fails as invalid configuration.
+The status alone does not identify the rejecting hop; transient route failures
+conservatively delay requested-venue WS starts, separately from HTTP budgets.

@@ -150,3 +150,8 @@ unimplemented.
 frequency/service responses from permanent rejection. A live quota response
 extends the exchange's shared connection-start clock; healthy sessions keep
 running and queued starts retain their existing capacity reservations.
+
+[Handshake/close rules](ws-lifecycle-failures.md) now retain HTTP status/delay and
+numeric close codes. Transient hints extend shared venue starts; rejected
+establishment releases both capacity layers. Known protocol/OKX configuration
+closes fail fast, normal remote closes reconnect, and caller shutdown stays clean.
