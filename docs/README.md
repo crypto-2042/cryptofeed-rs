@@ -66,8 +66,8 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Public WS observation](raw-capture.md): pre-parser input/output capture,
   sanitization, bounded failure signaling, source context and remaining replay scope.
 
-- [Trade aggregation](aggregation.md): bounded arrival-clock OHLCV, source
-  isolation, native quantities, timer closure and replay reproducibility.
+- [Throttle and trade aggregation](aggregation.md): leading-edge sampling, bounded
+  arrival-clock OHLCV and threshold Renko, source isolation and replay reproducibility.
 
 - [Event sinks](sinks.md): sequential fallible storage integration, bounded JSONL
   adapter, lag/deadline/cancellation and finalization contracts.

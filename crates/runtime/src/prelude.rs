@@ -59,7 +59,9 @@ pub use crate::transport::TransportConfig;
 pub use crate::market_info::MarketInfo;
 
 #[cfg(feature = "trade")]
-pub use crate::aggregate::{Ohlcv, TradeBar};
+pub use crate::aggregate::{Ohlcv, RenkoBrick, RenkoDirection, RenkoFixed, TradeBar};
+
+pub use crate::aggregate::Throttle;
 
 pub use crate::sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
 

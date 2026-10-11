@@ -964,3 +964,29 @@ feature boundaries.
   Fresh-resolution Rust 1.85 all-feature/all-target compilation also passed;
   resolved dependencies match the tested set. CI now includes the minimal
   aggregation feature tests.
+
+## Throttle and Python-rule Renko — 2026-10-11
+
+- Added feature-independent Throttle with a caller-owned monotonic clock, first
+  input acceptance and the Python strict-greater-than interval boundary. Dropped
+  input does not extend the interval; backwards clocks fail atomically.
+- Added trade-feature RenkoFixed/RenkoBrick with per-source/generation/exchange/
+  symbol extrema/anchors. Exact threshold triggers, continuations use prior close,
+  reversals use prior open, and gaps emit one current-price brick, as in Python.
+- Corrected the Python wrapper's delayed notification/initial empty emission in
+  Rust: return immediately on trigger and never emit an initial/partial brick.
+  Cap active series to 1..=4096 and expose explicit removal for lifecycle/gaps.
+- Eleven new tests (23 aggregation tests total) cover boundaries, large clocks,
+  decimal increments, both directions, gaps, source isolation, retirement, atomic
+  invalid input and full-brick/throttle-decision equality after recording replay.
+- Evaluated sibling Python RenkoFixed._agg for the documented ten-price sequence;
+  all five open/close/direction triples match the Rust golden assertions. This
+  uses only local source and synthetic prices, without wire fixture changes.
+- Custom aggregation, NBBO, broader storage adapters and the remaining recording/
+  resource-policy scope remain active. No new live validation is claimed.
+- Final gates: 648 all-feature workspace tests; no-data/trade/recording-trade
+  aggregation suites (3/21/23 tests); every standalone feature and no-default
+  compilation; strict Clippy/rustdoc; fresh-resolution Rust 1.85 all-target/all-
+  feature compilation. Resolved dependencies match the tested set. CI now also
+  tests no-data aggregation. Existing OHLCV source/tests moved byte-for-byte into
+  their own feature-gated submodule; no OHLCV behavior changed.

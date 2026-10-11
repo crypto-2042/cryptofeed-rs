@@ -19,7 +19,6 @@
     )
 )]
 
-#[cfg(feature = "trade")]
 pub mod aggregate;
 #[cfg(feature = "orderbook")]
 pub mod books;
@@ -61,7 +60,9 @@ pub use transport::TransportConfig;
 pub use market_info::MarketInfo;
 
 #[cfg(feature = "trade")]
-pub use aggregate::{Ohlcv, TradeBar};
+pub use aggregate::{Ohlcv, RenkoBrick, RenkoDirection, RenkoFixed, TradeBar};
+
+pub use aggregate::Throttle;
 
 pub use sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
 

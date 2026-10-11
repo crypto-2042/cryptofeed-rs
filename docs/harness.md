@@ -485,9 +485,17 @@ Recording-enabled tests validate bounded JSONL accepted counts and strict reader
 roundtrips; lag must leave no valid footer. No backend server is needed.
 
 
-`src/aggregate/tests.rs` covers arrival-clock OHLCV values, Decimal division,
+`src/aggregate/ohlcv/tests.rs` covers arrival-clock OHLCV values, Decimal division,
 exact boundary placement, timer-only closure, partial tails, empty-window jumps,
 feed/generation/exchange/symbol isolation, contract amount preservation, late
 exchange clocks, backwards consumer clocks, series bounds and atomic arithmetic
 failures. Recording-enabled replay compares every bar field to direct processing.
 The tests use SDK models, not modified wire fixtures or network data.
+
+
+`src/aggregate/throttle.rs` tests strict leading-edge boundaries, subsecond and
+large elapsed clocks, independent instances and atomic backwards-clock errors.
+`src/aggregate/renko/tests.rs` covers Python price-rule golden vectors, exact
+threshold/down/up/reversal/gap behavior, source scopes, retirement/capacity,
+invalid input, Decimal increments and recording-replay brick/decision equality.
+No-default tests run throttle alone; trade and recording/trade add all helpers.

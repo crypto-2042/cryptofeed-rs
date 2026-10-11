@@ -732,3 +732,16 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   price_volume is not necessarily quote turnover. No ID de-dup or gap recovery.
 - Direct and recording-replay all bar fields match in deterministic tests. EOF
   does not close the last time window. Consumers handle lag/lifecycle/delivery.
+
+## Throttle and Renko semantics
+
+- Throttle is feature-independent, uses caller elapsed time, admits first input
+  and thereafter only strictly after last accepted + interval (Python >, not >=).
+  Drops do not slide the interval. Backwards consumer clocks are atomic errors.
+- RenkoFixed preserves Python _agg price thresholds, not generic fixed-step
+  charting: continuation from last close, reversal from prior open, one actual-
+  price brick for a gap. Rust fixes the wrapper's initial-empty/one-input delay.
+- Isolate bounded series by identity/generation/exchange/symbol; retire explicitly
+  with remove on gaps/removal. No partial brick, trade-ID dedup or time reordering.
+  Throttle is intentional loss, so apply after book reconstruction/all-trade
+  aggregates. Do not present either helper as a lossless callback pipeline.
