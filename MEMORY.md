@@ -804,8 +804,8 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   sanitation, omit headers/proxy credentials/error text and never mutate live JSON.
   New routes require gate tests. Numeric JSON remains arbitrary-precision.
 - Capture-scoped catalog keys avoid old-cache holes and share clones/coalescing.
-  Proxy auth rebuild must retain capture. Existing global cache TTL still applies;
-  repeated capture namespaces belong in the later cache/resource-bound audit.
+  Proxy auth rebuild must retain capture. The shared directory cache now has bounded byte/entry/LRU/TTL retention;
+  see the bounded directory cache entry below.
 - Sticky capture failure must notify sleeping receivers when no record was queued.
   Shared receiver state must not retain senders. HTTP and raw WS now test this.
 - File iteration is not HTTP transport injection or offline catalog/REST replay.
@@ -834,3 +834,17 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   otherwise a replay cancellation becomes generic Other/Protocol and can trigger
   a later catalog retry incorrectly. Reader accepts v1, but rejects v2-only
   metadata under a v1 header. Successful v1 payloads remain directly usable.
+
+## Bounded directory cache
+
+- Global raw directory retention now owns serialized immutable bytes, not Value
+  trees: 256 entries, 128 MiB combined JSON/key bytes, max 32 MiB entry. LRU,
+  24-hour wall TTL, rollback invalidation and whole-cache expiry sweeps bound
+  abandoned proxy/capture/replay namespace retention. Metadata/readers are extra.
+- JSON parse/encode stays outside the cache lock; precision must survive roundtrip.
+  Existing catalog/feed snapshots own their normalized state, not a cache lease.
+- Never let replay cache loss implicitly consume the next archived catalog. Track
+  successful fetches in the replay object's per-proxy/capture namespace metadata;
+  non-refresh miss is an audited config error, explicit refresh advances the tape.
+  Coalesced waiters can still use their completed response. Mark before unlocking
+  the request gate to avoid a cache-eviction race with another loader.

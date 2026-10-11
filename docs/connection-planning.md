@@ -126,3 +126,12 @@ Seven offline regressions cover route projections, aligned native names, raw
 context roundtrips, Binance market/public and Gate settlement ownership, and a
 Bybit inverse book accepting its next delta after a linear reset. This is focused
 state isolation evidence, not arbitrary concurrent replay or new live validation.
+
+
+## Directory retention bounds — 2026-10-12
+
+[The directory cache](catalog-cache.md) now caps process-wide retained responses
+at 256 entries and 128 MiB serialized JSON/key bytes, with LRU, expiry sweeps and
+wall-clock rollback invalidation. Existing snapshots and in-flight sharing remain
+independent of retention. Offline cache loss cannot implicitly consume a future
+archived refresh. This does not implement weighted/distributed request quotas.

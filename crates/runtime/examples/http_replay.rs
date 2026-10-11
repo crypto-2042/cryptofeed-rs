@@ -12,9 +12,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_replay()
         .await?;
     let transport = TransportConfig::direct().with_http_replay(replay.clone());
-    let client =
-        PublicRestClient::load_with_transport(ExchangeId::Okx, InstrumentKind::Spot, transport)
+    let client = PublicRestClient::load_with_transport(
+        ExchangeId::Okx,
+        InstrumentKind::Spot,
+        transport.clone(),
+    )
+    .await?;
+    let cached =
+        MarketCatalog::load_with_transport(ExchangeId::Okx, InstrumentKind::Spot, &transport)
             .await?;
+    if cached.symbols() != client.catalog().symbols() || replay.report().consumed != 1 {
+        return Err("cached catalog mismatch or unexpected archive consumption".into());
+    }
     let markets = client.catalog().symbols().len();
     let symbol = Symbol::spot("BTC", "USDT");
     let ticker = client.ticker(&symbol).await?;

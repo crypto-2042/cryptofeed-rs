@@ -434,3 +434,39 @@ async fn rerecorded_replay_configuration_errors_remain_terminal_and_v1_cannot_cl
             .is_err()
     );
 }
+#[tokio::test]
+async fn cache_eviction_cannot_silently_consume_a_later_catalog_refresh() {
+    use crate::MarketCatalog;
+    use cryptofeed_core::symbol::InstrumentKind;
+    let first = serde_json::json!({"code":"0","msg":"","data":[{"instType":"SPOT","instId":"BTC-USDT","baseCcy":"BTC","quoteCcy":"USDT","state":"live"}]});
+    let second = serde_json::json!({"code":"0","msg":"","data":[{"instType":"SPOT","instId":"ETH-USDT","baseCcy":"ETH","quoteCcy":"USDT","state":"live"}]});
+    let replay = archive(
+        vec![
+            request(1, URL),
+            finish(1, first),
+            request(2, URL),
+            finish(2, second),
+        ],
+        RecordingEnd::Complete,
+    )
+    .await;
+    let transport = TransportConfig::direct().with_http_replay(replay.clone());
+    let snapshot =
+        MarketCatalog::load_with_transport(ExchangeId::Okx, InstrumentKind::Spot, &transport)
+            .await
+            .unwrap();
+    crate::markets::evict_catalog_for_test(&transport.cache_key(URL));
+    assert!(matches!(
+        MarketCatalog::load_with_transport(ExchangeId::Okx, InstrumentKind::Spot, &transport).await,
+        Err(Error::InvalidConfiguration(_))
+    ));
+    assert_eq!(replay.report().consumed, 1);
+    assert_eq!(snapshot.symbols()[0].as_str(), "BTC-USDT");
+    let refreshed =
+        MarketCatalog::refresh_with_transport(ExchangeId::Okx, InstrumentKind::Spot, &transport)
+            .await
+            .unwrap();
+    assert_eq!(refreshed.symbols()[0].as_str(), "ETH-USDT");
+    assert_eq!(replay.report().consumed, 2);
+    assert_eq!(replay.report().mismatches, 1);
+}

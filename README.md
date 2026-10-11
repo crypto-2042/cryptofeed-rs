@@ -450,7 +450,7 @@ async fn example() -> Result<(), Box<dyn std::error::Error>> {
 
 `MarketCatalog::symbols()` lists normalized instruments. `select` supports `*`
 and `?`, ignores ASCII case, sorts and deduplicates matches, and rejects empty
-input or any unmatched pattern. It uses the existing 24-hour catalog cache;
+input or any unmatched pattern. It uses the [bounded 24-hour catalog cache](docs/catalog-cache.md);
 use `MarketCatalog::refresh(exchange, product).await` to bypass cached responses,
 including paginated catalogs. Concurrent requests for the same URL share
 in-flight work. Refresh does not change existing catalog snapshots or running

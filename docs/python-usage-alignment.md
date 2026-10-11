@@ -48,7 +48,7 @@ and consumer delivery limits remain documented in the project README.
 ## Phase 1 — discovery and startup ergonomics (implemented)
 
 - `MarketCatalog::load(exchange, product)` reuses existing product-qualified
-  catalog fetchers and the 24-hour HTTP cache; unsupported products fail before
+  catalog fetchers and the bounded 24-hour HTTP cache; unsupported products fail before
   network access. This snapshot is not a promise that every discovered symbol
   is tradable or compatible with every channel. Feed preflight still applies.
 - `.symbols()` returns sorted normalized instruments. `.select(&[patterns])`
@@ -78,7 +78,9 @@ No exchange wire parser or endpoint changes are part of this phase.
    configuration; unrelated URLs/routes remain independent. Reusable HTTP clients
    serve requests within each transport scope.
    Failed HTTP/JSON or exchange-envelope validation preserves the previous
-   cached response. Cancellation releases the request gate and later calls can
+   cached response. [Bounded retention](catalog-cache.md) now adds 256 entries/128 MiB
+   serialized JSON and key bytes, LRU/expiry sweeps and explicit replay cache-loss
+   behavior without invalidating retained caller snapshots. Cancellation releases the request gate and later calls can
    retry. This is per-response caching, not an atomic transaction across all
    pages or full parsed instrument validation; existing snapshots/subscriptions
    are unchanged. Snapshot requests now share a separately paced four-slot budget.

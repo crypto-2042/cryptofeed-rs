@@ -164,6 +164,43 @@ impl TransportConfig {
             .as_ref()
             .map(|replay| replay.take(exchange, url, maximum))
     }
+    #[cfg(feature = "recording")]
+    pub(crate) fn check_replay_catalog_fetch(
+        &self,
+        url: &str,
+        exchange: cryptofeed_core::exchange::ExchangeId,
+        refresh: bool,
+    ) -> Result<()> {
+        if let Some(replay) = &self.http_replay {
+            replay.check_catalog_fetch(
+                exchange,
+                url,
+                (
+                    self.proxy.as_ref().map(|proxy| proxy.id),
+                    self.http_capture.as_ref().map(|capture| capture.id()),
+                ),
+                refresh,
+            )?;
+        }
+        Ok(())
+    }
+    #[cfg(feature = "recording")]
+    pub(crate) fn replay_catalog_loaded(
+        &self,
+        url: &str,
+        exchange: cryptofeed_core::exchange::ExchangeId,
+    ) {
+        if let Some(replay) = &self.http_replay {
+            replay.catalog_loaded(
+                exchange,
+                url,
+                (
+                    self.proxy.as_ref().map(|proxy| proxy.id),
+                    self.http_capture.as_ref().map(|capture| capture.id()),
+                ),
+            );
+        }
+    }
     pub(crate) fn http_client(&self) -> Result<&reqwest::Client> {
         #[cfg(feature = "recording")]
         if self.http_replay.is_some() {

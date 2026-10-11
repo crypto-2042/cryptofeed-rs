@@ -60,6 +60,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Native raw replay](raw-replay.md): current parser/dispatch reuse, per-session
   ticker/WS-book state, lifecycle delivery, limits and unsupported HTTP-bootstrap paths.
 
+- [Directory cache bounds](catalog-cache.md): shared entry/byte/LRU/TTL retention,
+  snapshot lifetime, numeric fidelity and explicit offline cache-loss handling.
+
 - [Offline HTTP replay](http-replay.md): validated payload injection into existing
   directory/REST APIs, request-order matching, strict audit and no network fallback.
 

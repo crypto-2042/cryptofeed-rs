@@ -22,8 +22,12 @@ enum End {
     Finished(HttpOutcome),
     Cancelled,
 }
+struct Responses {
+    entries: VecDeque<Entry>,
+    catalog_namespaces: std::collections::HashSet<(Option<u64>, Option<u64>)>,
+}
 struct State {
-    responses: HashMap<(ExchangeId, String), VecDeque<Entry>>,
+    responses: HashMap<(ExchangeId, String), Responses>,
     report: HttpReplayReport,
 }
 struct Shared {
@@ -103,7 +107,7 @@ pub(super) async fn load<R: AsyncBufRead + Unpin>(
         cancelled: 0,
         mismatches: 0,
     };
-    let mut responses: HashMap<_, VecDeque<_>> = HashMap::new();
+    let mut responses: HashMap<_, Responses> = HashMap::new();
     for (_, (key, entry)) in requests {
         if entry.outcome.is_none() {
             report.unfinished += 1;
@@ -111,7 +115,14 @@ pub(super) async fn load<R: AsyncBufRead + Unpin>(
         if matches!(entry.outcome, Some(End::Cancelled)) {
             report.cancelled += 1;
         }
-        responses.entry(key).or_default().push_back(entry);
+        responses
+            .entry(key)
+            .or_insert_with(|| Responses {
+                entries: VecDeque::new(),
+                catalog_namespaces: Default::default(),
+            })
+            .entries
+            .push_back(entry);
     }
     static NEXT: AtomicU64 = AtomicU64::new(1);
     Ok(HttpReplay(Arc::new(Shared {
@@ -137,6 +148,36 @@ impl HttpReplay {
     pub(crate) fn id(&self) -> u64 {
         self.0.id
     }
+    pub(crate) fn check_catalog_fetch(
+        &self,
+        exchange: ExchangeId,
+        url: &str,
+        namespace: (Option<u64>, Option<u64>),
+        refresh: bool,
+    ) -> Result<()> {
+        let mut state = self.0.state.lock().expect("HTTP replay lock");
+        if !refresh
+            && state
+                .responses
+                .get(&(exchange, url.to_owned()))
+                .is_some_and(|responses| responses.catalog_namespaces.contains(&namespace))
+        {
+            state.report.mismatches += 1;
+            return Err(Error::InvalidConfiguration("HTTP replay catalog cache expired or was evicted; retain the snapshot or explicitly refresh".into()));
+        }
+        Ok(())
+    }
+    pub(crate) fn catalog_loaded(
+        &self,
+        exchange: ExchangeId,
+        url: &str,
+        namespace: (Option<u64>, Option<u64>),
+    ) {
+        let mut state = self.0.state.lock().expect("HTTP replay lock");
+        if let Some(responses) = state.responses.get_mut(&(exchange, url.to_owned())) {
+            responses.catalog_namespaces.insert(namespace);
+        }
+    }
     pub(crate) fn take(&self, exchange: ExchangeId, url: &str, max_bytes: usize) -> Result<Value> {
         let mut state = self.0.state.lock().expect("HTTP replay lock");
         if public_url(exchange, url).is_err() {
@@ -146,7 +187,10 @@ impl HttpReplay {
             ));
         }
         let key = (exchange, url.to_owned());
-        let entry = state.responses.get(&key).and_then(|queue| queue.front());
+        let entry = state
+            .responses
+            .get(&key)
+            .and_then(|responses| responses.entries.front());
         let error = match entry {
             None => Some("HTTP replay request is missing or exhausted"),
             Some(entry) if entry.outcome.is_none() => {
@@ -165,6 +209,7 @@ impl HttpReplay {
             .responses
             .get_mut(&key)
             .expect("matched key")
+            .entries
             .pop_front()
             .expect("matched entry");
         state.report.consumed += 1;

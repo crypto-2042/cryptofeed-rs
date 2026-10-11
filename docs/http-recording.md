@@ -42,7 +42,8 @@ A capture channel gives the transport an isolated catalog cache namespace. Its
 clones still share cache/coalesced requests and HTTP client/proxy routing; new
 capture channels have separate namespaces. Attach before discovery so the first
 catalog fetch is observable rather than hidden by an older global cache entry.
-Subsequent cache hits emit no fake network calls. Basic proxy authentication
+The shared [directory cache](catalog-cache.md) has entry/byte/LRU/TTL bounds;
+retention can end before TTL under pressure. Subsequent cache hits emit no fake network calls. Basic proxy authentication
 rebuilding retains the observer. Catalog data supplied externally to a REST
 client is not retroactively captured.
 

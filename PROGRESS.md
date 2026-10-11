@@ -1143,3 +1143,36 @@ feature boundaries.
   dependencies match the tested set; no new dependency, native endpoint or
   normalization rule changed. Original receipt clocks/cache timers remain out of
   this payload mode's claims; exact normalized tape replay is already separate.
+
+## Bounded directory retention — 2026-10-12
+
+- Replaced unbounded globally retained Value trees with serialized immutable byte
+  buffers. Process cache caps 256 responses/128 MiB JSON+key bytes and 32 MiB per
+  response; LRU touches, 24-hour boundary expiry and global sweeps bound old
+  capture/replay/proxy namespaces. Wall-clock rollback invalidates future entries.
+- Encoding is bounded; decoding runs outside the global lock and preserves exact
+  numeric JSON. Active reads and caller-owned catalog/feed snapshots survive
+  eviction. Failed fetch/envelope validation preserves eligible prior data;
+  uncacheable successful replacement invalidates the older same-key entry.
+- Replay remembers successful catalog fetches per transport namespace. A later
+  non-refresh cache miss fails without consuming a future archived refresh;
+  explicit refresh remains available. No unbounded second global cache is added.
+- Seven new regressions cover retention/accounting/LRU/TTL/rollback, reference
+  lifetime, precision, 10,000 namespaces and actual SDK replay eviction ordering.
+- Configurable/weighted/distributed quotas, minimum packing and independent-capture
+  merging remain under the overall alignment work. No new live run is claimed.
+- Gates passed: 709 all-feature workspace tests, no-default cache and minimal
+  recording replay tests, every standalone feature compilation, strict Clippy/
+  rustdoc. Existing failed-refresh/coalescing/replay suites passed. CI adds the
+  no-default cache regressions. No native endpoint/fixture/dependency changed.
+- The saved public HTTP tape also re-created 1,152 markets/ticker/five bid/ask
+  levels/five trades; an additional cached catalog load matched all symbols
+  without consuming another response. Four requests consumed, zero mismatches,
+  exit 0. This is offline use of earlier data, not a new exchange smoke run.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
+  the updated offline cache-hit example. Resolved dependencies match the tested
+  set; Cargo.lock/target and old capture artifacts remain uncommitted.
+- Fresh dependency resolution updated cc 1.7.0→1.8.0 and serde_json
+  1.0.152→1.0.154. Re-ran all 709 workspace tests, strict Clippy/rustdoc,
+  no-default/standalone feature and minimal cache/replay checks on that exact
+  resolved set; all passed, including numeric precision regressions.

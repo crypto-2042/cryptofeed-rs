@@ -29,6 +29,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --workspace --no-default-features
+      - run: cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features
       - name: Check every runtime feature independently
         run: |
           for feature in ticker trade orderbook candles funding index liquidations markprice openinterest recording; do

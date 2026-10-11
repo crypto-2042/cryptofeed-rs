@@ -544,3 +544,11 @@ inline SDK fixture values; its CLI is separate verification, not implicit test l
 The catalog waiter regression and v2 re-recording case prove cancellation cannot
 be shared/reclassified into automatic retry or steal a following caller's result.
 Version-1 fixtures remain readable; v2-only metadata is rejected under a v1 header.
+
+
+`src/markets/cache/tests.rs` uses local bounded caches for LRU/entry/key-byte
+accounting, oversized replacement, global expiry/clock rollback, live Arc reader
+lifetime, exact JSON numeric roundtrip and 10,000 namespace insertions. HTTP replay
+has a scoped cache-eviction integration test proving retained catalog usability,
+no implicit future-response consumption and explicit refresh chronology. Existing
+failed-refresh/coalescing/cancellation suites remain required.

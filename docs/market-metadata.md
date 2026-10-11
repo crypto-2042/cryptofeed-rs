@@ -80,7 +80,7 @@ are not silently fetched or substituted from legacy Python APIs.
 
 Metadata is decoded from the same product-qualified directory responses as native
 symbol identity, with no new per-symbol requests. `load` uses the existing 24-hour
-transport-scoped cache; `refresh` forces new responses. The object is immutable
+[bounded transport-scoped cache](catalog-cache.md); `refresh` forces new responses. The object is immutable
 and does not update itself or running feeds. Catalog pages are not a globally
 atomic exchange transaction. Conflicting duplicate identity/metadata records fail
 instead of selecting one page's values arbitrarily; previous catalog objects

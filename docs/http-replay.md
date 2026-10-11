@@ -81,7 +81,10 @@ use [native raw replay](raw-replay.md) for WS/session/book state.
 Replay instances have isolated catalog cache keys, so older live data cannot
 satisfy a replay load. Clones share the same instance/cache and successful cache
 hits consume no additional HTTP records. Refresh still explicitly fetches the
-next recorded request. Proxy rebuilding retains replay mode. Setting replay
+next recorded request. [Directory retention](catalog-cache.md) is bounded. After a catalog has been
+served in this replay namespace, a non-refresh miss caused by eviction/expiry
+returns a mismatch error rather than consuming the next archived response. Reuse
+the retained catalog or explicitly refresh. Proxy rebuilding retains replay mode. Setting replay
 removes that clone's existing capture observer; if observation is explicitly
 attached afterwards, it observes SDK replay calls, not original network activity.
 Configure observation before queries because it also scopes catalog caching.

@@ -1408,8 +1408,15 @@ async fn fetch_json(
     exchange: ExchangeId,
 ) -> Result<Value> {
     let key = transport.cache_key(url);
-    fetch_catalog_with(&key, refresh, || {
-        fetch_catalog_json(url, transport, exchange)
+    fetch_catalog_with(&key, refresh, || async {
+        #[cfg(feature = "recording")]
+        transport.check_replay_catalog_fetch(url, exchange, refresh)?;
+        let result = fetch_catalog_json(url, transport, exchange).await;
+        #[cfg(feature = "recording")]
+        if result.is_ok() {
+            transport.replay_catalog_loaded(url, exchange);
+        }
+        result
     })
     .await
 }
@@ -1504,36 +1511,8 @@ async fn fetch_catalog_json(
 }
 
 const MAX_CATALOG_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
-const CATALOG_CACHE_TTL_SECS: u64 = 24 * 60 * 60;
-type CatalogCache = std::sync::Mutex<HashMap<String, (std::time::SystemTime, Value)>>;
-static CATALOG_CACHE: std::sync::OnceLock<CatalogCache> = std::sync::OnceLock::new();
-
-fn catalog_cache() -> &'static CatalogCache {
-    CATALOG_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
-}
-
-fn read_catalog_cache(url: &str) -> Option<Value> {
-    let mut cache = catalog_cache().lock().ok()?;
-    let (stored_at, value) = cache.get(url).cloned()?;
-    let age = std::time::SystemTime::now()
-        .duration_since(stored_at)
-        .ok()?
-        .as_secs();
-    if age > CATALOG_CACHE_TTL_SECS {
-        cache.remove(url);
-        return None;
-    }
-    Some(value)
-}
-
-fn write_catalog_cache(url: &str, value: &Value) {
-    if let Ok(mut cache) = catalog_cache().lock() {
-        cache.insert(
-            url.to_owned(),
-            (std::time::SystemTime::now(), value.clone()),
-        );
-    }
-}
+mod cache;
+use cache::{read_catalog_cache, write_catalog_cache};
 
 fn validate_catalog_envelope(url: &str, value: &Value) -> Result<()> {
     if let Some(code) = value.get("retCode").and_then(Value::as_i64) {
@@ -3085,4 +3064,9 @@ mod replay_waiter_tests {
         ));
         assert_eq!(second.await.unwrap(), serde_json::json!({"next":true}));
     }
+}
+
+#[cfg(all(test, feature = "recording"))]
+pub(crate) fn evict_catalog_for_test(key: &str) {
+    cache::evict_for_test(key);
 }
