@@ -145,3 +145,8 @@ per-exchange cooldown even when a failure arrives as successful HTTP JSON.
 verified endpoint tiers and process-wide rolling windows. Other exchanges retain
 paced admission and native cooldowns; shared-IP/distributed coordination remains
 unimplemented.
+
+[Public WS control failures](ws-control-errors.md) now distinguish verified
+frequency/service responses from permanent rejection. A live quota response
+extends the exchange's shared connection-start clock; healthy sessions keep
+running and queued starts retain their existing capacity reservations.

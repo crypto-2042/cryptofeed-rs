@@ -19,6 +19,11 @@ pub enum Error {
     Protocol(String),
     #[error("subscription error: {0}")]
     Subscription(String),
+    #[error("rate limited ({code}); retry after {retry_after:?}")]
+    RateLimited {
+        code: String,
+        retry_after: std::time::Duration,
+    },
     #[error("malformed market data: {0}")]
     MalformedData(String),
     #[error("HTTP status {status} (Retry-After: {retry_after:?})")]

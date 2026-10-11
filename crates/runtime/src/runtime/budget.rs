@@ -38,6 +38,15 @@ impl ConnectionBudget {
         }
     }
 
+    async fn defer(&self, delay: Duration) -> Result<()> {
+        let until = Instant::now().checked_add(delay).ok_or_else(|| {
+            Error::InvalidConfiguration("WebSocket cooldown exceeds clock range".into())
+        })?;
+        let mut next = self.next.lock().await;
+        *next = (*next).max(until);
+        Ok(())
+    }
+
     #[cfg(test)]
     async fn acquire(&self) -> Result<ConnectionSlots> {
         self.acquire_scoped(None).await
@@ -86,8 +95,16 @@ pub(super) async fn acquire(
     exchange: ExchangeId,
     scope: Option<Arc<crate::resources::Gate>>,
 ) -> Result<ConnectionSlots> {
+    budget(exchange).acquire_scoped(scope.as_deref()).await
+}
+
+pub(super) async fn defer(exchange: ExchangeId, delay: Duration) -> Result<()> {
+    budget(exchange).defer(delay).await
+}
+
+fn budget(exchange: ExchangeId) -> Arc<ConnectionBudget> {
     static BUDGETS: OnceLock<Mutex<HashMap<ExchangeId, Arc<ConnectionBudget>>>> = OnceLock::new();
-    let budget = BUDGETS
+    BUDGETS
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .expect("connection budgets lock")
@@ -98,14 +115,38 @@ pub(super) async fn acquire(
                 CONNECTION_INTERVAL,
             ))
         })
-        .clone();
-    budget.acquire_scoped(scope.as_deref()).await
+        .clone()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[tokio::test(start_paused = true)]
+    async fn ws_quota_cooldown_extends_queued_starts_keeps_active_sessions_and_cancels_cleanly() {
+        let budget = ConnectionBudget::new(3, Duration::ZERO);
+        let other = ConnectionBudget::new(3, Duration::ZERO);
+        let local = crate::resources::Gate::new(3, Duration::from_secs(2));
+        let active = budget.acquire().await.unwrap();
+        let start = Instant::now();
+        budget.defer(Duration::from_secs(60)).await.unwrap();
+        {
+            let queued = budget.acquire_scoped(Some(&local));
+            tokio::pin!(queued);
+            assert!(futures::poll!(queued.as_mut()).is_pending());
+            assert_eq!(budget.slots.available_permits(), 1);
+        }
+        assert_eq!(budget.slots.available_permits(), 2);
+        assert_eq!(local.slots.available_permits(), 3);
+        drop(other.acquire().await.unwrap());
+        assert_eq!(Instant::now(), start);
+        budget.defer(Duration::from_secs(1)).await.unwrap();
+        drop(budget.acquire_scoped(Some(&local)).await.unwrap());
+        assert_eq!(Instant::now() - start, Duration::from_secs(60));
+        assert_eq!(budget.slots.available_permits(), 2);
+        drop(active);
+        assert_eq!(budget.slots.available_permits(), 3);
+    }
     #[tokio::test]
     async fn active_connection_budget_fails_explicitly_and_recovers_on_drop() {
         let budget = ConnectionBudget::new(1, Duration::ZERO);

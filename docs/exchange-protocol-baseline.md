@@ -764,3 +764,12 @@ is weight 1. Directory minute limits only tighten compiled ceilings. No endpoint
 or normalized payload shape changed. Synthetic references and inline costs were
 updated together; shared futures usage is conservative SDK policy, not a claim
 about native pool sharing.
+
+### 2026-10-12 public WS control verification
+
+[Public WS errors](ws-control-errors.md) records current official public
+frequency/service codes, exact string versus integer envelopes and Bybit
+order-entry exclusions. The runtime now distinguishes known transient responses
+from permanent subscription rejection; no market wire shape or endpoint changes.
+Inline regressions and the synthetic control reference were added together.
+SDK retry floors/shared process cooldown are policy, not exchange reset hints.

@@ -91,3 +91,7 @@ separate work under the full alignment plan.
 
 [Native REST codes](native-rate-limits.md) now augment shared HTTP cooldown;
 other venue weights and a distributed quota service remain unfinished.
+
+[WS quota responses](ws-control-errors.md) now extend the process venue start
+clock across groups. Scope pacing/capacity still applies; healthy connections
+are not stopped and queued establishment reservations release on cancellation.

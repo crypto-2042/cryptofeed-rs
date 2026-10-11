@@ -465,6 +465,9 @@ impl ConnectionAttempt {
             .filter_map(|pending| pending.sent.map(|sent| sent + Duration::from_secs(30)))
             .min()
     }
+    pub fn exchange(&self) -> ExchangeId {
+        self.tracker.monitor.exchange
+    }
     pub fn control(&mut self, payload: &Value) -> Result<bool> {
         let exchange = self.tracker.monitor.exchange;
         let is_control = match exchange {
@@ -506,8 +509,10 @@ impl ConnectionAttempt {
             _ => false,
         };
         if rejected {
-            let error =
-                Error::Subscription(format!("{exchange:?}: rejected subscription: {payload}"));
+            let error = super::quota::websocket_error(exchange, payload).unwrap_or_else(|| {
+                Error::Subscription(format!("{exchange:?}: rejected subscription: {payload}"))
+            });
+
             self.disconnected(Some(error.to_string()));
             return Err(error);
         }
@@ -624,6 +629,51 @@ mod tests {
         monitor
     }
 
+    #[test]
+    fn ws_quota_withdraws_ready_without_permanent_rejection_and_parameter_errors_stay_permanent() {
+        for exchange in [ExchangeId::Okx, ExchangeId::Bitget] {
+            let monitor = monitor(exchange, vec![]);
+            let tracker = monitor.register("synthetic".into(), vec![]);
+            let mut attempt = tracker.begin();
+            attempt.connected();
+            let args = if exchange == ExchangeId::Okx {
+                json!({"channel":"trades","instId":"BTC-USDT"})
+            } else {
+                json!({"instType":"UTA","topic":"trade","symbol":"BTCUSDT"})
+            };
+            let messages = attempt.prepare_messages(vec![
+                json!({"op":"subscribe","args":[args.clone()]}).to_string(),
+            ]);
+            attempt.sent(&messages[0], Instant::now());
+            attempt
+                .control(&json!({"event":"subscribe","arg":args}))
+                .unwrap();
+            assert!(monitor.snapshot().is_ready());
+            let code = if exchange == ExchangeId::Okx {
+                "60014"
+            } else {
+                "30006"
+            };
+            let error = attempt
+                .control(&json!({"event":"error","code":code}))
+                .unwrap_err();
+            assert!(matches!(error, Error::RateLimited { .. }));
+            assert!(!monitor.snapshot().is_ready());
+            assert!(!monitor.snapshot().connections[0].connected);
+            assert!(
+                monitor.snapshot().connections[0]
+                    .last_error
+                    .as_ref()
+                    .unwrap()
+                    .contains(code)
+            );
+            let bad = attempt
+                .control(&json!({"event":"error","code":"unknown"}))
+                .unwrap_err();
+            assert!(matches!(bad, Error::Subscription(_)));
+            assert!(super::super::supervisor::is_permanent(&bad));
+        }
+    }
     #[test]
     fn acknowledgements_and_books_are_distinct_readiness_steps() {
         let monitor = monitor(ExchangeId::Okx, vec!["BTC-USDT".into()]);

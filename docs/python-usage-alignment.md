@@ -26,7 +26,7 @@ local checkout, not claims about every upstream version.
 | Pattern selection | `feed.py` resolves each supplied name by exact mapping; no general glob expansion found | Phase 1 adds explicit catalog `select` with `*` and `?` as a convenience extension, not Python parity. |
 | Batch configuration | `feed.py`: `symbols` plus `channels` | Multi-symbol feeds already work; phase 1 adds bulk `.symbols` and typed `.instruments`. |
 | Per-channel symbol sets | `feed.py`: `subscription={channel: symbols}` | Implemented `.subscription` / `.subscription_instruments`; exact unequal sets now share native connections and retain per-pair filtering through capacity shards. |
-| Connection sizing | `feed.py`: `connect` / `limit_sub`, endpoint-specific limits | Implemented native-topic/message budget sharding, per-request Bybit batches, paced sends, connection budgets and snapshot admission. Unequal-set packing is implemented; stricter shared HTTP/WS ResourceBudget groups and managed scope reservations are implemented; verified native REST quota codes now share cooldowns; Binance endpoint weights are implemented; a global minimum solver, other venue weights, native WS quotas and distributed policies remain pending. |
+| Connection sizing | `feed.py`: `connect` / `limit_sub`, endpoint-specific limits | Implemented native-topic/message budget sharding, per-request Bybit batches, paced sends, connection budgets and snapshot admission. Unequal-set packing is implemented; stricter shared HTTP/WS ResourceBudget groups and managed scope reservations are implemented; verified native REST quota codes now share cooldowns; Binance endpoint weights are implemented; a global minimum solver, other venue weights and distributed policies remain pending. Verified WS quota/service codes now use shared cooldowns; handshake/close distinctions and adaptive send quotas remain pending. |
 | Embedding and shutdown | `feedhandler.py`: `run(start_loop=False, install_signal_handlers=False)`, `stop_async` | Existing `runtime::run_with_shutdown` supports a caller-owned watch signal. Phase 1 adds a `FeedHandler` facade; it installs no Ctrl-C handler. |
 | Runtime additions | `feedhandler.py`: `add_feed` starts a new feed when running; `examples/demo_loop.py` | Implemented opt-in RuntimeControl; retained handles can add feeds after startup. Legacy strict startup remains available. |
 | Updating an existing subscription | No general public update/unsubscribe API found in the inspected Python core | Implemented controlled remove/replace with candidate validation and old-task drain. In-place exchange WS updates remain a separate optimization. |
@@ -214,5 +214,6 @@ independent tests; protocol-facing work needs current official sources.
 Native REST quota JSON is now recognized through [verified code handling](native-rate-limits.md),
 with shared cooldown/header hints and no fake status or cached error envelope.
 [Binance endpoint weights](http-weights.md) are implemented. Other venue weights,
-native WS quota/control classifications and distributed quota
+[verified WS quota/service classifications](ws-control-errors.md) are implemented;
+WS handshake/close distinctions, adaptive send quotas and distributed quota
 coordination remain unfinished alongside minimum packing and independent capture merging.

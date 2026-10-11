@@ -416,6 +416,10 @@ offline, with exact request matching and no network fallback. Original cache/tim
 scheduling and broader ecosystem work remain pending. See [recording](docs/recording.md) for limits, file schema and the
 end-to-end example.
 
+[Public WS control failures](docs/ws-control-errors.md) now distinguish verified
+frequency/service errors from permanent subscription rejection, with shutdown-aware
+retry floors and shared connection-start cooldowns.
+
 [Native REST quota responses](docs/native-rate-limits.md) now also feed shared
 per-exchange cooldowns while preserving original JSON and existing error semantics.
 

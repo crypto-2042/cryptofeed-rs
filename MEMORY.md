@@ -890,3 +890,11 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   charging/metadata learning. ResourcePolicy ceiling is against shared process
   usage, not a fresh group ledger. Directory minute ceilings only tighten for
   process lifetime. Other venue weights/distributed coordination remain pending.
+
+- Public WS frequency/service classification lives in runtime/quota.rs and must
+  use exact current official codes/types/scopes. Error::RateLimited carries an
+  SDK retry floor; live Session extends only WS venue start pacing. Raw replay
+  reports the error without live pacing side effects. Bybit order-entry codes
+  must not be promoted to public market subscriptions.
+- A false shutdown watch update must keep the pinned retry timer; resetting or
+  dropping it allows early retries. Permanent errors still bypass retry loops.

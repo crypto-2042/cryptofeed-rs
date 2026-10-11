@@ -465,7 +465,16 @@ where
                             if text == "pong" && matches!(self.heartbeat.kind, HeartbeatKind::Text("ping"))
                                 || value.as_ref().is_some_and(|value| self.heartbeat.is_response_value(value)) { continue; }
                             if let (Some(readiness), Some(value)) = (self.readiness.as_mut(), value.as_ref()) {
-                                if readiness.control(value)? { continue; }
+                                match readiness.control(value) {
+                                    Ok(true) => continue,
+                                    Ok(false) => {},
+                                    Err(error) => {
+                                        if let Error::RateLimited { retry_after, .. } = &error {
+                                            super::budget::defer(readiness.exchange(), *retry_after).await?;
+                                        }
+                                        return Err(error);
+                                    }
+                                }
                             }
                             return Ok(Some(text));
                         }

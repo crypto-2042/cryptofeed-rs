@@ -2403,6 +2403,9 @@ async fn process_bitget_text_message(
     received_ts: f64,
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(error) = quota::websocket_error(feed.exchange, &message) {
+        return Err(error);
+    }
     if message.get("event").and_then(Value::as_str) == Some("subscribe") {
         return Ok(());
     }
@@ -2629,6 +2632,9 @@ async fn process_okx_text_message(feed: &ExchangeFeed, text: &str, received_ts: 
         return control.map(|_| ());
     }
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(error) = quota::websocket_error(feed.exchange, &message) {
+        return Err(error);
+    }
     if let Some(control) = OkxAdapter::parse_control_message(&message) {
         return control.map(|_| ());
     }
@@ -2652,6 +2658,9 @@ async fn process_gateio_text_message(
     received_ts: f64,
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(error) = quota::websocket_error(feed.exchange, &message) {
+        return Err(error);
+    }
     if let Some(detail) = gateio_error_detail(&message) {
         // A rejected subscription is a permanent configuration problem;
         // `Subscription` errors fail fast instead of burning the retries.
@@ -2672,6 +2681,9 @@ async fn process_gateio_text_message_for_plan(
     received_ts: f64,
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(error) = quota::websocket_error(feed.exchange, &message) {
+        return Err(error);
+    }
     if let Some(detail) = gateio_error_detail(&message) {
         // A rejected subscription is a permanent configuration problem;
         // `Subscription` errors fail fast instead of burning the retries.

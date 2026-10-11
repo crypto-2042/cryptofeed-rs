@@ -61,9 +61,12 @@ where
                 if is_permanent(&err) || attempts >= max_retries {
                     return Err(err);
                 }
-                let delay = backoff.next_delay_secs();
+                let delay = retry_delay(
+                    &err,
+                    std::time::Duration::from_secs(backoff.next_delay_secs()),
+                );
                 attempts += 1;
-                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                tokio::time::sleep(delay).await;
             }
         }
     }
@@ -168,22 +171,36 @@ where
                 if max_retries.is_some_and(|limit| attempts >= limit) {
                     return Err(error);
                 }
-                let delay = jittered_delay(backoff.next_delay_secs());
+                let delay = retry_delay(&error, jittered_delay(backoff.next_delay_secs()));
                 attempts = attempts.saturating_add(1);
                 tracing::warn!(attempt = attempts, retry_delay = ?delay, error = %error,
                     "transient feed failure; retrying");
-                tokio::select! {
-                    biased;
-                    changed = shutdown.changed() => {
-                        match changed {
-                            Ok(()) if !*shutdown.borrow() => {}
-                            Ok(()) | Err(_) => return Ok(None),
+                let waiting = tokio::time::sleep(delay);
+                tokio::pin!(waiting);
+                loop {
+                    tokio::select! {
+                        biased;
+                        changed = shutdown.changed() => {
+                            match changed {
+                                Ok(()) if !*shutdown.borrow() => continue,
+                                Ok(()) | Err(_) => return Ok(None),
+                            }
                         }
+                        _ = &mut waiting => break,
                     }
-                    _ = tokio::time::sleep(delay) => {}
                 }
             }
         }
+    }
+}
+
+fn retry_delay(
+    error: &cryptofeed_core::error::Error,
+    backoff: std::time::Duration,
+) -> std::time::Duration {
+    match error {
+        cryptofeed_core::error::Error::RateLimited { retry_after, .. } => backoff.max(*retry_after),
+        _ => backoff,
     }
 }
 
@@ -465,5 +482,68 @@ mod tests {
 
         assert_eq!(result, 42);
         assert_eq!(attempts.load(Ordering::SeqCst), 6);
+    }
+}
+
+#[cfg(test)]
+mod ws_quota_tests {
+    use super::*;
+    use cryptofeed_core::error::Error;
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+    fn limited() -> Error {
+        Error::RateLimited {
+            code: "60014".into(),
+            retry_after: Duration::from_secs(60),
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn ws_quota_retry_floor_survives_false_shutdown_notifications() {
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let attempts = AtomicUsize::new(0);
+        let start = tokio::time::Instant::now();
+        let run = retry_with_backoff_until_shutdown(Some(1), Backoff::new(1, 8), rx, || async {
+            if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(limited())
+            } else {
+                Ok(tokio::time::Instant::now())
+            }
+        });
+        tokio::pin!(run);
+        assert!(futures::poll!(run.as_mut()).is_pending());
+        tokio::time::advance(Duration::from_secs(5)).await;
+        tx.send(false).unwrap();
+        assert!(futures::poll!(run.as_mut()).is_pending());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(run.await.unwrap().unwrap() - start, Duration::from_secs(60));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn ws_quota_retry_wait_is_shutdown_interruptible() {
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let start = tokio::time::Instant::now();
+        let run =
+            retry_with_backoff_until_shutdown::<(), _, _>(None, Backoff::new(1, 8), rx, || async {
+                Err(limited())
+            });
+        tokio::pin!(run);
+        assert!(futures::poll!(run.as_mut()).is_pending());
+        tx.send(true).unwrap();
+        assert!(run.await.unwrap().is_none());
+        assert_eq!(tokio::time::Instant::now(), start);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn ws_quota_bounded_retry_respects_floor_and_preserves_terminal_error() {
+        let attempts = AtomicUsize::new(0);
+        let start = tokio::time::Instant::now();
+        let result = retry_with_backoff::<(), _, _>(1, Backoff::new(1, 8), || async {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err(limited())
+        })
+        .await;
+        assert!(matches!(result, Err(Error::RateLimited { .. })));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert_eq!(tokio::time::Instant::now() - start, Duration::from_secs(60));
     }
 }

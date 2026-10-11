@@ -389,3 +389,12 @@ a network capture. Representative rows match inline `runtime/weights.rs` tests.
 [Verified official sources and fee table](../docs/http-weights.md) cover current
 Spot, USD-M and COIN-M; no keys, headers or private data are present. Rolling
 windows and conservative shared futures usage are SDK policy choices.
+
+## 2026-10-12 public WS control references
+
+`public-ws.control-errors.jsonl` is synthetic and matches inline classification
+tests in runtime/quota.rs. The Bybit row is a scope exclusion, not a supported
+public error. [Verified sources and runtime behavior](../docs/ws-control-errors.md)
+cover OKX/Bitget frequency and service codes plus Gate service code 3. Sixty
+seconds is SDK retry policy; no real quota was triggered and no private data
+or credentials are present.

@@ -1249,3 +1249,22 @@ feature boundaries.
 - [Sources and boundaries](docs/http-weights.md): other venue weights, native WS
   quotas, distributed coordination, minimum packing and independent capture
   merging remain unfinished. No shared-IP guarantee or used-weight feedback.
+
+## Public WS frequency and service failures — 2026-10-12
+
+- Classified official OKX 60014/50011 and Bitget v3 429/30006/30007 as typed
+  RateLimited errors with an SDK 60-second retry floor. Unknown configuration
+  errors stay permanent; no text matching, type coercion or Bybit trading-code
+  promotion into public feeds.
+- OKX 64007/64008, Bitget 30033 and Gate integer service code 3 reconnect under
+  ordinary transient backoff. Failed attempts withdraw retained readiness.
+- Live WS quota extends shared per-exchange connection-start pacing across budget
+  groups; active healthy sessions remain. Queued WS capacity reservations release
+  on cancel; HTTP policy is separate. Both supervisors honor retry floors and
+  false shutdown updates cannot bypass the wait. Raw replay has no live side effects.
+- Ten new offline regressions and synthetic reference; official sources and
+  remaining handshake/close/adaptive-send scope are in [the guide](docs/ws-control-errors.md).
+  Distributed coordination, minimum packing and independent merging remain active.
+- Gates passed: 751 all-feature workspace tests, strict Clippy/rustdoc, no-default
+  and every isolated data/recording feature compile, minimal WS regressions and
+  fresh-resolution Rust 1.85 all-target check.

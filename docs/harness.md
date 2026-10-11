@@ -573,3 +573,9 @@ fee reference and assert costs inline against current official documentation.
 Paused clocks cover rolling expiry, composite grants, cancellations and free
 network slots while waiting. Replay bypasses weights and directory-limit learning.
 No network saturation or live ban is a test requirement.
+
+Public WS control tests assert official frequency/service codes against synthetic
+`public-ws.control-errors.jsonl`, preserving code types and private-scope exclusions.
+Paused clocks test readiness withdrawal, retry floors, false watch notifications,
+shutdown and queued admission/cancellation. Raw replay returns failures without
+changing live clocks; no live throttling is part of the default harness.

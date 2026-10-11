@@ -140,6 +140,9 @@ impl RawParserSession {
         let RawPayload::Json { value, .. } = payload else {
             return Ok(Vec::new());
         };
+        if let Some(error) = super::quota::websocket_error(self.feed.exchange, value) {
+            return Err(error);
+        }
         if value.get("op").and_then(Value::as_str) == Some("pong")
             || value.get("ret_msg").and_then(Value::as_str) == Some("pong")
             || value
@@ -387,5 +390,51 @@ impl RawParserSession {
             }
         }
         Ok(events)
+    }
+}
+
+#[cfg(all(test, feature = "trade"))]
+mod ws_quota_tests {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn ws_quota_replay_returns_native_failure_without_sleep_or_live_admission() {
+        use crate::{
+            exchange::{bitget::Bitget, okx::Okx},
+            recording::raw::{RawFeedInfo, RawPayload},
+        };
+        for (feed, code) in [
+            (
+                Okx::new()
+                    .trade()
+                    .symbol("BTC-USDT")
+                    .exchange_symbol("BTC-USDT")
+                    .build(),
+                "60014",
+            ),
+            (
+                Bitget::new()
+                    .trade()
+                    .symbol("BTC-USDT")
+                    .exchange_symbol("BTCUSDT")
+                    .build(),
+                "30006",
+            ),
+        ] {
+            let mut replay =
+                RawParserSession::new(&RawFeedInfo::from_feed(&feed), 100, false).unwrap();
+            let start = tokio::time::Instant::now();
+            let result = replay
+                .process(
+                    &RawPayload::Json {
+                        value: serde_json::json!({"event":"error","code":code}),
+                        redacted: false,
+                    },
+                    1.0,
+                    100,
+                )
+                .await;
+            assert!(matches!(result,Err(Error::RateLimited{code:found,..}) if found==code));
+            assert_eq!(tokio::time::Instant::now(), start);
+        }
     }
 }
