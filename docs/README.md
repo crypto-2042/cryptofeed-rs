@@ -66,6 +66,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Public WS observation](raw-capture.md): pre-parser input/output capture,
   sanitization, bounded failure signaling, source context and remaining replay scope.
 
+- [Event sinks](sinks.md): sequential fallible storage integration, bounded JSONL
+  adapter, lag/deadline/cancellation and finalization contracts.
+
 - [Normalized recording/replay](recording.md): versioned JSONL, source identity,
   bounded strict capture, offline callbacks, timing/cancellation and format scope.
 
@@ -85,6 +88,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-11 JSONL sink](reports/live-smoke-sink-2026-10-11.md):
+  20 public OKX events through the generic sink, shutdown and offline reader replay.
 - [2026-10-10 funding history](reports/live-smoke-funding-history-2026-10-10.md):
   five public services, bounded first/resume batches and JSON cursor restoration.
 - [2026-10-10 public REST](reports/live-smoke-rest-2026-10-10.md): twenty Spot/Perpetual

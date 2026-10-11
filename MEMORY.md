@@ -704,3 +704,16 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   regressions cover projection, recording context and independent book state.
 - A focused ownership regression is not proof of arbitrary timer/interleaving
   replay. Broader product replay and generic HTTP capture still need work.
+
+## Storage integration boundary
+
+- EventSink/run_sink own a sequential consumer of identified events. No new queue
+  or worker/retry policy: a slow sink may lag broadcast; lag is terminal.
+- Drop sinks without finalization after write errors/panics/deadlines or in-flight
+  shutdown/cancel. Remote commits may be uncertain; never promise exactly-once.
+  Only between-operation shutdown produces Stopped. Finalization is deadline-
+  bounded and consuming. RecordingWriter is the first adapter, keeping its own
+  format, precision, limits, poisoning and I/O deadlines. Flush is not fsync.
+- SinkWrite AcceptedAndFull accepts the final event; Full rejects it before
+  writing. Both finalize with SinkEnd::LimitReached and an actual prefix summary. No Python backend collection,
+  L2 snapshot synthesis, aggregation or NBBO parity is implied by this interface.

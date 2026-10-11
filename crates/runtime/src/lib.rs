@@ -35,6 +35,7 @@ pub mod prelude;
 pub mod recording;
 pub mod rest;
 pub mod runtime;
+pub mod sink;
 pub mod transport;
 
 pub use catalog::MarketCatalog;
@@ -56,6 +57,8 @@ pub use options::{IdlePolicy, RuntimeOptions};
 pub use transport::TransportConfig;
 
 pub use market_info::MarketInfo;
+
+pub use sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
 
 pub use rest::{PublicRestClient, RestSnapshot};
 

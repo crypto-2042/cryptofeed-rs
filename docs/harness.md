@@ -476,3 +476,10 @@ context file validation, and route-owned reset behavior. The Bybit test preserve
 an initialized inverse book through a linear reset and applies its next delta.
 Binance market/public and Gate settlement guards use existing adapter plans.
 These synthetic SDK-state tests do not change protocol fixture expectations.
+
+
+`src/sink/tests.rs` exercises sequential storage delivery, identity/generation
+preservation, exact decimals, pre-existing and slow-write broadcast lag,
+write/finalize failures, panics, deadlines, shutdown/watch closure and runner drop.
+Recording-enabled tests validate bounded JSONL accepted counts and strict reader
+roundtrips; lag must leave no valid footer. No backend server is needed.

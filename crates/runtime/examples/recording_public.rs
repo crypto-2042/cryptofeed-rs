@@ -11,6 +11,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .create_new(true)
         .open(&path)
         .await?;
+    let writer = RecordingWriter::new(
+        &mut file,
+        RecordingLimits::new(20, 4 * 1024 * 1024, 1024 * 1024)?,
+    )
+    .await?;
     let mut handler = FeedHandler::new();
     handler.add_feed(Okx::new().trade().symbol("BTC-USDT").build());
     let receiver = handler.subscribe_identified();
@@ -19,12 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_stop_tx, stop) = tokio::sync::watch::channel(false);
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
-        record_stream(
-            &mut file,
-            receiver,
-            RecordingLimits::new(20, 4 * 1024 * 1024, 1024 * 1024)?,
-            stop,
-        ),
+        run_sink(writer, receiver, SinkOptions::default(), stop),
     )
     .await;
     let shutdown = control.shutdown().await;

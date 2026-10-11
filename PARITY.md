@@ -569,3 +569,26 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   category checks and fresh-resolution Rust 1.85 all-target/all-feature check passed.
   Generic HTTP capture, rotation, broader replay audits,
   sinks/aggregation, NBBO and advanced resource policies remain pending.
+
+## Sequential event sinks and JSONL adapter — 2026-10-11
+
+- Added EventSink/run_sink over identified normalized events, without a hidden
+  task/queue/retry or new dependency. Owned envelopes preserve source generations,
+  decimals and wire clocks; elapsed consumer time is a separate monotonic value.
+- Sequential writes and consuming finalization have configurable positive
+  five-second default deadlines and catchable panic handling. Lag/errors/uncertain
+  in-flight cancellation return errors and drop the sink without a success footer.
+  Shutdown between writes finalizes Stopped; source closure drains then Complete.
+- RecordingWriter implements the contract using the existing bounded JSONL format.
+  Summary counts reflect the actual accepted prefix, including an oversized input
+  rejected before writing and the exact event cap. Flush does not promise fsync.
+- Ten focused tests cover order, generations, precision, slow-consumer lag,
+  deadlines, errors, panics, stop/drop and bounded JSONL reader roundtrips.
+  Database/message-bus adapters, aggregation and NBBO remain pending.
+- Public OKX Spot sink smoke: 20 events/6,765 bytes, LimitReached, managed
+  shutdown then 20 offline replay callbacks; exit 0. Raw output stays temporary;
+  [sanitized report](docs/reports/live-smoke-sink-2026-10-11.md) records scope.
+- Final gates: 625 all-feature workspace tests, minimal trade/recording-trade
+  sink tests, no-default/every standalone feature, strict Clippy/rustdoc and
+  fresh-resolution Rust 1.85 all-feature/all-target check passed. CI now runs
+  the minimal sink feature tests. Cargo.lock/target are not committed.

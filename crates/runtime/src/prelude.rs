@@ -58,6 +58,8 @@ pub use crate::transport::TransportConfig;
 
 pub use crate::market_info::MarketInfo;
 
+pub use crate::sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
+
 pub use crate::rest::{PublicRestClient, RestSnapshot};
 
 #[cfg(feature = "funding")]

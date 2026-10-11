@@ -373,6 +373,13 @@ continuation. [Recent trades](docs/recent-trades.md) now provides bounded
 five-venue batches with exact IDs and native quantity units. [Native trade history](docs/trade-history.md) now adds scoped continuation
 for Binance aggregate and OKX/Gate individual executions; Gate delivery candles use the documented delivery endpoint.
 
+## Event sinks
+
+`EventSink` and `run_sink` consume identified events sequentially with explicit
+lag, write error, timeout and cancellation behavior. Applications implement their
+own storage adapters; opt-in `recording` provides a bounded JSONL adapter through
+`RecordingWriter`. See [sink delivery and shutdown](docs/sinks.md).
+
 ## Event recording and offline replay
 
 Opt-in `recording` adds bounded, versioned JSONL capture of identified normalized

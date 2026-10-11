@@ -1,6 +1,6 @@
 # Python usage alignment
 
-Status: active improvement plan, updated 2026-10-10 against the sibling Python
+Status: active improvement plan, updated 2026-10-11 against the sibling Python
 checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing and per-channel subscriptions
 are implemented; conservative connection sizing and paced sends are now implemented.
 Phase 3 core runtime commands/identity, retained readiness and opt-in directory reconciliation are implemented;
@@ -37,7 +37,7 @@ local checkout, not claims about every upstream version.
 | Runtime settings | `feed.py`: timeout/retry/start delay/proxy settings; `config.py` | Implemented feed-level retry limits and handshake/callback deadlines with compatible defaults and successful-subscription reset. Idle overrides/disable and cancellation-aware startup delay are now implemented; shared explicit HTTP/WS proxy routing is implemented through TransportConfig; fixed protocol/resource policies stay intact. |
 | Public REST/history | `exchange.py`: ticker/trades/candles/funding/book methods and sync wrappers | Implemented PublicRestClient ticker/book snapshots on current five-exchange routes, normalized models and optional native time/IDs; bounded funding settlement history/cursors are now implemented; five-venue candle history is implemented; five-venue recent trade batches are implemented; Binance/OKX/Gate historical pagination is implemented; Bybit/Bitget remain recent-only; Gate delivery history is range-only with SourceLimit on a full page; Gate delivery candles use the documented delivery endpoint. |
 | Recording/replay | `raw_data_collection.py`: recording and playback | Implemented opt-in normalized JSONL recording/replay with explicit format, source labels, limits, timing and strict lag/truncation/cancellation behavior. Pre-parser sanitized WS observation is implemented; bounded raw WS file capture/validation is implemented; native WS parser/state replay (including three WS-L2 families) is implemented; v2 consumed HTTP bootstrap and Binance/Gate L2 replay are implemented; generic HTTP/catalog capture and broader edge audits remain pending. |
-| Storage/aggregation | `backends/`: database/message-bus/socket adapters, aggregate callbacks | No bundled Rust backends or OHLCV/throttle/Renko adapters. Phase 5 starts with a small sink contract and one justified adapter, avoiding a dependency-heavy default SDK. |
+| Storage/aggregation | `backends/`: database/message-bus/socket adapters, aggregate callbacks | Implemented a small EventSink/run_sink contract and bounded JSONL adapter using RecordingWriter. Database/message-bus adapters and OHLCV/throttle/Renko remain pending; the default SDK adds no storage dependency. |
 | Cross-exchange NBBO | `feedhandler.py`: `add_nbbo`; `nbbo.py` | No Rust aggregation helper. Later opt-in work, with stale-source and symbol/unit compatibility rules. |
 
 Decimal prices/quantities, separate receive/exchange timestamps, multi-symbol
@@ -184,8 +184,9 @@ text boundaries. [Raw WS segments](raw-recording.md) now persist/validate observ
 book sync paths. [Consumed HTTP/L2 replay](http-l2-replay.md) now supports Binance/Gate without
 online fallback. [Physical route isolation](connection-planning.md#physical-connection-state-isolation--2026-10-11)
 now covers sparse Bybit/OKX projections, raw contexts and route-owned cache resets.
-Generic HTTP/catalog capture, broader replay audits,
-sinks/aggregation and NBBO remain
+Generic HTTP/catalog capture and broader replay audits remain pending.
+[Event sinks](sinks.md) and a bounded JSONL adapter are implemented.
+Aggregation, broader storage adapters and NBBO remain
 separate increments after the subscription/lifecycle contract is stable.
 Do not promise full Python backend parity as part of the 0.1 core SDK. Each
 increment needs a concrete caller workflow, bounded resource behavior, and

@@ -1,7 +1,8 @@
 # Normalized event recording and replay
 
 Enable `recording` in addition to the data categories you use. It is opt-in and
-not a default feature. `FeedHandler` keeps its existing callbacks/runtime entry
+not a default feature. `RecordingWriter` also implements the generic
+[EventSink](sinks.md) interface for sequential storage integration. `FeedHandler` keeps its existing callbacks/runtime entry
 point; attach `subscribe_identified()` before running and pass that receiver to
 `record_stream`. Recording does not block the producer or change its policies.
 
