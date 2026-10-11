@@ -182,7 +182,9 @@ and scoped JSON continuation. [Recent trades](recent-trades.md) now provides bou
 optional workflow. [Sanitized WS observation](raw-capture.md) is now attached at actual connection
 text boundaries. [Raw WS segments](raw-recording.md) now persist/validate observations. [Native replay](raw-replay.md) now executes current parsers and three WS-native
 book sync paths. [Consumed HTTP/L2 replay](http-l2-replay.md) now supports Binance/Gate without
-online fallback. Generic HTTP/catalog capture, broader replay audits,
+online fallback. [Physical route isolation](connection-planning.md#physical-connection-state-isolation--2026-10-11)
+now covers sparse Bybit/OKX projections, raw contexts and route-owned cache resets.
+Generic HTTP/catalog capture, broader replay audits,
 sinks/aggregation and NBBO remain
 separate increments after the subscription/lifecycle contract is stable.
 Do not promise full Python backend parity as part of the 0.1 core SDK. Each

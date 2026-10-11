@@ -690,5 +690,17 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   Replay rejects missing pending bootstrap/width mismatch, never fetches fresh data.
   Safe failure categories/status omit error text/headers/retry metadata.
 - This covers consumed L2 JSON, not all catalogs/HTTP, transport timers or arbitrary
-  concurrent callback order. Audit mixed physical-connection cache-reset isolation
-  before declaring broad replay/reconnect equivalence across logical-feed clones.
+  concurrent callback order. Focused mixed-route projection/cache-reset audit is complete (see below);
+  arbitrary concurrent replay equivalence remains unclaimed.
+
+## Physical connection projection and cache ownership
+
+- Filter sparse rules together with channels/symbols/native names when projecting
+  logical feeds to Bybit product and OKX public/business connections. Leaving
+  stale sparse rules broke raw context validation. Reuse the same projection for
+  native message budget measurement; preserve normalized/native positional order.
+- Reset only exact requested L2 pairs owned by the physical route. Binance/Gate
+  already had snapshot-route/instrument guards; preserve those. Seven offline
+  regressions cover projection, recording context and independent book state.
+- A focused ownership regression is not proof of arbitrary timer/interleaving
+  replay. Broader product replay and generic HTTP capture still need work.

@@ -3,6 +3,8 @@ mod budget;
 mod http_replay_tests;
 #[cfg(feature = "recording")]
 mod raw_replay;
+#[cfg(test)]
+mod scope_tests;
 #[cfg(feature = "recording")]
 pub(crate) use raw_replay::RawParserSession;
 pub mod connection;
@@ -450,11 +452,7 @@ async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>)
 async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
     let mut tasks = JoinSet::new();
     for url in OkxAdapter::subscription_urls(&feed) {
-        let mut planned_feed = feed.clone();
-        let business = url.ends_with("/business");
-        planned_feed.channels.retain(|channel| {
-            matches!(channel, cryptofeed_core::exchange::Channel::Candles) == business
-        });
+        let mut planned_feed = okx_feed_for_url(&feed, &url);
         let books = if planned_feed.channels.contains(&Channel::L2Book) {
             planned_feed
                 .symbols
@@ -506,6 +504,16 @@ async fn collect_connection_results(label: &str, mut tasks: JoinSet<Result<()>>)
     Ok(())
 }
 
+fn okx_feed_for_url(feed: &ExchangeFeed, url: &str) -> ExchangeFeed {
+    let mut planned = feed.clone();
+    let business = url.ends_with("/business");
+    planned
+        .channels
+        .retain(|channel| matches!(channel, Channel::Candles) == business);
+    planned.prune_connection_scope();
+    planned
+}
+
 fn bybit_feed_for_url(feed: &ExchangeFeed, url: &str) -> ExchangeFeed {
     let product = if url.ends_with("/linear") {
         BybitProduct::Linear
@@ -527,6 +535,7 @@ fn bybit_feed_for_url(feed: &ExchangeFeed, url: &str) -> ExchangeFeed {
             }
         }
     }
+    planned.prune_connection_scope();
     planned
 }
 
@@ -596,21 +605,33 @@ async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
     Ok(())
 }
 
+fn reset_connection_books<'a>(
+    feed: &ExchangeFeed,
+    book_route: bool,
+    candidates: impl IntoIterator<Item = &'a cryptofeed_core::symbol::Symbol>,
+) {
+    if !book_route {
+        return;
+    }
+    let owned: Vec<_> = candidates
+        .into_iter()
+        .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+        .cloned()
+        .collect();
+    feed.clear_connection_books(&owned);
+}
+
 async fn consume_binance_session(
     mut feed: ExchangeFeed,
     plan: BinanceConnectionPlan,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let attempt = readiness::begin(&mut feed);
-    if !plan.snapshot_urls.is_empty() {
-        feed.clear_connection_books(
-            &plan
-                .instruments
-                .iter()
-                .map(|instrument| instrument.symbol.clone())
-                .collect::<Vec<_>>(),
-        );
-    }
+    reset_connection_books(
+        &feed,
+        !plan.snapshot_urls.is_empty(),
+        plan.instruments.iter().map(|instrument| &instrument.symbol),
+    );
     let explicit = if attempt.is_some() {
         Some(BinanceAdapter::explicit_subscription(&plan)?)
     } else {
@@ -741,9 +762,7 @@ async fn consume_bitget_session(
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let attempt = readiness::begin(&mut feed);
-    if feed.channels.contains(&Channel::L2Book) {
-        feed.clear_connection_books(&feed.symbols);
-    }
+    reset_connection_books(&feed, true, &feed.symbols);
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)
@@ -795,9 +814,7 @@ async fn consume_bybit_session(
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let attempt = readiness::begin(&mut feed);
-    if feed.channels.contains(&Channel::L2Book) {
-        feed.clear_connection_books(&feed.symbols);
-    }
+    reset_connection_books(&feed, true, &feed.symbols);
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)
@@ -855,9 +872,7 @@ async fn consume_okx_session(
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let attempt = readiness::begin(&mut feed);
-    if feed.channels.contains(&Channel::L2Book) {
-        feed.clear_connection_books(&feed.symbols);
-    }
+    reset_connection_books(&feed, true, &feed.symbols);
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)
@@ -909,15 +924,11 @@ async fn consume_gateio_session(
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let attempt = readiness::begin(&mut feed);
-    if !plan.snapshot_urls.is_empty() {
-        feed.clear_connection_books(
-            &plan
-                .instruments
-                .iter()
-                .map(|instrument| instrument.symbol.clone())
-                .collect::<Vec<_>>(),
-        );
-    }
+    reset_connection_books(
+        &feed,
+        !plan.snapshot_urls.is_empty(),
+        plan.instruments.iter().map(|instrument| &instrument.symbol),
+    );
     let url = Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
     let connection = connection::WsConnection::new(url, feed.exchange)
         .runtime_options(feed.runtime_options)

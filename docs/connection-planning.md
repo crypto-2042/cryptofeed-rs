@@ -107,3 +107,22 @@ Managed updates now reserve per-handler capacity before committing candidates:
 same-exchange replacement reserves the larger old/new plan; provider changes
 reserve both until old tasks stop. Core runtime controls and configuration-
 generation event identity are described in [the control guide](runtime-control.md).
+
+## Physical connection state isolation — 2026-10-11
+
+Physical routes retain a consistent projection of the logical feed: channels,
+normalized symbols, native names and sparse subscription rules refer to the same
+requested pairs. Bybit linear/inverse routes and OKX public/business routes now
+prune inactive sparse rules as well as their channel/symbol unions. This fixes
+invalid raw recording contexts for otherwise valid mixed-route sparse feeds.
+The public logical configuration and first-seen native mapping order are retained.
+
+A reconnect clears only the route's requested L2 symbols. Binance market-only
+routes retain the existing no-snapshot guard; Gate settlement routes retain their
+instrument scope. Bitget, Bybit and OKX resets explicitly filter exact L2 pairs.
+Price-only symbols and other product/endpoint books are not reset.
+
+Seven offline regressions cover route projections, aligned native names, raw
+context roundtrips, Binance market/public and Gate settlement ownership, and a
+Bybit inverse book accepting its next delta after a linear reset. This is focused
+state isolation evidence, not arbitrary concurrent replay or new live validation.

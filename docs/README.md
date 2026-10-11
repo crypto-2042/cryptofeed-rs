@@ -18,7 +18,7 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Python usage alignment](python-usage-alignment.md): source-backed gap inventory,
   implementation phases, and supported discovery/lifecycle conveniences.
 
-- [Connection planning and budgets](connection-planning.md): native subscription
+- [Connection planning, state isolation and budgets](connection-planning.md): native subscription
   limits, paced sending/handshakes, snapshot admission, and cancellation.
 
 - [Managed runtime control](runtime-control.md): command results, feed identity,

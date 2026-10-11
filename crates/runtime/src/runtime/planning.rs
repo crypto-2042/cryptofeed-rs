@@ -4,7 +4,7 @@ use crate::exchange::{
 };
 use cryptofeed_core::{
     error::{Error, Result},
-    exchange::{Channel, ExchangeId},
+    exchange::ExchangeId,
 };
 use serde_json::Value;
 
@@ -29,10 +29,7 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
             BybitAdapter::subscription_message(&planned).len() + 64 <= 21000
         })),
         ExchangeId::Okx => Ok(OkxAdapter::subscription_urls(feed).iter().all(|url| {
-            let mut planned = feed.clone();
-            planned
-                .channels
-                .retain(|channel| (*channel == Channel::Candles) == url.ends_with("/business"));
+            let planned = super::okx_feed_for_url(feed, url);
             OkxAdapter::subscription_message(&planned).len() <= 64 * 1024
         })),
         ExchangeId::Gateio => Ok(GateioAdapter::connection_plans(feed)?.iter().all(|plan| {
@@ -78,23 +75,10 @@ pub(crate) fn validate_connection_counts(feeds: &[ExchangeFeed]) -> Result<()> {
 fn slice(feed: &ExchangeFeed, start: usize, len: usize) -> ExchangeFeed {
     let mut planned = feed.clone();
     planned.symbols = feed.symbols[start..start + len].to_vec();
-    if !planned.channel_subscriptions.is_empty() {
-        for (_, symbols) in &mut planned.channel_subscriptions {
-            symbols.retain(|symbol| planned.symbols.contains(symbol));
-        }
-        planned
-            .channel_subscriptions
-            .retain(|(_, symbols)| !symbols.is_empty());
-        planned.channels.retain(|channel| {
-            planned
-                .channel_subscriptions
-                .iter()
-                .any(|(candidate, _)| candidate == channel)
-        });
-    }
     if !feed.exchange_symbols.is_empty() {
         planned.exchange_symbols = feed.exchange_symbols[start..start + len].to_vec();
     }
+    planned.prune_connection_scope();
     planned
 }
 

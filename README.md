@@ -305,7 +305,7 @@ The runtime resolves this union once and preserves exact channel/symbol pairs
 while sharing native connections, then shards the first-seen union by actual
 subscription budgets. For example, Trade BTC/ETH plus L2 BTC shares one Spot
 connection without subscribing to ETH depth. Product and public/business routes
-still split when required. [Connection planning and budgets](docs/connection-planning.md)
+still split when required. [Connection planning, state isolation and budgets](docs/connection-planning.md)
 documents packing, queued sends and shared admission/snapshot pacing. `feed_count()`
 counts logical feeds; managed snapshots identify physical connections and books.
 Low-level adapter callers must still plan each `feed.connection_feeds()?` shard

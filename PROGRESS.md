@@ -900,3 +900,19 @@ feature boundaries.
   package contents and Rust 1.85 all-feature all-target fresh resolution. Final
   tests/lints/docs also passed on that dependency set. Real responses/lockfile
   remain uncommitted; broader isolation/ecosystem scope is not marked complete.
+
+## Physical connection state isolation — 2026-10-11
+
+- Fixed Bybit product and OKX public/business sparse feed projections: retained
+  channels, normalized/native symbol unions and exact rules now agree. Previously
+  stale rules could invalidate recorded session contexts.
+- Reconnect resets explicitly target owned L2 pairs. Preserved existing Binance
+  snapshot-route guards and Gate per-plan instrument scope; unrelated books stay
+  initialized and can consume subsequent increments.
+- Seven offline regressions cover projection, native-name alignment, raw file
+  roundtrips and cache ownership. No exchange protocol or fixture interpretation
+  changed; no new live smoke certification is claimed.
+- 615 all-feature workspace tests, strict Clippy/rustdoc, no-default and individual
+  category checks and fresh-resolution Rust 1.85 all-target/all-feature check passed.
+  Generic HTTP capture, rotation, broader replay audits,
+  sinks/aggregation, NBBO and advanced resource policies remain pending.

@@ -273,6 +273,49 @@ impl ExchangeFeed {
         Ok(())
     }
 
+    /// Reconcile a physical route's retained channels/symbols with its exact pairs.
+    /// The public logical configuration is cloned before applying this projection.
+    pub(crate) fn prune_connection_scope(&mut self) {
+        if self.channel_subscriptions.is_empty() {
+            return;
+        }
+        self.channel_subscriptions
+            .retain(|(channel, _)| self.channels.contains(channel));
+        for (_, symbols) in &mut self.channel_subscriptions {
+            symbols.retain(|symbol| self.symbols.contains(symbol));
+        }
+        self.channel_subscriptions
+            .retain(|(_, symbols)| !symbols.is_empty());
+        self.channels.retain(|channel| {
+            self.channel_subscriptions
+                .iter()
+                .any(|(entry, _)| entry == channel)
+        });
+        let keep: Vec<_> = self
+            .symbols
+            .iter()
+            .map(|symbol| {
+                self.channel_subscriptions
+                    .iter()
+                    .any(|(_, symbols)| symbols.contains(symbol))
+            })
+            .collect();
+        self.symbols = std::mem::take(&mut self.symbols)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, symbol)| keep[index].then_some(symbol))
+            .collect();
+        if !self.exchange_symbols.is_empty() {
+            self.exchange_symbols = std::mem::take(&mut self.exchange_symbols)
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, native)| {
+                    keep.get(index).copied().unwrap_or(false).then_some(native)
+                })
+                .collect();
+        }
+    }
+
     /// Compiles per-channel subscriptions into concrete feeds for adapter
     /// planning. Exact channel/symbol pairs share native connections where their
     /// routes allow, then split by native subscription budgets while retaining

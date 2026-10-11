@@ -468,3 +468,11 @@ The v2 Processing marker disambiguates an observed-but-not-yet-processed WS pack
 Tests assert id-less Gate timestamps, safe HTTP429, strict overlap resync, missing
 pending snapshots and schema/version failures; no live HTTP is a deterministic
 test dependency. Legacy v1 references remain readable with their original scope.
+
+
+Physical scope regressions in `runtime/scope_tests.rs` cover Bybit product and
+OKX endpoint sparse projections, normalized/native name alignment, raw session
+context file validation, and route-owned reset behavior. The Bybit test preserves
+an initialized inverse book through a linear reset and applies its next delta.
+Binance market/public and Gate settlement guards use existing adapter plans.
+These synthetic SDK-state tests do not change protocol fixture expectations.
