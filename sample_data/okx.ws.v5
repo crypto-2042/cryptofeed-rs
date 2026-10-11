@@ -26,3 +26,5 @@ send: {"op":"subscribe","args":[{"channel":"trades","instId":"BTC-USDT"},{"chann
 
 configuration: {"trades":["BTC-USDT"],"candles":["ETH-USDT"]}
 send: {"op":"subscribe","args":[{"channel":"trades","instId":"BTC-USDT"},{"channel":"candle1m","instId":"ETH-USDT"}]}
+
+2.000000: {"arg":{"channel":"trades","instId":"BTC-USDT"},"data":[{"tradeId":"1","px":"100.01","sz":"0.25","side":"buy","ts":"1000"}]}

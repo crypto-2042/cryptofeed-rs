@@ -453,3 +453,11 @@ schema and state validator. Test data is SDK-generated sanitized transport data,
 not a new exchange protocol assumption. Numeric JSON literals, metadata/lifecycle,
 privacy, truncation/limits and partial I/O are checked offline; file iteration is
 not evidence that native parsers or HTTP/L2 reconstruction were replayed.
+
+Native raw replay regressions (`recording::raw::replay`) consume file-format inputs
+through existing Rust runtime parser/dispatch code, not normalized model fixtures.
+They assert all five trade schemas, product-qualified identity, candle/sparse rules,
+Bybit ticker/reset and three WS-native book synchronizers with strict bad sequence/
+CRC rejection. Supplied nonzero OKX CRC constants are SDK integrity probes computed
+from interleaved level strings, not newly captured server values. Missing HTTP
+bootstrap remains an explicit unsupported path, never a live test dependency.

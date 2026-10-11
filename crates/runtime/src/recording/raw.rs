@@ -1,5 +1,6 @@
 //! Bounded, sanitized observation of actual public WS text before parsing.
 pub mod file;
+pub mod replay;
 use crate::{exchange::ExchangeFeed, feed::FeedIdentity};
 use cryptofeed_core::{
     error::{Error, Result},
@@ -7,6 +8,7 @@ use cryptofeed_core::{
     symbol::Symbol,
 };
 pub use file::{RawRecordingLimits, RawRecordingReader, RawRecordingWriter, record_raw_stream};
+pub use replay::{RawReplayEvent, RawReplayItem, RawReplayOptions, RawReplaySummary};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::{

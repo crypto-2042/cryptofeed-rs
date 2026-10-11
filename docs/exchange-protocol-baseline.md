@@ -708,3 +708,15 @@ planning now include this profile; a narrow offline native-route/normalization
 regression replaces the earlier unsupported preflight. Historical delivery
 trades have from/to but no current offset/page; range queries stop with explicit
 SourceLimit on a full page, rather than guessing retired last_id.
+
+## Raw parser replay source review — 2026-10-11
+
+Existing normalized/parity wire contracts are reused without adapter changes.
+Current official Bybit trade/book, Bitget depth/UTA upgrade mapping, Binance stream
+and OKX/Gate public guides were checked for replay regressions. Bybit allows up to
+1024 trades per message, matching the default output cap. Bitget's first update
+bridge includes snapshot seq within [pseq,seq]; a disjoint interval must fail.
+The older New-Trades Bitget docs link now redirects to ticker docs; UTA upgrade
+still names publicTrade, and this increment's live v3 capture/replay exactly matched
+56 current normalized Trade models. No v2/Python protocol fallback was introduced.
+See [native raw replay](raw-replay.md) and its bounded/remaining replay scope.

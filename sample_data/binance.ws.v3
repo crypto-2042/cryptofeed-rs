@@ -21,3 +21,5 @@ send: {"method":"SUBSCRIBE","params":["btcusdt@aggTrade","btcusdt@depth@100ms","
 configuration: {"trades":["ETH-USDT-PERP"],"l2_book":["BTC-USDT-PERP"]}
 wss://fstream.binance.com/public/stream?streams=btcusdt@depth@100ms <-> 1791580000.000000
 wss://fstream.binance.com/market/stream?streams=ethusdt@aggTrade <-> 1791580000.000000
+
+2.000000: {"e":"aggTrade","s":"BTCUSDT","a":1,"p":"100.01","q":"0.25","T":1000,"m":false}

@@ -510,3 +510,26 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Public OKX capture accepted 24 observations/18 trade-channel packets/15,672 bytes,
   shut down runtime, then validated the saved file offline; LimitReached, exit 0.
   See [evidence](docs/reports/live-smoke-raw-recording-2026-10-11.md).
+
+## Offline native WS parser/state replay — 2026-10-11
+
+- Added fresh-reader raw replay API with Started/Market/Ended callbacks and
+  source/session/observation labels. Reuses existing runtime parsers, mapping,
+  scoped dispatch and CandlePolicy with local caches, no network/hydration/live
+  counters/recovery-store publication. Disabled channels fail at connection start.
+- Bybit ticker snapshot/delta and Bybit/OKX/Bitget WS-native book sync reset per
+  session; strict sequences/checksums/bridges remain unchanged. Binance/Gate L2
+  explicitly reject missing HTTP bootstrap instead of fetching live data.
+- Output batch/total budgets fail before partial model delivery from an oversized
+  frame. Sequential immediate/absolute-time callbacks retain original clocks;
+  error/panic/deadline/cancellation/drop cannot resume after skipping an input.
+- Tests cover five trade families, derivative/dated identity, sparse/candle policy,
+  ticker/book reset, valid/invalid WS sync and nonzero CRC, timing, output limits,
+  callbacks/poisoning and disabled/missing-HTTP preflight. Bitget's initially
+  mistaken gap test was corrected to a true disjoint [12,13] first bridge; no
+  native validator/expected output was relaxed.
+- Pure offline prior OKX file replay produced all 17 trade rows from 24 observations.
+  Five new Spot captures replayed 60 observations/93 models; every Trade exactly
+  matched live fields/clocks, exit 0. See [evidence](docs/reports/live-smoke-raw-replay-2026-10-11.md).
+- HTTP/bootstrap and Binance/Gate L2 replay, segment rotation/merge, sinks/
+  aggregation, NBBO and advanced resource policies remain under the full objective.

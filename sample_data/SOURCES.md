@@ -11,7 +11,7 @@ documented wire shape and precision relevant to normalization.
 | `binance.http.v3` | [Binance Spot REST](https://developers.binance.com/docs/binance-spot-api-docs/rest-api/general-endpoints), [USD-M REST](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information), [COIN-M REST](https://developers.binance.com/docs/derivatives/coin-margined-futures/market-data/rest-api/Exchange-Information) | Spot, USD-M, and COIN-M product identity plus REST book bootstrap. |
 | `binance.ws.v3` | [Binance Spot streams](https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams), [USD-M public streams](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/public), [USD-M market streams](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/market), [current COIN-M streams](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-coin-m-futures/api/ws-streams) | Spot book ticker without event metadata; USD-M public/market endpoint split; non-USDT spot and dated/coin-margined identifiers; European-options ticker and trade references. |
 | `bitget.http.v3` | [Bitget v3 instruments](https://www.bitget.com/api-doc/uta/public/Instruments), [Bitget v3 order book](https://www.bitget.com/api-doc/uta/public/OrderBook) | Unified v3 discovery categories and REST book shape. |
-| `bitget.ws.v3` | [Bitget v3 guide](https://www.bitget.com/api-doc/uta/guide), [candlesticks](https://www.bitget.com/api-doc/uta/websocket/public/Candlesticks-Channel), [public trades](https://www.bitget.com/api-doc/uta/websocket/public/New-Trades-Channel), [depth](https://www.bitget.com/api-doc/uta/websocket/public/Order-Book-Channel), [liquidation](https://www.bitgetapp.com/api-doc/uta/websocket/public/Liquidation-Channel) | Successful control acknowledgement without `data`; text heartbeat; `topic: kline` with separate interval; batched trades; full-depth snapshot/update linkage. |
+| `bitget.ws.v3` | [Bitget v3 guide](https://www.bitget.com/api-doc/uta/guide), [candlesticks](https://www.bitget.com/api-doc/uta/websocket/public/Candlesticks-Channel), [UTA publicTrade mapping](https://www.bitget.com/docs/classic/uta-api-upgrade-guide), [depth](https://www.bitget.com/api-doc/uta/websocket/public/Order-Book-Channel), [liquidation](https://www.bitgetapp.com/api-doc/uta/websocket/public/Liquidation-Channel) | Successful control acknowledgement without `data`; text heartbeat; `topic: kline` with separate interval; batched trades; full-depth snapshot/update linkage. |
 | `bitget.ws.v3.liq` | [Bitget v3 liquidation channel](https://www.bitgetapp.com/api-doc/uta/websocket/public/Liquidation-Channel) | One instType-scoped `liquidation` update (`side`/`price`/`amount`/`ts` row shape). |
 | `bybit.http.v5` | [Bybit v5 instruments](https://bybit-exchange.github.io/docs/v5/market/instrument) | Spot, linear, inverse perpetual, and dated-futures identity. |
 | `bybit.ws.v5` | [Bybit ticker](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker), [public trades](https://bybit-exchange.github.io/docs/v5/websocket/public/trade), [order book](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook), [funding](https://bybit-exchange.github.io/docs/v5/websocket/public/funding), [all liquidation](https://bybit-exchange.github.io/docs/v5/websocket/public/all-liquidation), [tickers](https://bybit-exchange.github.io/docs/v5/market/tickers), [options instruments](https://bybit-exchange.github.io/docs/v5/market/instrument) | Spot ticker without BBO, level-1 BBO source, batched trades, replacement snapshot/delta semantics, derivative funding/liquidation references, open interest inside the derivative ticker stream, and an option ticker reference. |
@@ -318,3 +318,18 @@ is preserved from the sanitizer reference; credential/diagnostic fields are
 [REDACTED]. No actual exchange frames or private credentials are added. Tests
 validate cross-codec rejection, lifecycle/footer and precision; reading this file
 alone does not exercise an exchange parser or HTTP/L2 bootstrap replay.
+
+## 2026-10-11 native raw parser/state replay
+
+Appended five trade payloads mirror executable native raw replay cases on current
+public shapes, with substituted small epochs/IDs/prices, not actual epoch trades.
+Existing Rust adapters/dispatch are unchanged. The old Bitget New-Trades docs link
+redirects to ticker; current UTA upgrade mapping still names publicTrade, and live
+v3 capture replay exactly matched 56 normalized models. Primary references and
+all-venue evidence are linked in [replay](../docs/raw-replay.md).
+
+WS book tests reuse current Bybit/OKX/Bitget fields. Nonzero OKX CRC probes come
+from interleaved strings 100:2:101:1 and 100:3:101:1 (1996849324 / signed -781022440),
+not observed server checksums. Wrong CRC/disjoint bridge/reconnect-delta/overflow/
+disabled-feature/callback failures remain unit-only probes. No native rule or
+parser expected value was relaxed; missing HTTP responses were not fetched online.

@@ -1,4 +1,8 @@
 mod budget;
+#[cfg(feature = "recording")]
+mod raw_replay;
+#[cfg(feature = "recording")]
+pub(crate) use raw_replay::RawParserSession;
 pub mod connection;
 mod control;
 #[cfg(all(test, feature = "trade"))]

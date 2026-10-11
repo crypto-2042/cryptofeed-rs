@@ -381,7 +381,9 @@ original model clocks, immediate/recorded timing and explicit failure/stop behav
 Broadcast lag is an error; incomplete files are rejected. A separate
 [sanitized WS observation channel](docs/raw-capture.md) now captures text before
 control/market parsing. [Raw WS files](docs/raw-recording.md) now persist and validate those observations.
-Native parser/session replay and HTTP bootstrap capture remain pending. See [recording](docs/recording.md) for limits, file schema and the
+[Native parser/state replay](docs/raw-replay.md) now supports five public families
+and WS-native L2 for Bybit/OKX/Bitget. HTTP bootstrap capture and Binance/Gate L2
+replay remain pending. See [recording](docs/recording.md) for limits, file schema and the
 end-to-end example.
 
 ## HTTP and WebSocket proxy

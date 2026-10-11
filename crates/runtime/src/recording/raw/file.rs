@@ -317,6 +317,7 @@ pub struct RawRecordingReader<R> {
     header: bool,
     poisoned: bool,
     finished: Option<RecordingSummary>,
+    replay_active: bool,
 }
 impl<R: AsyncBufRead + Unpin> RawRecordingReader<R> {
     pub fn new(reader: R, limits: RawRecordingLimits) -> Self {
@@ -328,6 +329,7 @@ impl<R: AsyncBufRead + Unpin> RawRecordingReader<R> {
             header: false,
             poisoned: false,
             finished: None,
+            replay_active: false,
         }
     }
     pub fn summary(&self) -> Option<RecordingSummary> {
@@ -373,6 +375,26 @@ impl<R: AsyncBufRead + Unpin> RawRecordingReader<R> {
     }
     /// Errors/cancellation poison state; reopen the file rather than skipping a line.
     pub async fn next_observation(&mut self) -> Result<Option<RawObservation>> {
+        if self.replay_active {
+            return Err(invalid());
+        }
+        self.read_observation().await
+    }
+    pub(crate) fn begin_replay(&mut self) -> Result<()> {
+        if self.header || self.poisoned || self.replay_active {
+            return Err(Error::InvalidConfiguration(
+                "raw replay requires a fresh reader".into(),
+            ));
+        }
+        self.replay_active = true;
+        Ok(())
+    }
+    pub(crate) fn end_replay(&mut self, complete: bool) {
+        if complete {
+            self.replay_active = false;
+        }
+    }
+    pub(crate) async fn read_observation(&mut self) -> Result<Option<RawObservation>> {
         if self.poisoned {
             return Err(invalid());
         }

@@ -86,3 +86,8 @@ pub use crate::recording::raw::{
 pub use crate::recording::raw::{
     RawRecordingLimits, RawRecordingReader, RawRecordingWriter, record_raw_stream,
 };
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::{
+    RawReplayEvent, RawReplayItem, RawReplayOptions, RawReplaySummary,
+};

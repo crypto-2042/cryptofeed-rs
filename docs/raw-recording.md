@@ -90,11 +90,11 @@ Capture queue loss/error returns failure with no successful end marker. Earlier
 bytes/callback effects are not rolled back, and accepted/flushed bytes do not
 prove filesystem durability. There is no cryptographic integrity claim.
 
-This increment persists and validates WS observation files. It does **not** yet
-execute exchange parsers/sessions during read, capture HTTP catalogs/bootstrap
-responses, replay complete L2 synchronization or reproduce binary transport
-activity. Those remain under the full alignment objective; JSON iteration alone
-must not be labeled complete protocol replay.
+The next_observation API persists/validates transport input without executing
+parsers. [Native replay](raw-replay.md) is now separately available through replay,
+including three WS-native L2 paths. Captured HTTP/bootstrap, Binance/Gate L2 and
+transport activity simulation remain unfinished; plain JSON iteration is not
+proof of those paths.
 
 Offline: `cargo test -p cryptofeed-rs --features recording --lib recording::raw::file`.
 Manual public capture + offline file validation:

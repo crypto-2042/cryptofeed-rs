@@ -657,3 +657,19 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   bounded total session count. Reused IDs/data after close or unredacted input fail.
 - Encoding/line reads share normalized bounded helpers; cancelled/failed I/O
   poisons state. No snapshot recovery/native protocol completeness is implied.
+
+## Native raw parser replay
+
+- Replay uses a fresh local ExchangeFeed per recorded session, current native
+  plans/parsers and dispatch; never call runtime run/transport/hydration. No live
+  observer/callback/counter/book-store handles attach. Metadata maps are explicit.
+- Bybit ticker and WS-native Bybit/OKX/Bitget book caches reset on close/reconnect.
+  Binance/Gate L2 require captured HTTP and currently fail before callbacks.
+- Do not mistake Bitget first-update overlap for a gap: snapshot seq must lie in
+  [pseq,seq]. Synthetic disjoint [12,13] vs snapshot10 is a real failure probe.
+- Parser outputs use a bounded local queue with explicit overflow/batch/total
+  errors before delivering that frame. Native body/receipt clocks are preserved.
+- Start/end callbacks reflect parser session lifecycle, not remote-ready health.
+  Limited EOF does not invent a close; consumers use summary to end prefix state.
+- Replay drop/cancel/error makes its reader terminal. Transport timers/readiness,
+  HTTP/L2, rotation and broader ecosystem work are not implied by parser replay.

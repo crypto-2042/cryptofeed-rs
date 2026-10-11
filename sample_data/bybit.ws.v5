@@ -26,3 +26,5 @@ send: {"op":"subscribe","req_id":"cf-1","args":["orderbook.50.BTCUSDT"]}
 
 configuration: {"trades":["BTC-USDT","ETH-USDT"],"l2_book":["BTC-USDT"]}
 send: {"op":"subscribe","args":["publicTrade.BTCUSDT","orderbook.50.BTCUSDT","publicTrade.ETHUSDT"]}
+
+2.000000: {"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1000,"data":[{"T":1000,"s":"BTCUSDT","S":"Buy","v":"0.25","p":"100.01","i":"1"}]}

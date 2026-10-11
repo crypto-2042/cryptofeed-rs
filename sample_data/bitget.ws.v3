@@ -13,3 +13,5 @@ send: {"op":"subscribe","args":[{"instType":"usdt-futures","topic":"ticker","sym
 
 configuration: {"trades":["BTC-USDT","ETH-USDT"],"l2_book":["BTC-USDT"]}
 send: {"op":"subscribe","args":[{"instType":"spot","topic":"publicTrade","symbol":"BTCUSDT"},{"instType":"spot","topic":"books","symbol":"BTCUSDT"},{"instType":"spot","topic":"publicTrade","symbol":"ETHUSDT"}]}
+
+2.000000: {"arg":{"instType":"spot","topic":"publicTrade","symbol":"BTCUSDT"},"data":[{"T":"1000","p":"100.01","v":"0.25","S":"buy","i":"1"}]}

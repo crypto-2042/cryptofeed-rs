@@ -35,3 +35,5 @@ send: {"time":1791580000,"channel":"spot.trades","event":"subscribe","payload":[
 configuration: {"trades":["BTC-USD-PERP"],"l2_book":["ETH-USDT-PERP"]}
 send: {"time":1791580000,"channel":"futures.trades","event":"subscribe","payload":["BTC_USD"]}
 send: {"time":1791580000,"channel":"futures.order_book_update","event":"subscribe","payload":["ETH_USDT","100ms","100"]}
+
+2.000000: {"channel":"spot.trades","event":"update","result":{"id":1,"currency_pair":"BTC_USDT","side":"buy","price":"100.01","amount":"0.25","create_time_ms":"1000"}}
