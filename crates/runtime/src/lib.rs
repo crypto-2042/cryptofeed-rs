@@ -67,7 +67,7 @@ pub use nbbo::{Nbbo, NbboLeg, NbboQuantityUnit, NbboQuote, NbboSource, NbboUpdat
 #[cfg(feature = "trade")]
 pub use aggregate::{Ohlcv, RenkoBrick, RenkoDirection, RenkoFixed, TradeBar};
 
-pub use aggregate::Throttle;
+pub use aggregate::{AggregateWindow, CustomAggregate, Throttle};
 
 pub use sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
 

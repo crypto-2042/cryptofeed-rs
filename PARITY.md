@@ -674,3 +674,31 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   dependencies match the tested set. Source/protocol fixtures are unchanged and
   Cargo.lock/target remain uncommitted. Current sibling guides now link the
   implemented sinks/aggregation/NBBO instead of reporting them as wholly pending.
+
+## Typed custom window aggregation — 2026-10-11
+
+- Added feature-independent CustomAggregate/AggregateWindow with caller-defined
+  initialization/reduction over identified FeedEnvelope input. Fixed elapsed
+  [start,end) windows support subsecond clocks, timer closure, skipped empty output
+  and consuming partial tails without I/O/tasks/queues or automatic serialization.
+- Cap accepted inputs per window at configured 1..=1,000,000. Caller owns custom
+  state memory, group caps, source/units and calculation cost; no generic byte
+  bound or independent allocation can be inferred from arbitrary user state.
+- Invalid clocks/caps/bounds leave state unchanged. Initializer/reducer errors or
+  catchable panics poison further output, including finish, because rollback of
+  arbitrary mutable state/side effects is impossible. Pending prior windows are
+  not falsely certified after rollover failure; explicit advance can deliver a
+  completed window before reducing a later input.
+- Eleven tests cover no-data construction/empty resets, validation, subsecond
+  windows, source-preserving state, partial tails, callback errors/panics/poison,
+  cap resets and all custom state/window fields after deterministic recording replay.
+- Broader storage adapters and remaining recording/resource-policy work stay active.
+- Offline custom example over the earlier 20-trade OKX recording produced 10
+  closed/1 partial one-second windows; per-source buy/sell sums matched every
+  window and all 20 input events. [Report](docs/reports/offline-custom-aggregation-2026-10-11.md).
+- Gates passed: 671 all-feature workspace tests, no-data/trade/recording-trade
+  custom suites (4/10/11 tests), every standalone/no-default feature compilation,
+  strict Clippy/rustdoc. Existing CI aggregation jobs include the new helper.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
+  the custom replay example. Resolved dependencies match the tested set; no new
+  dependency/protocol/fixture or Cargo.lock policy change was introduced.

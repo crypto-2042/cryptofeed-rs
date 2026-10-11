@@ -70,7 +70,8 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
   units, source generations, age expiry and lifecycle withdrawal.
 
 - [Throttle and trade aggregation](aggregation.md): leading-edge sampling, bounded
-  arrival-clock OHLCV and threshold Renko, source isolation and replay reproducibility.
+  arrival-clock OHLCV, threshold Renko and custom window calculations with typed
+  state, source grouping and replay reproducibility.
 
 - [Event sinks](sinks.md): sequential fallible storage integration, bounded JSONL
   adapter, lag/deadline/cancellation and finalization contracts.
@@ -89,6 +90,8 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
 ## Offline workflow reports
 
+- [2026-10-11 custom aggregation](reports/offline-custom-aggregation-2026-10-11.md):
+  recorded trades to bounded per-source buy/sell counts, windows and partial tail.
 - [2026-10-11 trade OHLCV](reports/offline-ohlcv-2026-10-11.md): previously captured
   public trades to one-second bars, count/volume checks and an explicit partial tail.
 

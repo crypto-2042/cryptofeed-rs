@@ -96,8 +96,8 @@ callbacks may perform user-chosen actions, but the library replay path itself
 opens no network connection or HTTP client request.
 
 The larger objective still includes generic catalog/HTTP capture, broader L2
-replay edge audits, raw segment rotation/merge, broader storage/custom aggregation
-and resource policy work. [Sinks](sinks.md), [trade aggregation](aggregation.md)
+replay edge audits, raw segment rotation/merge, broader storage
+and resource policy work. [Sinks](sinks.md), [trade/custom aggregation](aggregation.md)
 and [NBBO](nbbo.md) are implemented separately. Consumed Binance/Gate bootstrap replay is now implemented in v2. WS-native state replay does not certify those remaining paths.
 
 Offline tests: `cargo test -p cryptofeed-rs --features recording --lib recording::raw::replay`.

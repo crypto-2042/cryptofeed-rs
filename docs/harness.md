@@ -507,3 +507,12 @@ rejection, suspend/resume, generation pinning/replacement, exact symbol/product
 and unit labels, crossed venues and invalid local quotes/clocks/configuration.
 Recording/orderbook-only tests compare all emitted fields for identical explicit
 source-observation/consumer clocks. No transport lifecycle replay is inferred.
+
+
+`src/aggregate/custom/tests.rs` exercises no-data initialization/empty timers,
+pre-callback clock/cap/boundary validation, initializer/reducer error and panic
+poisoning, rollover failure, explicit prior-window delivery, subsecond windows,
+source-preserving custom state and partial tails. Recording/trade compares every
+custom state/window field for deterministic identical input and elapsed clocks.
+The example separately bounds application groups and verifies recorded buy/sell
+counts; the generic SDK cap does not bound arbitrary callback allocations.

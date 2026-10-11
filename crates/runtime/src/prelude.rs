@@ -64,7 +64,7 @@ pub use crate::nbbo::{Nbbo, NbboLeg, NbboQuantityUnit, NbboQuote, NbboSource, Nb
 #[cfg(feature = "trade")]
 pub use crate::aggregate::{Ohlcv, RenkoBrick, RenkoDirection, RenkoFixed, TradeBar};
 
-pub use crate::aggregate::Throttle;
+pub use crate::aggregate::{AggregateWindow, CustomAggregate, Throttle};
 
 pub use crate::sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
 

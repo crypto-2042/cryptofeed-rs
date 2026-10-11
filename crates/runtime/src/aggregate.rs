@@ -1,4 +1,6 @@
-//! Caller-clocked throttling and bounded normalized-trade aggregation.
+//! Caller-clocked throttling and typed normalized-event/trade aggregation.
+mod custom;
+pub use custom::{AggregateWindow, CustomAggregate};
 mod throttle;
 pub use throttle::Throttle;
 

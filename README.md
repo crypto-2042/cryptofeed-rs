@@ -386,7 +386,8 @@ With `trade`, `Ohlcv` builds source-isolated arrival-time bars with OHLC, native
 amount volume and Decimal VWAP. Caller-clocked windows, timer closure, partial
 tails and bounded state support live consumption and repeatable offline replay.
 `RenkoFixed` adds source-isolated price-threshold bricks; `Throttle` provides
-caller-clocked leading-edge sampling with any feature set.
+caller-clocked leading-edge sampling with any feature set. `CustomAggregate`
+adds caller-defined window state/calculation with input caps and explicit failure.
 See [aggregation semantics and units](docs/aggregation.md).
 
 ## Event sinks

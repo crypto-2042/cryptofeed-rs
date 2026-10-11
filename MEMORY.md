@@ -761,3 +761,19 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Normalized recording elapsed clocks alone lack original monotonic ingress age
   and all lifecycle transitions. Deterministic replay proof requires identical
   explicit times/signals. Do not claim full live NBBO/reconnect equivalence.
+
+## Typed custom calculations
+
+- CustomAggregate is feature-independent, accepts init/reducer functions over
+  arbitrary S and identified FeedEnvelope, and uses fixed elapsed [start,end)
+  windows, skipped empty output, timer closure and partial consuming finish.
+- Input caps do not bound arbitrary user memory. Require application group/state/
+  cost bounds and independent initializer state; shared mutable backing can alter
+  old outputs. Source/unit grouping and lifecycle/gaps are caller-owned.
+- Init/reducer errors/catchable panics poison the engine, including finish. Do not
+  clone arbitrary state to fake rollback or certify an old pending window after
+  failed rollover. Validation errors before user code are atomic/recoverable.
+  Consumers can explicitly deliver advance(now) before reducing the boundary input.
+- Identical deterministic callbacks/inputs/clocks replay identically; arbitrary
+  user effects, random/wall clocks and external storage are not reproducibility
+  guarantees. No async callback deadline or automatic state serialization is implied.

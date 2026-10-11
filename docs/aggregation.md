@@ -165,4 +165,71 @@ the helper to discard all state. There is no missing-trade recovery, deduplicati
 network call, timer or output queue. Consumers own lifecycle and lag handling.
 
 [Cross-exchange NBBO](nbbo.md) is implemented separately under `orderbook`.
-Custom callback aggregation remains a separate workstream.
+## Custom window calculations
+
+`CustomAggregate<S, I, R>` is available with any feature set. Supply a positive
+window, a per-window input cap (1..=1,000,000), an initializer `FnMut() -> Result<S>`
+and a reducer `FnMut(&mut S, &FeedEnvelope) -> Result<()>`. The initializer runs at
+construction and on actual window rollover; it must return independent state.
+Use the retained `FeedEnvelope` identity to choose your own source/generation/
+exchange/symbol/channel grouping where the calculation needs isolation.
+
+```rust,no_run
+use cryptofeed_rs::{CustomAggregate, FeedEnvelope};
+use std::time::Duration;
+# fn example(input: &FeedEnvelope) -> Result<(), Box<dyn std::error::Error>> {
+let mut counts = CustomAggregate::new(
+    Duration::from_secs(60), 10_000,
+    || Ok(0_u64),
+    |state: &mut u64, _: &FeedEnvelope| { *state += 1; Ok(()) },
+)?;
+let completed = counts.push(input, Duration::from_secs(1))?;
+let timer_closed = counts.advance(Duration::from_secs(60))?;
+let partial = counts.finish()?;
+# let _ = (completed, timer_closed, partial);
+# Ok(())
+# }
+```
+
+`AggregateWindow<S>` carries elapsed start/end, closed flag, accepted input count
+and the owned custom state. Closed means the clock crossed a boundary, not that
+every intended market event was received or accepted. As with OHLCV, windows align to elapsed zero and use
+`[start,end)`; custom windows also support subsecond Duration values. A boundary
+input is calculated into fresh state before the previous populated window is
+returned. `advance(now)` closes without input, skips empty output and resets once
+for a large jump. `finish` consumes populated remaining state as partial.
+
+This is Python's `CustomAggregate` initializer/reducer workflow with typed state
+and explicit clocks. Rust uses fixed elapsed boundaries and skips empty output;
+it does not reproduce Python's callback-time-shifted window origin or its empty
+callback on a long idle period. Functions are synchronous calculations; the caller
+delivers returned windows to its own async handler/storage and owns timer ticks.
+No task, I/O, queue, automatic serialization, async deadline or retry is added.
+
+Clock, cap and boundary validation failures do not invoke user code or mutate
+state. Initializer/reducer errors and catchable panics poison the helper: further
+push/advance/finish fail. A reducer may have partially mutated its state or other
+captured resources; rollback is not promised. On rollover failure, an older
+unemitted window is not certified as successful output. If previously closed
+results must be delivered before processing the next input, explicitly call and
+deliver `advance(now)` first. Recreate/replay from a trusted source after failure.
+Already returned windows and external callback side effects cannot be rolled back.
+
+The input cap bounds calls per window, **not** arbitrary memory allocated by S,
+the initializer or reducer. Applications must bound their own groups, state size
+and calculation cost. Do not share mutable backing state between windows if old
+outputs must remain independent. No implicit unit conversion, market completeness
+or lifecycle/gap recovery is provided; handle lag/retirement before using output.
+
+The offline example counts buy/sell trades in groups keyed by full source scope,
+with an application-owned 128-series cap and 10,000-input cap. It checks every
+window's event count and the strict recording footer, with an explicit partial
+tail and no exchange connection:
+
+```bash
+cargo run -p cryptofeed-rs --features recording --example custom_aggregate_replay -- TRADE_RECORDING 60
+```
+
+Identical inputs and elapsed clocks reproduce identical custom state/windows
+when the supplied functions are deterministic. Shared mutable captures, external
+I/O, randomness or wall clocks in user functions can invalidate that property.
