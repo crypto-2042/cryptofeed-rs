@@ -100,3 +100,7 @@ flush. A complete surviving manifest certifies readable bytes and logical EOF,
 not every external action. Streaming can deliver earlier observations/callbacks
 before later corruption is found; effects are not rolled back. Replay cancellation,
 callback failure and partial I/O cannot restart by skipping pending input.
+
+[Public HTTP result recording](http-recording.md) now covers shared directory/
+REST/bootstrap calls separately. Its file validator is not yet offline SDK HTTP
+response injection or a replacement for consumed-session L2 causality.

@@ -409,8 +409,9 @@ control/market parsing. [Raw WS files](docs/raw-recording.md) now persist and va
 ordered files, with bounded manifests and continuous native replay.
 [Native parser/state replay](docs/raw-replay.md) now supports five public families
 and WS-native L2 for Bybit/OKX/Bitget. [Consumed HTTP snapshots](docs/http-l2-replay.md) now enable Binance/Gate L2
-replay without online fallback. General catalog HTTP capture and broader ecosystem
-work remain pending. See [recording](docs/recording.md) for limits, file schema and the
+replay without online fallback. [Public HTTP result recording](docs/http-recording.md)
+now captures directory/REST/bootstrap attempts, safe outcomes and cancellation.
+HTTP response injection/offline catalog queries and broader ecosystem work remain pending. See [recording](docs/recording.md) for limits, file schema and the
 end-to-end example.
 
 ## HTTP and WebSocket proxy

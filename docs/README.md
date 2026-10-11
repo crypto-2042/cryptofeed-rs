@@ -60,6 +60,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Native raw replay](raw-replay.md): current parser/dispatch reuse, per-session
   ticker/WS-book state, lifecycle delivery, limits and unsupported HTTP-bootstrap paths.
 
+- [Public HTTP recording](http-recording.md): scoped GET attempts/results/cancels,
+  shared transport integration, sanitized bounded JSONL and remaining replay work.
+
 - [Raw series rotation](raw-series.md): record-aligned physical parts, ordered
   manifest composition, size/checksum gates and continuous native replay.
 
@@ -105,6 +108,8 @@ historical evidence, not CI gates, throughput benchmarks, or proof of every
 supported instrument/channel combination. Later code changes do not retroactively
 change earlier observations.
 
+- [2026-10-11 public HTTP recording](reports/live-smoke-http-recording-2026-10-11.md):
+  OKX directory/ticker/book/trades, four attempts/eight observations and offline validation.
 - [2026-10-11 raw series](reports/live-smoke-raw-series-2026-10-11.md): 40 OKX
   observations across three files, clean runtime shutdown and 17 offline models.
 - [2026-10-11 NBBO](reports/live-smoke-nbbo-2026-10-11.md): Binance/OKX Spot

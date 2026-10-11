@@ -138,7 +138,7 @@ pub struct RawObservation {
     pub kind: RawObservationKind,
 }
 #[derive(Clone, Copy, Debug)]
-enum Failure {
+pub(super) enum Failure {
     Full,
     Closed,
     TooLarge,
@@ -167,6 +167,7 @@ struct State {
 }
 struct Shared {
     state: Mutex<State>,
+    failure: tokio::sync::Notify,
     started: tokio::time::Instant,
     maximum: usize,
 }
@@ -193,6 +194,7 @@ pub fn raw_capture_channel(
     }
     let (sender, receiver) = mpsc::channel(capacity);
     let shared = Arc::new(Shared {
+        failure: tokio::sync::Notify::new(),
         state: Mutex::new(State {
             sequence: 0,
             failure: None,
@@ -211,7 +213,13 @@ impl RawCaptureReceiver {
         if let Some(failure) = self.shared.state.lock().expect("raw capture state").failure {
             return Err(failure.error());
         }
-        let observation = self.receiver.recv().await;
+        let observation = tokio::select! {
+            _ = self.shared.failure.notified() => {
+                let failure = self.shared.state.lock().expect("raw capture state").failure.expect("failure notification");
+                return Err(failure.error());
+            }
+            value = self.receiver.recv() => value,
+        };
         if let Some(failure) = self.shared.state.lock().expect("raw capture state").failure {
             return Err(failure.error());
         }
@@ -222,6 +230,7 @@ impl RawCaptureHandle {
     fn fail(&self, failure: Failure) {
         let mut state = self.0.state.lock().expect("raw capture state");
         state.failure.get_or_insert(failure);
+        self.0.failure.notify_one();
     }
     fn failed(&self) -> bool {
         self.0
@@ -262,10 +271,12 @@ impl RawCaptureHandle {
         }
         let Some(sequence) = state.sequence.checked_add(1) else {
             state.failure = Some(Failure::Sequence);
+            self.0.failure.notify_one();
             return None;
         };
         let Ok(elapsed_ns) = u64::try_from(self.0.started.elapsed().as_nanos()) else {
             state.failure = Some(Failure::Sequence);
+            self.0.failure.notify_one();
             return None;
         };
         let observation = RawObservation {
@@ -284,6 +295,7 @@ impl RawCaptureHandle {
             Err(mpsc::error::TrySendError::Full(_)) => state.failure = Some(Failure::Full),
             Err(mpsc::error::TrySendError::Closed(_)) => state.failure = Some(Failure::Closed),
         }
+        self.0.failure.notify_one();
         None
     }
 }
@@ -415,7 +427,11 @@ fn key(value: &str) -> String {
         .flat_map(char::to_lowercase)
         .collect()
 }
-fn sanitize(value: &Value, depth: u8, redacted: &mut bool) -> std::result::Result<Value, Failure> {
+pub(super) fn sanitize(
+    value: &Value,
+    depth: u8,
+    redacted: &mut bool,
+) -> std::result::Result<Value, Failure> {
     if depth > 32 {
         return Err(Failure::Malformed);
     }
@@ -627,5 +643,36 @@ mod tests {
         assert!(sanitize(&p, 0, &mut redacted).is_err());
         assert!(raw_capture_channel(0, 1024).is_err());
         assert!(raw_capture_channel(1, 255).is_err());
+    }
+}
+
+#[cfg(test)]
+mod failure_wakeup_tests {
+    use super::*;
+    #[tokio::test]
+    async fn private_frame_failure_wakes_waiter_while_producer_remains_alive() {
+        let (capture, mut input) = raw_capture_channel(8, 4096).unwrap();
+        let feed = crate::exchange::okx::Okx::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        let session = capture.session(RawFeedInfo::from_feed(&feed)).unwrap();
+        input.recv().await.unwrap().unwrap();
+        let waiting = input.recv();
+        tokio::pin!(waiting);
+        assert!(futures::poll!(waiting.as_mut()).is_pending());
+        let payload = serde_json::json!({"op":"login"});
+        assert!(
+            session
+                .text(&payload.to_string(), Some(&payload), true, 1.0)
+                .is_none()
+        );
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+                .await
+                .unwrap()
+                .is_err()
+        );
     }
 }

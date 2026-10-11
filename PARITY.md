@@ -732,3 +732,31 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
   the public rotation example. Resolved dependencies match the tested set;
   Cargo.lock/target and unsanitized capture artifacts remain uncommitted.
+
+## Public HTTP attempt/result recording — 2026-10-11
+
+- Added recording-feature HttpCapture/HttpObservation and bounded version-1
+  public-http JSONL codec over shared directory/REST/bootstrap GET entrypoints.
+  Request starts precede admission; matched results/safe failures and cancellation
+  retain invocation IDs despite reordered completion. No headers/proxy auth/error
+  bodies or successful status/HTTP wire bytes are captured.
+- Public endpoint/query gates, existing credential/diagnostic sanitation and file
+  revalidation preserve exact JSON numeric literals. Observer failures are sticky
+  and do not veto healthy queries. Catalog cache namespaces are capture-scoped,
+  shared by clones; proxy authentication rebuilding preserves the observer.
+- Complete requires every started request to finish/cancel. Explicit prefixes may
+  retain pending starts, never silently match them to later responses. HTTP
+  response injection/offline catalog/REST replay remains a separate active step.
+- Fixed HTTP and raw WS capture failure wakeup: rejected input without an enqueued
+  record now wakes an already waiting consumer, even while producers stay alive.
+  Nine new tests cover IDs/order/cancel, precision/redaction, strict codec/privacy/
+  lifecycle/bounds, URL scope, cache identity/proxy retention and both wakeups.
+- Public OKX workflow discovered 1,152 markets and returned ticker/book/recent
+  trades. Four attempts/four JSON results, zero failures/cancels, 8 observations/
+  1,252,409 bytes/Complete; offline ledger validation and exit 0. [Report](docs/reports/live-smoke-http-recording-2026-10-11.md).
+- Gates passed: 690 all-feature workspace tests, recording-only/trade/orderbook
+  HTTP tests and raw failure wakeup, every standalone/no-default feature checks,
+  strict Clippy/rustdoc. CI adds recording/orderbook HTTP coverage.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
+  the new public HTTP example. Resolved dependencies match the tested set; no new
+  dependency/native endpoint/protocol fixture or lockfile policy change occurred.

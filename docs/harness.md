@@ -524,3 +524,11 @@ same-length corrupt files, manifest scope/budget/summary mismatches, hard part
 ceilings, global prefix limits, create_new and poisoned capture/replay. Native
 trade and Binance HTTP/L2 replay compare full output fields/summary against a
 single logical file, retaining parser/buffer/bridge state across parts.
+
+
+`src/recording/http/tests.rs` covers request start IDs/reordered completion/drop
+cancellation, exact numeric JSON/redaction, pending-request footer rules, malformed
+versions/counts/private URLs/payloads, queue/line bounds, clone cache namespaces,
+proxy auth retention and sleeping receiver failure notification. Raw WS has a
+matching private-frame wakeup regression. These are deterministic HTTP-result
+ledger assertions, not yet offline response-injection/catalog-query tests.

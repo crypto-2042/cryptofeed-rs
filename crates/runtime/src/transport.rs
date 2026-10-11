@@ -13,7 +13,11 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::protocol::
 use url::Url;
 
 #[derive(Clone, Default)]
-pub struct TransportConfig(Option<Arc<HttpProxy>>);
+pub struct TransportConfig {
+    proxy: Option<Arc<HttpProxy>>,
+    #[cfg(feature = "recording")]
+    http_capture: Option<crate::recording::http::HttpCaptureHandle>,
+}
 struct HttpProxy {
     endpoint: Url,
     authorization: Option<reqwest::header::HeaderValue>,
@@ -22,7 +26,7 @@ struct HttpProxy {
 }
 impl std::fmt::Debug for TransportConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(if self.0.is_some() {
+        formatter.write_str(if self.proxy.is_some() {
             "TransportConfig(HTTP proxy; credentials hidden)"
         } else {
             "TransportConfig(direct)"
@@ -55,7 +59,7 @@ impl TransportConfig {
     /// Rebuilds this proxy configuration with Basic authentication. Clones of
     /// the returned configuration reuse its client and isolated catalog cache.
     pub fn basic_auth(self, username: &str, password: &str) -> Result<Self> {
-        let proxy = self.0.as_ref().ok_or_else(|| {
+        let proxy = self.proxy.as_ref().ok_or_else(|| {
             Error::InvalidConfiguration("proxy authentication requires an HTTP proxy".into())
         })?;
         if username.contains(':') {
@@ -68,7 +72,13 @@ impl TransportConfig {
         let mut header = reqwest::header::HeaderValue::from_str(&format!("Basic {encoded}"))
             .map_err(|_| Error::InvalidConfiguration("invalid proxy authentication".into()))?;
         header.set_sensitive(true);
-        Self::build(proxy.endpoint.clone(), Some(header))
+        let rebuilt = Self::build(proxy.endpoint.clone(), Some(header))?;
+        #[cfg(feature = "recording")]
+        let rebuilt = Self {
+            http_capture: self.http_capture.clone(),
+            ..rebuilt
+        };
+        Ok(rebuilt)
     }
     fn build(endpoint: Url, authorization: Option<reqwest::header::HeaderValue>) -> Result<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -82,21 +92,45 @@ impl TransportConfig {
             .proxy(proxy)
             .build()
             .map_err(|_| Error::Transport("could not build proxy HTTP client".into()))?;
-        Ok(Self(Some(Arc::new(HttpProxy {
-            endpoint,
-            authorization,
-            client,
-            id: NEXT.fetch_add(1, Ordering::Relaxed),
-        }))))
+        Ok(Self {
+            proxy: Some(Arc::new(HttpProxy {
+                endpoint,
+                authorization,
+                client,
+                id: NEXT.fetch_add(1, Ordering::Relaxed),
+            })),
+            #[cfg(feature = "recording")]
+            http_capture: None,
+        })
     }
     pub(crate) fn cache_key(&self, url: &str) -> String {
-        match &self.0 {
+        let key = match &self.proxy {
             Some(proxy) => format!("proxy-{}:{url}", proxy.id),
             None => url.to_owned(),
+        };
+        #[cfg(feature = "recording")]
+        if let Some(capture) = &self.http_capture {
+            return format!("http-capture-{}:{key}", capture.id());
         }
+        key
+    }
+    #[cfg(feature = "recording")]
+    pub fn with_http_capture(mut self, capture: crate::recording::http::HttpCaptureHandle) -> Self {
+        self.http_capture = Some(capture);
+        self
+    }
+    #[cfg(feature = "recording")]
+    pub(crate) fn begin_http(
+        &self,
+        url: &str,
+        exchange: cryptofeed_core::exchange::ExchangeId,
+    ) -> Option<crate::recording::http::RequestGuard> {
+        self.http_capture
+            .as_ref()
+            .and_then(|capture| capture.begin(url, exchange))
     }
     pub(crate) fn http_client(&self) -> Result<&reqwest::Client> {
-        if let Some(proxy) = &self.0 {
+        if let Some(proxy) = &self.proxy {
             return Ok(&proxy.client);
         }
         static CLIENT: OnceLock<std::result::Result<reqwest::Client, String>> = OnceLock::new();
@@ -115,7 +149,7 @@ impl TransportConfig {
         url: &Url,
         config: WebSocketConfig,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-        let Some(proxy) = &self.0 else {
+        let Some(proxy) = &self.proxy else {
             return tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false)
                 .await
                 .map(|(stream, _)| stream)
@@ -253,7 +287,7 @@ mod tests {
         assert!(!debug.contains("secret"));
         assert!(
             config
-                .0
+                .proxy
                 .as_ref()
                 .unwrap()
                 .authorization
@@ -312,7 +346,7 @@ mod tests {
         tunnel(
             &mut client,
             &Url::parse("wss://[::1]:8443/public").unwrap(),
-            config.0.as_ref().unwrap().authorization.as_ref(),
+            config.proxy.as_ref().unwrap().authorization.as_ref(),
         )
         .await
         .unwrap();

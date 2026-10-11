@@ -793,3 +793,21 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Reader streams parts lazily; EOF certifies all parts/footer/manifest together.
   Earlier callbacks can occur before later corruption; no effect rollback. Native
   replay is fresh-only, and cancellation/failed delivery forbids skipping input.
+
+## HTTP result observation and failure notification
+
+- Generic public HTTP observation starts at SDK entry before admission and ends
+  at JSON result/safe failure or future-drop cancellation; it is not wire capture.
+  Pin per-invocation request IDs, not completion order or URL equality. Complete
+  requires all starts to end; explicit cutoff prefixes can retain missing results.
+- Only current registered public routes/queries are recorded. Reuse WS JSON
+  sanitation, omit headers/proxy credentials/error text and never mutate live JSON.
+  New routes require gate tests. Numeric JSON remains arbitrary-precision.
+- Capture-scoped catalog keys avoid old-cache holes and share clones/coalescing.
+  Proxy auth rebuild must retain capture. Existing global cache TTL still applies;
+  repeated capture namespaces belong in the later cache/resource-bound audit.
+- Sticky capture failure must notify sleeping receivers when no record was queued.
+  Shared receiver state must not retain senders. HTTP and raw WS now test this.
+- File iteration is not HTTP transport injection or offline catalog/REST replay.
+  Preserve original pending starts for future missing-response rejection; no online
+  fallback, timer replay or normalized receipt-clock equality is implied yet.

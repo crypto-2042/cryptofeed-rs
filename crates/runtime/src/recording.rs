@@ -1,4 +1,5 @@
 //! Versioned, bounded normalized-event recording and offline replay.
+pub mod http;
 pub mod raw;
 mod sink;
 use crate::feed::{FeedEnvelope, FeedEvent, FeedIdentity};

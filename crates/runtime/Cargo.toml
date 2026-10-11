@@ -192,6 +192,10 @@ name = "raw_series_public"
 required-features = ["recording", "trade"]
 
 [[example]]
+name = "http_recording_public"
+required-features = ["recording", "ticker", "orderbook", "trade"]
+
+[[example]]
 name = "raw_parser_replay"
 required-features = ["recording"]
 
