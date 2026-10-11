@@ -673,3 +673,22 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   Limited EOF does not invent a close; consumers use summary to end prefix state.
 - Replay drop/cancel/error makes its reader terminal. Transport timers/readiness,
   HTTP/L2, rotation and broader ecosystem work are not implied by parser replay.
+
+## Consumed snapshot replay v2
+
+- Capture HTTP response at main-loop consumption, not async completion order.
+  Record receive first, consumed snapshot(s), then Processing(received_sequence).
+  This preserves buffered bridge vs strict live-next distinctions. Original HTTP
+  receipt clock is separate from consumption/WS clocks; preserve all of them.
+- Raw v2 observes actual processing; pongs/acks or cutoff packets can remain
+  unprocessed and must not invent model outputs. V1 stays directly parsed and
+  explicitly cannot replay Binance/Gate HTTP-dependent L2. Session versions freeze.
+- Snapshot receivers carry optional raw slots only when capture is enabled.
+  Offline SnapshotMode returns a receiver with retained sender, no spawned fetch.
+  Inject recorded ready responses and reuse native polls/buffers/resnapshot logic.
+- Snapshot/failure scope must match an L2 symbol and pending received input.
+  Replay rejects missing pending bootstrap/width mismatch, never fetches fresh data.
+  Safe failure categories/status omit error text/headers/retry metadata.
+- This covers consumed L2 JSON, not all catalogs/HTTP, transport timers or arbitrary
+  concurrent callback order. Audit mixed physical-connection cache-reset isolation
+  before declaring broad replay/reconnect equivalence across logical-feed clones.

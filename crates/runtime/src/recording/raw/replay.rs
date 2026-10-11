@@ -94,6 +94,7 @@ where
     Fut: Future<Output = Result<()>>,
 {
     let mut sessions = HashMap::new();
+    let mut pending = HashMap::new();
     let mut models = 0u64;
     let started = tokio::time::Instant::now();
     loop {
@@ -121,11 +122,12 @@ where
                 let session = crate::runtime::RawParserSession::new(
                     &record.session.feed,
                     options.maximum_batch,
+                    record.version >= 2,
                 )?;
                 sessions.insert(id, session);
                 output.push(RawReplayItem::SessionStarted(record.session));
             }
-            RawObservationKind::Received(payload) => {
+            RawObservationKind::Received(payload) if record.version == 1 => {
                 let session = sessions
                     .get_mut(&id)
                     .ok_or_else(|| Error::MalformedData("raw parser session absent".into()))?;
@@ -145,8 +147,66 @@ where
                     }));
                 }
             }
+            RawObservationKind::Received(payload) => {
+                pending.insert(id, (record.sequence, payload, record.observed_ts));
+            }
+            RawObservationKind::Processing { received_sequence } => {
+                let (sequence, payload, time) = pending.remove(&id).ok_or_else(|| {
+                    Error::MalformedData("missing recorded WS processing input".into())
+                })?;
+                if sequence != received_sequence {
+                    return Err(Error::MalformedData(
+                        "recorded WS processing reference mismatch".into(),
+                    ));
+                }
+                let session = sessions
+                    .get_mut(&id)
+                    .ok_or_else(|| Error::MalformedData("raw parser session absent".into()))?;
+                let parsed = session
+                    .process(&payload, time, options.maximum_batch)
+                    .await?;
+                if parsed.len() as u64 > options.maximum_models.saturating_sub(models) {
+                    return Err(Error::Protocol("raw replay total model budget".into()));
+                }
+                models += parsed.len() as u64;
+                for event in parsed {
+                    output.push(RawReplayItem::Market(RawReplayEvent {
+                        session_id: id,
+                        identity: record.session.feed.identity,
+                        observation_sequence: sequence,
+                        event,
+                    }));
+                }
+            }
+            RawObservationKind::HttpSnapshotError { failure, .. } => return Err(failure.error()),
+            RawObservationKind::HttpSnapshot {
+                symbol,
+                depth,
+                payload,
+                received_ts,
+            } => {
+                let session = sessions
+                    .get_mut(&id)
+                    .ok_or_else(|| Error::MalformedData("raw parser session absent".into()))?;
+                let parsed = session
+                    .snapshot(&symbol, depth, &payload, received_ts, options.maximum_batch)
+                    .await?;
+                if parsed.len() as u64 > options.maximum_models.saturating_sub(models) {
+                    return Err(Error::Protocol("raw replay total model budget".into()));
+                }
+                models += parsed.len() as u64;
+                for event in parsed {
+                    output.push(RawReplayItem::Market(RawReplayEvent {
+                        session_id: id,
+                        identity: record.session.feed.identity,
+                        observation_sequence: record.sequence,
+                        event,
+                    }));
+                }
+            }
             RawObservationKind::Closed { clean } => {
                 sessions.remove(&id);
+                pending.remove(&id);
                 output.push(RawReplayItem::SessionEnded {
                     session: record.session,
                     clean,
@@ -223,12 +283,14 @@ mod tests {
                 drop(session);
                 session = capture.session(info.clone()).unwrap();
             }
-            session.text(
+            if let Some(sequence) = session.text(
                 &serde_json::to_string(&message).unwrap(),
                 Some(&message),
                 true,
                 2.0 + i as f64,
-            );
+            ) {
+                session.processing(sequence);
+            }
         }
         session.close(true);
         drop(session);
@@ -405,7 +467,11 @@ mod tests {
         for exchange in [ExchangeId::Binance, ExchangeId::Gateio] {
             let mut info = feed(exchange);
             info.channels = vec![Channel::L2Book];
-            let bytes = segment(info, vec![], false).await;
+            let current = segment(info, vec![], false).await;
+            let bytes = String::from_utf8(current)
+                .unwrap()
+                .replace("\"version\":2", "\"version\":1")
+                .into_bytes();
             let mut reader =
                 RawRecordingReader::new(bytes.as_slice(), RawRecordingLimits::default());
             let (_tx, stop) = watch::channel(false);
@@ -589,7 +655,8 @@ mod tests {
         }
         records[0].elapsed_ns = 0;
         records[1].elapsed_ns = 1_000_000_000;
-        records[2].elapsed_ns = 3_000_000_000;
+        records[2].elapsed_ns = 1_000_000_000;
+        records[3].elapsed_ns = 3_000_000_000;
         let mut bytes = Vec::new();
         let mut writer = RawRecordingWriter::new(&mut bytes, RawRecordingLimits::default())
             .await
@@ -674,6 +741,38 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(symbols, vec![expected], "{exchange:?}");
+        }
+    }
+    #[tokio::test]
+    async fn v2_unprocessed_received_packet_is_not_invented_as_a_model() {
+        for version in [1, 2] {
+            let (capture, mut input) = raw_capture_channel(16, 4096).unwrap();
+            let mut session = capture.session(feed(ExchangeId::Okx)).unwrap();
+            let value = trade(ExchangeId::Okx);
+            session.text(&value.to_string(), Some(&value), true, 2.0);
+            session.close(true);
+            drop(session);
+            drop(capture);
+            let mut bytes = Vec::new();
+            let mut writer = RawRecordingWriter::new(&mut bytes, RawRecordingLimits::default())
+                .await
+                .unwrap();
+            while let Some(mut record) = input.recv().await.unwrap() {
+                record.version = version;
+                writer.append(record).await.unwrap();
+            }
+            writer.finish(RecordingEnd::Complete).await.unwrap();
+            let mut reader =
+                RawRecordingReader::new(bytes.as_slice(), RawRecordingLimits::default());
+            let (_tx, stop) = watch::channel(false);
+            let summary = reader
+                .replay(RawReplayOptions::default(), stop, |_| {
+                    std::future::ready(Ok(()))
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(summary.models, if version == 1 { 1 } else { 0 });
         }
     }
 }

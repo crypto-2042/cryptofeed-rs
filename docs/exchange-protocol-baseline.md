@@ -720,3 +720,12 @@ The older New-Trades Bitget docs link now redirects to ticker docs; UTA upgrade
 still names publicTrade, and this increment's live v3 capture/replay exactly matched
 56 current normalized Trade models. No v2/Python protocol fallback was introduced.
 See [native raw replay](raw-replay.md) and its bounded/remaining replay scope.
+
+## Consumed HTTP/L2 replay — 2026-10-11
+
+Current official Binance Spot depth and Gate public order-book surfaces remain
+unchanged. Raw v2 adds SDK-side consumption/processing markers, not new native
+API versions. HTTP JSON/original receipt time feed the existing snapshot parsers;
+Gate optional IDs/time anchoring and Binance depth/sequence bridges are not
+relaxed. Fresh public Spot capture replay exactly matched native L2 models on both
+venues with two consumed snapshots each. See [scope](http-l2-replay.md).

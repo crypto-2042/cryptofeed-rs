@@ -73,11 +73,58 @@ pub enum RawPayload {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum RawSnapshotFailure {
+    HttpStatus { status: u16 },
+    Transport,
+    MalformedResponse,
+    Other,
+}
+impl RawSnapshotFailure {
+    pub(crate) fn from_error(error: &Error) -> Self {
+        match error {
+            Error::HttpStatus { status, .. } => Self::HttpStatus { status: *status },
+            Error::Transport(_) => Self::Transport,
+            Error::MalformedData(_) | Error::Parse(_) => Self::MalformedResponse,
+            _ => Self::Other,
+        }
+    }
+    pub(crate) fn error(&self) -> Error {
+        match self {
+            Self::HttpStatus { status } => Error::HttpStatus {
+                status: *status,
+                retry_after: None,
+            },
+            Self::Transport => Error::Transport("recorded snapshot transport failure".into()),
+            Self::MalformedResponse => {
+                Error::MalformedData("recorded malformed snapshot response".into())
+            }
+            Self::Other => Error::Protocol("recorded snapshot failure".into()),
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum RawObservationKind {
     Connected,
     Sent(RawPayload),
     Received(RawPayload),
-    Closed { clean: bool },
+    Closed {
+        clean: bool,
+    },
+    Processing {
+        received_sequence: u64,
+    },
+    HttpSnapshotError {
+        symbol: Symbol,
+        depth: Option<u16>,
+        failure: RawSnapshotFailure,
+    },
+    HttpSnapshot {
+        symbol: Symbol,
+        depth: Option<u16>,
+        payload: RawPayload,
+        received_ts: f64,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -202,21 +249,26 @@ impl RawCaptureHandle {
         );
         Some(session)
     }
-    fn emit(&self, session: Arc<RawSessionInfo>, kind: RawObservationKind, observed_ts: f64) {
+    fn emit(
+        &self,
+        session: Arc<RawSessionInfo>,
+        kind: RawObservationKind,
+        observed_ts: f64,
+    ) -> Option<u64> {
         let mut state = self.0.state.lock().expect("raw capture state");
         if state.failure.is_some() {
-            return;
+            return None;
         }
         let Some(sequence) = state.sequence.checked_add(1) else {
             state.failure = Some(Failure::Sequence);
-            return;
+            return None;
         };
         let Ok(elapsed_ns) = u64::try_from(self.0.started.elapsed().as_nanos()) else {
             state.failure = Some(Failure::Sequence);
-            return;
+            return None;
         };
         let observation = RawObservation {
-            version: 1,
+            version: 2,
             sequence,
             elapsed_ns,
             observed_ts,
@@ -224,10 +276,14 @@ impl RawCaptureHandle {
             kind,
         };
         match self.1.try_send(observation) {
-            Ok(()) => state.sequence = sequence,
+            Ok(()) => {
+                state.sequence = sequence;
+                return Some(sequence);
+            }
             Err(mpsc::error::TrySendError::Full(_)) => state.failure = Some(Failure::Full),
             Err(mpsc::error::TrySendError::Closed(_)) => state.failure = Some(Failure::Closed),
         }
+        None
     }
 }
 pub(crate) struct RawSession {
@@ -236,8 +292,20 @@ pub(crate) struct RawSession {
     closed: bool,
 }
 impl RawSession {
-    fn emit(&self, kind: RawObservationKind, observed_ts: f64) {
-        self.capture.emit(self.info.clone(), kind, observed_ts);
+    fn emit(&self, kind: RawObservationKind, observed_ts: f64) -> Option<u64> {
+        self.capture.emit(self.info.clone(), kind, observed_ts)
+    }
+    pub(crate) fn link(&self) -> RawSessionLink {
+        RawSessionLink {
+            capture: self.capture.clone(),
+            info: self.info.clone(),
+        }
+    }
+    pub(crate) fn processing(&self, received_sequence: u64) {
+        self.emit(
+            RawObservationKind::Processing { received_sequence },
+            crate::runtime::current_timestamp(),
+        );
     }
     pub(crate) fn text(
         &self,
@@ -245,13 +313,13 @@ impl RawSession {
         parsed: Option<&Value>,
         received: bool,
         observed_ts: f64,
-    ) {
+    ) -> Option<u64> {
         if self.capture.failed() {
-            return;
+            return None;
         }
         if text.len() > self.capture.0.maximum {
             self.capture.fail(Failure::TooLarge);
-            return;
+            return None;
         }
         let payload = if let Some(value) = parsed {
             let mut redacted = false;
@@ -259,14 +327,14 @@ impl RawSession {
                 Ok(value) => RawPayload::Json { value, redacted },
                 Err(failure) => {
                     self.capture.fail(failure);
-                    return;
+                    return None;
                 }
             }
         } else if matches!(text, "ping" | "pong") {
             RawPayload::Heartbeat(text.into())
         } else {
             self.capture.fail(Failure::Malformed);
-            return;
+            return None;
         };
         self.emit(
             if received {
@@ -275,7 +343,7 @@ impl RawSession {
                 RawObservationKind::Sent(payload)
             },
             observed_ts,
-        );
+        )
     }
     pub(crate) fn close(&mut self, clean: bool) {
         if !self.closed {
@@ -284,6 +352,53 @@ impl RawSession {
                 RawObservationKind::Closed { clean },
                 super::super::runtime::current_timestamp(),
             );
+        }
+    }
+}
+#[derive(Clone)]
+pub(crate) struct RawSessionLink {
+    capture: RawCaptureHandle,
+    info: Arc<RawSessionInfo>,
+}
+impl RawSessionLink {
+    pub(crate) fn snapshot_error(&self, symbol: Symbol, depth: Option<u16>, error: &Error) {
+        self.capture.emit(
+            self.info.clone(),
+            RawObservationKind::HttpSnapshotError {
+                symbol,
+                depth,
+                failure: RawSnapshotFailure::from_error(error),
+            },
+            crate::runtime::current_timestamp(),
+        );
+    }
+
+    pub(crate) fn snapshot(
+        &self,
+        symbol: Symbol,
+        depth: Option<u16>,
+        value: &Value,
+        received_ts: f64,
+    ) {
+        if crate::recording::encode(value, self.capture.0.maximum.saturating_add(1)).is_err() {
+            self.capture.fail(Failure::TooLarge);
+            return;
+        }
+        let mut redacted = false;
+        match sanitize(value, 0, &mut redacted) {
+            Ok(value) => {
+                self.capture.emit(
+                    self.info.clone(),
+                    RawObservationKind::HttpSnapshot {
+                        symbol,
+                        depth,
+                        payload: RawPayload::Json { value, redacted },
+                        received_ts,
+                    },
+                    crate::runtime::current_timestamp(),
+                );
+            }
+            Err(error) => self.capture.fail(error),
         }
     }
 }

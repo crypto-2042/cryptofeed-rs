@@ -91,3 +91,6 @@ pub use crate::recording::raw::{
 pub use crate::recording::raw::{
     RawReplayEvent, RawReplayItem, RawReplayOptions, RawReplaySummary,
 };
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::RawSnapshotFailure;

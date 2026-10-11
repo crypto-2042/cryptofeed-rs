@@ -193,6 +193,89 @@ fn append_body(bytes: &mut Vec<u8>, chunk: &[u8], limit: usize, url: &str) -> Re
     Ok(())
 }
 
+#[cfg(feature = "orderbook")]
+mod receiver {
+    /// A replay placeholder never spawns an HTTP task; live capture retains only consumed bodies.
+    #[derive(Clone, Copy)]
+    #[cfg_attr(not(feature = "recording"), allow(dead_code))]
+    pub(crate) enum SnapshotMode {
+        Live(bool),
+        Replay,
+    }
+    #[derive(Clone)]
+    #[cfg_attr(not(feature = "recording"), allow(dead_code))]
+    pub(crate) struct RawSnapshot {
+        pub payload: serde_json::Value,
+        pub received_ts: f64,
+    }
+    pub(crate) type RawSlot = std::sync::Arc<std::sync::Mutex<Option<RawSnapshot>>>;
+    pub(crate) struct SnapshotReceiver<T> {
+        inner: tokio::sync::oneshot::Receiver<cryptofeed_core::error::Result<T>>,
+        #[cfg_attr(not(feature = "recording"), allow(dead_code))]
+        raw: Option<RawSlot>,
+        _pending: Option<tokio::sync::oneshot::Sender<cryptofeed_core::error::Result<T>>>,
+    }
+    impl<T> From<tokio::sync::oneshot::Receiver<cryptofeed_core::error::Result<T>>>
+        for SnapshotReceiver<T>
+    {
+        fn from(inner: tokio::sync::oneshot::Receiver<cryptofeed_core::error::Result<T>>) -> Self {
+            Self {
+                inner,
+                raw: None,
+                _pending: None,
+            }
+        }
+    }
+    impl<T> SnapshotReceiver<T> {
+        pub(crate) fn channel(
+            mode: SnapshotMode,
+        ) -> (
+            Option<tokio::sync::oneshot::Sender<cryptofeed_core::error::Result<T>>>,
+            Self,
+            Option<RawSlot>,
+        ) {
+            let (tx, inner) = tokio::sync::oneshot::channel();
+            let raw = match mode {
+                SnapshotMode::Live(true) => Some(Default::default()),
+                _ => None,
+            };
+            let mut receiver = Self {
+                inner,
+                raw: raw.clone(),
+                _pending: None,
+            };
+            if matches!(mode, SnapshotMode::Replay) {
+                receiver._pending = Some(tx);
+                (None, receiver, raw)
+            } else {
+                (Some(tx), receiver, raw)
+            }
+        }
+        pub(crate) fn try_recv(
+            &mut self,
+        ) -> std::result::Result<
+            cryptofeed_core::error::Result<T>,
+            tokio::sync::oneshot::error::TryRecvError,
+        > {
+            self.inner.try_recv()
+        }
+        #[cfg(feature = "recording")]
+        pub(crate) fn take_raw(&mut self) -> Option<RawSnapshot> {
+            self.raw
+                .as_ref()
+                .and_then(|slot| slot.lock().expect("snapshot capture").take())
+        }
+        #[cfg(feature = "recording")]
+        pub(crate) fn ready(value: cryptofeed_core::error::Result<T>) -> Self {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = tx.send(value);
+            rx.into()
+        }
+    }
+}
+#[cfg(feature = "orderbook")]
+pub(crate) use receiver::{RawSlot, RawSnapshot, SnapshotMode, SnapshotReceiver};
+
 #[cfg(test)]
 mod tests {
     use super::HttpRequests;

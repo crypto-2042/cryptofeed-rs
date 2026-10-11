@@ -183,5 +183,9 @@ required-features = ["recording"]
 name = "raw_replay_public"
 required-features = ["recording", "trade"]
 
+[[example]]
+name = "raw_l2_replay_public"
+required-features = ["recording", "orderbook"]
+
 [package.metadata.docs.rs]
 all-features = true

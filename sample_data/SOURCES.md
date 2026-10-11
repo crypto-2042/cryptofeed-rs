@@ -333,3 +333,18 @@ from interleaved strings 100:2:101:1 and 100:3:101:1 (1996849324 / signed -78102
 not observed server checksums. Wrong CRC/disjoint bridge/reconnect-delta/overflow/
 disabled-feature/callback failures remain unit-only probes. No native rule or
 parser expected value was relaxed; missing HTTP responses were not fetched online.
+
+## 2026-10-11 consumed HTTP replay v2
+
+recording.raw-ws.v2.jsonl mirrors an executable inline SDK replay reference, not
+actual epoch market data. Native Binance Spot depth/depthUpdate field families
+are retained with substituted prices, IDs and clocks. A consumed snapshot lies
+between the second raw receive and its Processing marker; replay must emit base
+snapshot quantity2, buffered delta3, then strict live-next delta4 with original
+HTTP/WS receipt clocks. V1 references remain unchanged and readable.
+
+Additional native-vs-replay controlled receiver tests cover id-less Gate time
+anchoring, source HTTP429 without error text, stale/strict-overlap resnapshot and
+causal/version/scope failures. Snapshot body/error capture uses no URL/headers.
+Public live evidence separately compared all resulting L2 fields/clocks on both
+Spot venues; no real HTTP response body was committed.

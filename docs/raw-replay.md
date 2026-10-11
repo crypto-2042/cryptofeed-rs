@@ -43,7 +43,7 @@ instrument catalog. Model/native symbol conflicts are errors.
 | Binance, Bitget v3, Bybit v5, OKX v5, Gate v4 non-L2 public categories | Current native parsers, product-qualified mapping and existing subscription/dispatch policy |
 | Bybit derivative ticker | Per-connection snapshot/delta reconstruction; fresh connection cannot reuse old fields |
 | Bybit / OKX / Bitget L2 | Existing WS snapshot/delta book sync, sequence/reset and checksum rules, with fresh local state |
-| Binance / Gate L2 | Explicitly rejected at session start until captured HTTP bootstrap support exists; no online fallback |
+| Binance / Gate L2 | [Version-2 consumed HTTP snapshots](http-l2-replay.md) feed existing buffer/bridge/resnapshot logic without online fallback; legacy v1 remains unsupported |
 
 No adapter/parser gap/bridge/checksum rule was relaxed for replay. The Bitget
 first update may bridge a snapshot within [pseq,seq]; a genuine disjoint interval
@@ -95,9 +95,9 @@ resume after consuming an undelivered input; reopen from the beginning. Generic
 callbacks may perform user-chosen actions, but the library replay path itself
 opens no network connection or HTTP client request.
 
-The larger objective still includes captured HTTP catalogs/bootstrap, Binance/Gate
-L2 data replay, raw segment rotation/merge, sinks/aggregation, NBBO and resource
-policy work. WS-native state replay does not certify those remaining paths.
+The larger objective still includes generic catalog/HTTP capture, broader L2
+replay edge audits, raw segment rotation/merge, sinks/aggregation, NBBO and resource
+policy work. Consumed Binance/Gate bootstrap replay is now implemented in v2. WS-native state replay does not certify those remaining paths.
 
 Offline tests: `cargo test -p cryptofeed-rs --features recording --lib recording::raw::replay`.
 Pure offline CLI: `cargo run -p cryptofeed-rs --features recording --example raw_parser_replay -- RAW_PATH`.

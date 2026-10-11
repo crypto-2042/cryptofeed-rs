@@ -461,3 +461,10 @@ Bybit ticker/reset and three WS-native book synchronizers with strict bad sequen
 CRC rejection. Supplied nonzero OKX CRC constants are SDK integrity probes computed
 from interleaved level strings, not newly captured server values. Missing HTTP
 bootstrap remains an explicit unsupported path, never a live test dependency.
+
+Raw v2 HTTP replay tests drive the actual native bootstrap polls with controlled
+snapshot receivers and compare exact models, clocks and source observation links.
+The v2 Processing marker disambiguates an observed-but-not-yet-processed WS packet.
+Tests assert id-less Gate timestamps, safe HTTP429, strict overlap resync, missing
+pending snapshots and schema/version failures; no live HTTP is a deterministic
+test dependency. Legacy v1 references remain readable with their original scope.

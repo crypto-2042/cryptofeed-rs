@@ -66,6 +66,10 @@ pub struct ExchangeFeed {
     pub transport: crate::transport::TransportConfig,
     #[cfg(feature = "recording")]
     pub(crate) raw_capture: Option<crate::recording::raw::RawCaptureHandle>,
+    #[cfg(feature = "recording")]
+    pub(crate) raw_session: Option<crate::recording::raw::RawSessionLink>,
+    #[cfg(feature = "recording")]
+    pub(crate) replay_offline: bool,
     pub runtime_options: crate::options::RuntimeOptions,
     pub exchange: ExchangeId,
     pub channels: Vec<Channel>,
@@ -149,6 +153,19 @@ pub struct ExchangeFeed {
 }
 
 impl ExchangeFeed {
+    #[cfg(feature = "orderbook")]
+    pub(crate) fn snapshot_mode(&self) -> crate::runtime::snapshot::SnapshotMode {
+        #[cfg(feature = "recording")]
+        {
+            if self.replay_offline {
+                return crate::runtime::snapshot::SnapshotMode::Replay;
+            }
+            crate::runtime::snapshot::SnapshotMode::Live(self.raw_session.is_some())
+        }
+        #[cfg(not(feature = "recording"))]
+        crate::runtime::snapshot::SnapshotMode::Live(false)
+    }
+
     pub fn identity(&self) -> Option<crate::feed::FeedIdentity> {
         self.identity
     }
@@ -954,6 +971,10 @@ impl ExchangeFeedBuilder {
             transport: self.transport,
             #[cfg(feature = "recording")]
             raw_capture: self.raw_capture,
+            #[cfg(feature = "recording")]
+            raw_session: None,
+            #[cfg(feature = "recording")]
+            replay_offline: false,
             runtime_options: self.runtime_options,
             exchange: self.exchange,
             channels: self.channels,

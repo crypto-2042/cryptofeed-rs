@@ -1,4 +1,6 @@
 mod budget;
+#[cfg(all(test, feature = "recording", feature = "orderbook"))]
+mod http_replay_tests;
 #[cfg(feature = "recording")]
 mod raw_replay;
 #[cfg(feature = "recording")]
@@ -52,8 +54,6 @@ use futures::{FutureExt, Sink, Stream};
 use serde_json::Value;
 use std::fmt::Display;
 use std::future::Future;
-#[cfg(feature = "orderbook")]
-use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::Message;
@@ -62,12 +62,12 @@ use url::Url;
 #[cfg(feature = "orderbook")]
 type SnapshotReceivers = std::collections::HashMap<
     String,
-    oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
 >;
 #[cfg(feature = "orderbook")]
 type GateioSnapshotReceivers = std::collections::HashMap<
     String,
-    oneshot::Receiver<Result<crate::exchange::gateio::book_sync::GateioBookSnapshot>>,
+    snapshot::SnapshotReceiver<crate::exchange::gateio::book_sync::GateioBookSnapshot>,
 >;
 
 #[cfg(test)]
@@ -633,6 +633,10 @@ async fn consume_binance_session(
             return Err(error);
         }
     };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
     session.set_readiness(attempt);
     session.set_retry_progress(feed.retry_progress.clone());
     if let Some((_, subscribe)) = explicit {
@@ -651,6 +655,7 @@ async fn consume_binance_session(
                 .collect::<Vec<_>>(),
             plan.l2_book_depth.unwrap_or(1000),
             &feed.transport,
+            feed.snapshot_mode(),
         )
     };
     #[cfg(feature = "orderbook")]
@@ -706,17 +711,23 @@ where
         )
         .await?;
         #[cfg(feature = "orderbook")]
-        let handled = process_binance_orderbook_message(
-            &feed,
-            &plan,
-            &text,
-            received_ts,
-            &mut snapshot_receivers,
-            &mut pending_deltas,
-        )
-        .await?;
+        let handled = {
+            session.processing();
+            process_binance_orderbook_message(
+                &feed,
+                &plan,
+                &text,
+                received_ts,
+                &mut snapshot_receivers,
+                &mut pending_deltas,
+            )
+            .await?
+        };
         #[cfg(not(feature = "orderbook"))]
-        let handled = false;
+        let handled = {
+            session.processing();
+            false
+        };
         if !handled {
             process_binance_text_message_for_plan(&feed, &plan, &text, received_ts).await?;
         }
@@ -747,6 +758,10 @@ async fn consume_bitget_session(
             return Err(error);
         }
     };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
     session.set_readiness(attempt);
     session.set_retry_progress(feed.retry_progress.clone());
     let result = consume_bitget_session_with(feed, shutdown, &mut session).await;
@@ -767,6 +782,7 @@ where
 
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
         let received_ts = session.received_timestamp();
+        session.processing();
         process_bitget_text_message(&feed, &text, received_ts).await?;
     }
 
@@ -796,6 +812,10 @@ async fn consume_bybit_session(
             return Err(error);
         }
     };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
     session.set_readiness(attempt);
     session.set_retry_progress(feed.retry_progress.clone());
     let result = consume_bybit_session_with(feed, shutdown, &mut session).await;
@@ -819,6 +839,7 @@ where
     let mut tickers = std::collections::HashMap::new();
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
         let received_ts = session.received_timestamp();
+        session.processing();
         let mut message: Value =
             serde_json::from_str(&text).map_err(|e| Error::Parse(e.to_string()))?;
         merge_bybit_ticker_message(&feed, &mut tickers, &mut message)?;
@@ -851,6 +872,10 @@ async fn consume_okx_session(
             return Err(error);
         }
     };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
     session.set_readiness(attempt);
     session.set_retry_progress(feed.retry_progress.clone());
     let result = consume_okx_session_with(feed, shutdown, &mut session).await;
@@ -871,6 +896,7 @@ where
 
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
         let received_ts = session.received_timestamp();
+        session.processing();
         process_okx_text_message(&feed, &text, received_ts).await?;
     }
 
@@ -906,6 +932,10 @@ async fn consume_gateio_session(
             return Err(error);
         }
     };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
     session.set_readiness(attempt);
     session.set_retry_progress(feed.retry_progress.clone());
     #[cfg(feature = "orderbook")]
@@ -958,6 +988,7 @@ where
             &mut resnapshot_attempts,
         )
         .await?;
+        session.processing();
         #[cfg(feature = "orderbook")]
         if process_gateio_orderbook_message_for_plan(
             &feed,
@@ -1477,15 +1508,16 @@ fn spawn_binance_snapshot_fetches(
     instruments: &[BinanceInstrument],
     limit: u16,
     transport: &crate::transport::TransportConfig,
+    mode: snapshot::SnapshotMode,
 ) -> std::collections::HashMap<
     String,
-    oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
 > {
     let mut receivers = std::collections::HashMap::new();
 
     for instrument in instruments {
         let symbol_key = instrument.symbol.as_str().to_owned();
-        let rx = spawn_binance_snapshot_fetch(instrument.clone(), limit, transport.clone());
+        let rx = spawn_binance_snapshot_fetch(instrument.clone(), limit, transport.clone(), mode);
         receivers.insert(symbol_key, rx);
     }
 
@@ -1497,13 +1529,17 @@ fn spawn_binance_snapshot_fetch(
     instrument: BinanceInstrument,
     limit: u16,
     transport: crate::transport::TransportConfig,
-) -> oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>> {
-    let (mut tx, rx) = oneshot::channel();
+    mode: snapshot::SnapshotMode,
+) -> snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)> {
+    let (tx, rx, raw) = snapshot::SnapshotReceiver::channel(mode);
+    let Some(mut tx) = tx else {
+        return rx;
+    };
     tokio::spawn(async move {
         tokio::select! {
             biased;
             _ = tx.closed() => {}
-            result = fetch_binance_l2_snapshot(instrument, limit, transport) => {
+            result = fetch_binance_l2_snapshot(instrument, limit, transport,raw) => {
                 let _ = tx.send(result);
             }
         }
@@ -1516,17 +1552,23 @@ async fn fetch_binance_l2_snapshot(
     instrument: BinanceInstrument,
     limit: u16,
     transport: crate::transport::TransportConfig,
+    raw: Option<snapshot::RawSlot>,
 ) -> Result<(u64, cryptofeed_orderbook::L2BookSnapshot)> {
     // Partial-depth streams must be bootstrapped from a snapshot of the same
     // width; the full-depth default uses the 1000-level snapshot.
     let url = BinanceAdapter::snapshot_url(&instrument, limit);
     let payload = snapshot::fetch_json(&url, &transport, ExchangeId::Binance).await?;
-    binance_parser::parse_l2_book_snapshot_for_instrument(
-        &payload,
-        &instrument,
-        current_timestamp(),
-    )
-    .ok_or_else(|| Error::Parse("failed to parse binance l2 snapshot".to_owned()))
+    let received_ts = current_timestamp();
+    let result =
+        binance_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, received_ts)
+            .ok_or_else(|| Error::Parse("failed to parse binance l2 snapshot".to_owned()));
+    if let Some(raw) = raw {
+        *raw.lock().expect("snapshot capture") = Some(snapshot::RawSnapshot {
+            payload,
+            received_ts,
+        });
+    }
+    result
 }
 
 #[cfg(feature = "orderbook")]
@@ -1535,7 +1577,7 @@ async fn poll_binance_snapshot_bootstraps(
     instruments: &[BinanceInstrument],
     receivers: &mut std::collections::HashMap<
         String,
-        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+        snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
     resnapshot_attempts: &mut std::collections::HashMap<String, u32>,
@@ -1561,6 +1603,27 @@ async fn poll_binance_snapshot_bootstraps(
         };
 
         if let Some(result) = ready {
+            #[cfg(feature = "recording")]
+            if let Some(link) = &feed.raw_session {
+                if let Some(instrument) = instruments
+                    .iter()
+                    .find(|instrument| instrument.symbol.as_str() == key)
+                {
+                    if let Some(raw) = receivers
+                        .get_mut(&key)
+                        .and_then(|receiver| receiver.take_raw())
+                    {
+                        link.snapshot(
+                            instrument.symbol.clone(),
+                            Some(limit),
+                            &raw.payload,
+                            raw.received_ts,
+                        );
+                    } else if let Err(error) = &result {
+                        link.snapshot_error(instrument.symbol.clone(), Some(limit), error);
+                    }
+                }
+            }
             let (last_update_id, snapshot) = result?;
             let instrument = instruments
                 .iter()
@@ -1597,6 +1660,7 @@ async fn poll_binance_snapshot_bootstraps(
                             instrument.clone(),
                             limit,
                             feed.transport.clone(),
+                            feed.snapshot_mode(),
                         ),
                     );
                     continue;
@@ -1661,7 +1725,7 @@ async fn process_binance_orderbook_message(
     received_ts: f64,
     receivers: &mut std::collections::HashMap<
         String,
-        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+        snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
 ) -> Result<bool> {
@@ -1735,7 +1799,7 @@ async fn apply_binance_sequenced_update(
     update: BinanceSequencedDepthDelta,
     receivers: &mut std::collections::HashMap<
         String,
-        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+        snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
 ) -> Result<()> {
@@ -1836,7 +1900,7 @@ fn schedule_binance_resync(
     update: BinanceSequencedDepthDelta,
     receivers: &mut std::collections::HashMap<
         String,
-        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+        snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
     limit: u16,
@@ -1845,7 +1909,12 @@ fn schedule_binance_resync(
     receivers.remove(symbol_key);
     receivers.insert(
         symbol_key.to_owned(),
-        spawn_binance_snapshot_fetch(instrument.clone(), limit, feed.transport.clone()),
+        spawn_binance_snapshot_fetch(
+            instrument.clone(),
+            limit,
+            feed.transport.clone(),
+            feed.snapshot_mode(),
+        ),
     );
 }
 
@@ -1854,13 +1923,17 @@ fn spawn_gateio_snapshot_fetch_for_instrument(
     instrument: GateioInstrument,
     snapshot_url: String,
     transport: crate::transport::TransportConfig,
-) -> oneshot::Receiver<Result<crate::exchange::gateio::book_sync::GateioBookSnapshot>> {
-    let (mut tx, rx) = oneshot::channel();
+    mode: snapshot::SnapshotMode,
+) -> snapshot::SnapshotReceiver<crate::exchange::gateio::book_sync::GateioBookSnapshot> {
+    let (tx, rx, raw) = snapshot::SnapshotReceiver::channel(mode);
+    let Some(mut tx) = tx else {
+        return rx;
+    };
     tokio::spawn(async move {
         tokio::select! {
             biased;
             _ = tx.closed() => {}
-            result = fetch_gateio_l2_snapshot_for_instrument(instrument, snapshot_url, transport) => {
+            result = fetch_gateio_l2_snapshot_for_instrument(instrument, snapshot_url, transport,raw) => {
                 let _ = tx.send(result);
             }
         }
@@ -1873,10 +1946,20 @@ async fn fetch_gateio_l2_snapshot_for_instrument(
     instrument: GateioInstrument,
     snapshot_url: String,
     transport: crate::transport::TransportConfig,
+    raw: Option<snapshot::RawSlot>,
 ) -> Result<crate::exchange::gateio::book_sync::GateioBookSnapshot> {
     let payload = snapshot::fetch_json(&snapshot_url, &transport, ExchangeId::Gateio).await?;
-    gateio_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, current_timestamp())
-        .ok_or_else(|| Error::Parse("failed to parse gateio l2 snapshot".to_owned()))
+    let received_ts = current_timestamp();
+    let result =
+        gateio_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, received_ts)
+            .ok_or_else(|| Error::Parse("failed to parse gateio l2 snapshot".to_owned()));
+    if let Some(raw) = raw {
+        *raw.lock().expect("snapshot capture") = Some(snapshot::RawSnapshot {
+            payload,
+            received_ts,
+        });
+    }
+    result
 }
 
 #[cfg(feature = "orderbook")]
@@ -1918,6 +2001,22 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
             .iter()
             .find(|instrument| instrument.symbol.as_str() == key)
             .ok_or_else(|| Error::Parse(format!("missing gateio instrument for {key}")))?;
+        #[cfg(feature = "recording")]
+        if let Some(link) = &feed.raw_session {
+            if let Some(raw) = receivers
+                .get_mut(&key)
+                .and_then(|receiver| receiver.take_raw())
+            {
+                link.snapshot(
+                    instrument.symbol.clone(),
+                    None,
+                    &raw.payload,
+                    raw.received_ts,
+                );
+            } else if let Err(error) = &result {
+                link.snapshot_error(instrument.symbol.clone(), None, error);
+            }
+        }
         let snapshot = result?;
         let last_update_id = snapshot.last_update_id;
         let buffered = pending.remove(&key).unwrap_or_default();
@@ -1988,6 +2087,7 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                         instrument.clone(),
                         snapshot_url,
                         feed.transport.clone(),
+                        feed.snapshot_mode(),
                     ),
                 );
             }
@@ -2218,6 +2318,7 @@ fn schedule_gateio_resync_for_plan(
             instrument.clone(),
             snapshot_url,
             feed.transport.clone(),
+            feed.snapshot_mode(),
         ),
     );
     Ok(())
@@ -2276,6 +2377,7 @@ fn schedule_gateio_resync(
                 instrument,
                 snapshot_url,
                 feed.transport.clone(),
+                feed.snapshot_mode(),
             ),
         );
     }
@@ -5071,7 +5173,7 @@ mod tests {
         }))
         .expect("snapshot result");
         let mut receivers = std::collections::HashMap::new();
-        receivers.insert("BTC-USDT".to_owned(), rx);
+        receivers.insert("BTC-USDT".to_owned(), rx.into());
         let mut pending = std::collections::HashMap::new();
         pending.insert("BTC-USDT".to_owned(), vec![non_bridging]);
         let mut attempts = std::collections::HashMap::new();
@@ -5101,7 +5203,7 @@ mod tests {
             book: snapshot,
         }))
         .expect("resnapshot result");
-        receivers.insert("BTC-USDT".to_owned(), rx2);
+        receivers.insert("BTC-USDT".to_owned(), rx2.into());
         super::poll_gateio_snapshot_bootstraps_for_plan(
             &feed,
             &plan,
@@ -5163,7 +5265,7 @@ mod tests {
         }))
         .expect("snapshot result");
         let mut receivers = std::collections::HashMap::new();
-        receivers.insert("BTC-USDT".to_owned(), rx);
+        receivers.insert("BTC-USDT".to_owned(), rx.into());
         let mut pending = std::collections::HashMap::new();
         pending.insert("BTC-USDT".to_owned(), vec![non_bridging]);
         let mut attempts = std::collections::HashMap::new();
@@ -5579,7 +5681,7 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (snapshot_tx, snapshot_rx) = oneshot::channel();
         let mut receivers = std::collections::HashMap::new();
-        receivers.insert("BTC-USDT".to_owned(), snapshot_rx);
+        receivers.insert("BTC-USDT".to_owned(), snapshot_rx.into());
         let pending_deltas = std::collections::HashMap::new();
         let feed_for_task = feed.clone();
 

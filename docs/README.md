@@ -54,6 +54,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Funding history](funding-history.md): bounded settlement batches, exact actual
   rates, versioned cursors, native pagination/retention and termination semantics.
 
+- [HTTP snapshot/L2 replay](http-l2-replay.md): v2 causal processing markers,
+  consumed bootstrap bodies/failures, offline receiver scheduling and scope.
+
 - [Native raw replay](raw-replay.md): current parser/dispatch reuse, per-session
   ticker/WS-book state, lifecycle delivery, limits and unsupported HTTP-bootstrap paths.
 

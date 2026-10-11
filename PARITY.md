@@ -533,3 +533,23 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   matched live fields/clocks, exit 0. See [evidence](docs/reports/live-smoke-raw-replay-2026-10-11.md).
 - HTTP/bootstrap and Binance/Gate L2 replay, segment rotation/merge, sinks/
   aggregation, NBBO and advanced resource policies remain under the full objective.
+
+## Consumed HTTP and causal L2 replay — 2026-10-11
+
+- New raw protocol v2 preserves v1 reading while adding explicit WS Processing
+  references and consumed HTTP snapshot/failure records. Received is not proof
+  of processing; native snapshot polling occurs between receive and processing.
+- Recording-only response slots retain safe JSON/original HTTP receipt time until
+  actual consumption. No URL/headers/error text enter snapshots. Safe categories/
+  status propagate for no-body failures; superseded/cancelled results are not dumped.
+- Binance/Gate raw L2 now reuses native processing/bootstrap/poll/reset/resnapshot
+  code, injecting recorded ready results. Offline schedules pending placeholders
+  with no spawned HTTP task. No bridge/gap/checksum rule was changed.
+- Regressions compare all native/replay models and originating observations,
+  id-less Gate anchoring, strict overlap resync, missing pending response/HTTP429,
+  causal/version corruption, unprocessed prefixes and legacy v1 behavior.
+- Public Spot L2: each profile captured 200 observations/2 HTTP snapshots/97
+  processing markers; Binance replayed 90 models, Gate 98, each exactly matching
+  live fields/clocks after network shutdown; exit 0. See [evidence](docs/reports/live-smoke-http-l2-replay-2026-10-11.md).
+- Generic catalogs/HTTP capture, rotation/merge, broader product/concurrency edge
+  audits, sinks/aggregation, NBBO and advanced resources remain active.

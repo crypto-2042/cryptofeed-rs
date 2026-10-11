@@ -224,6 +224,8 @@ pub struct Session<S> {
     #[cfg(feature = "recording")]
     raw: Option<crate::recording::raw::RawSession>,
     last_text_received_ts: f64,
+    #[cfg(feature = "recording")]
+    last_raw_sequence: Option<u64>,
     stream: S,
     heartbeat: HeartbeatPolicy,
     last_received: Instant,
@@ -237,6 +239,16 @@ pub struct Session<S> {
 }
 
 impl<S> Session<S> {
+    #[cfg(feature = "recording")]
+    pub(crate) fn raw_link(&self) -> Option<crate::recording::raw::RawSessionLink> {
+        self.raw.as_ref().map(|raw| raw.link())
+    }
+    pub(crate) fn processing(&self) {
+        #[cfg(feature = "recording")]
+        if let (Some(raw), Some(sequence)) = (&self.raw, self.last_raw_sequence) {
+            raw.processing(sequence);
+        }
+    }
     pub(crate) fn received_timestamp(&self) -> f64 {
         self.last_text_received_ts
     }
@@ -299,6 +311,8 @@ impl<S> Session<S> {
             #[cfg(feature = "recording")]
             raw: None,
             last_text_received_ts: 0.0,
+            #[cfg(feature = "recording")]
+            last_raw_sequence: None,
             stream,
             heartbeat,
             last_received: now,
@@ -442,7 +456,7 @@ where
                             if let Some(readiness) = &self.readiness { readiness.received(); }
                             let text = text.to_string();
                             let value = serde_json::from_str::<serde_json::Value>(&text).ok();
-                            #[cfg(feature="recording")] if let Some(raw)=&self.raw{raw.text(&text,value.as_ref(),true,self.last_text_received_ts);}
+                            #[cfg(feature="recording")] if let Some(raw)=&self.raw{self.last_raw_sequence=raw.text(&text,value.as_ref(),true,self.last_text_received_ts);}
                             if text == "pong" && matches!(self.heartbeat.kind, HeartbeatKind::Text("ping"))
                                 || value.as_ref().is_some_and(|value| self.heartbeat.is_response_value(value)) { continue; }
                             if let (Some(readiness), Some(value)) = (self.readiness.as_mut(), value.as_ref()) {

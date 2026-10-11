@@ -26,18 +26,19 @@ while input.recv().await?.is_some() {}
 The receiver is an observation API. [Raw WS files](raw-recording.md) now provide
 a separate bounded codec; the existing normalized JSONL reader does not accept
 these observations. [Native parser/state replay](raw-replay.md) now executes current parsing and
-three WS-native L2 paths. HTTP/bootstrap, Binance/Gate L2 and transport timing
-simulation remain subsequent work.
+three WS-native L2 paths. Consumed HTTP/bootstrap and Binance/Gate L2 now use v2 markers; generic
+HTTP/catalog capture and transport timing simulation remain subsequent work.
 
 ## Observation scope
 
-`RawObservation` serializes as schema version 1 and contains an enqueue sequence,
+`RawObservation` serializes as schema version 2 (v1 remains readable) and contains an enqueue sequence,
 monotonic elapsed nanoseconds, wall-clock observation time and shared session
 metadata. Sequences and elapsed time follow bounded-queue enqueue order across
 sessions, not a sort by exchange timestamps. A successful connection attempt gets
 a new process-local session ID; retries/reconnects do not reuse it.
 
-Kinds are Connected, Sent, Received and Closed. Sent records only successfully
+Kinds include Connected, Sent, Received, Closed, Processing and consumed
+HttpSnapshot/HttpSnapshotError. See [v2 boundaries](http-l2-replay.md). Sent records only successfully
 written text. Received records include application ping/pong and subscription
 replies that the live runtime consumes before returning market text. Transport
 binary frames, TCP/TLS details and WS protocol ping payload bytes are not captured.
@@ -77,8 +78,8 @@ to stop their runtime. Dropping a pending recv is cancel-safe.
 
 WS normalized events now use the exact same receipt timestamp observed at the
 text-read boundary, before JSON parsing. Each exchange's event timestamp remains
-separate. HTTP bootstrap snapshots retain their own HTTP receipt clock; they are
-not covered by this WS-only observer.
+separate. Consumed HTTP bootstrap snapshots retain their separate HTTP receipt clock
+in v2 observations; generic HTTP traffic is not covered by this observer.
 
 Offline tests cover sanitizer precision/context, credential diagnostics, private
 operation rejection, sticky overflow, sender closure, reconnect IDs/global order,

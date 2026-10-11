@@ -142,11 +142,11 @@ fn validate_context(info: &RawSessionInfo) -> Result<()> {
 struct TraceState {
     sequence: u64,
     elapsed_ns: u64,
-    sessions: HashMap<u64, (Arc<RawSessionInfo>, bool)>,
+    sessions: HashMap<u64, (Arc<RawSessionInfo>, bool, Option<u64>, u16)>,
 }
 impl TraceState {
     fn apply(&mut self, record: &RawObservation, max_sessions: usize) -> Result<()> {
-        if record.version != 1
+        if !matches!(record.version, 1 | 2)
             || record.sequence != self.sequence + 1
             || record.elapsed_ns < self.elapsed_ns
             || !record.observed_ts.is_finite()
@@ -166,18 +166,90 @@ impl TraceState {
                         "raw recording session limit".into(),
                     ));
                 }
-                self.sessions.insert(id, (record.session.clone(), false));
+                self.sessions
+                    .insert(id, (record.session.clone(), false, None, record.version));
             }
             kind => {
-                let Some((info, closed)) = self.sessions.get_mut(&id) else {
+                let Some((info, closed, received, version)) = self.sessions.get_mut(&id) else {
                     return Err(invalid());
                 };
-                if *closed || info.as_ref() != record.session.as_ref() {
+                if *closed || *version != record.version || info.as_ref() != record.session.as_ref()
+                {
                     return Err(invalid());
                 }
                 match kind {
-                    RawObservationKind::Sent(payload) | RawObservationKind::Received(payload) => {
-                        validate_payload(payload)?
+                    RawObservationKind::Sent(payload) => validate_payload(payload)?,
+                    RawObservationKind::Received(payload) => {
+                        validate_payload(payload)?;
+                        *received = Some(record.sequence);
+                    }
+                    RawObservationKind::Processing { received_sequence } => {
+                        if record.version != 2 || *received != Some(*received_sequence) {
+                            return Err(invalid());
+                        }
+                        *received = None;
+                    }
+                    RawObservationKind::HttpSnapshot {
+                        symbol,
+                        depth,
+                        payload,
+                        received_ts,
+                    } => {
+                        if record.version != 2
+                            || received.is_none()
+                            || !matches!(
+                                info.feed.exchange,
+                                ExchangeId::Binance | ExchangeId::Gateio
+                            )
+                            || !info
+                                .feed
+                                .channels
+                                .contains(&cryptofeed_core::exchange::Channel::L2Book)
+                            || !info.feed.symbols.contains(symbol)
+                            || !info.feed.channel_subscriptions.is_empty()
+                                && !info.feed.channel_subscriptions.iter().any(
+                                    |(channel, symbols)| {
+                                        *channel == cryptofeed_core::exchange::Channel::L2Book
+                                            && symbols.contains(symbol)
+                                    },
+                                )
+                            || !received_ts.is_finite()
+                            || *received_ts < 0.0
+                            || depth.is_some_and(|depth| depth == 0)
+                            || !matches!(payload, RawPayload::Json { .. })
+                        {
+                            return Err(invalid());
+                        }
+                        validate_payload(payload)?;
+                    }
+                    RawObservationKind::HttpSnapshotError {
+                        symbol,
+                        depth,
+                        failure,
+                    } => {
+                        if record.version != 2
+                            || received.is_none()
+                            || !matches!(
+                                info.feed.exchange,
+                                ExchangeId::Binance | ExchangeId::Gateio
+                            )
+                            || !info
+                                .feed
+                                .channels
+                                .contains(&cryptofeed_core::exchange::Channel::L2Book)
+                            || !info.feed.symbols.contains(symbol)
+                            || !info.feed.channel_subscriptions.is_empty()
+                                && !info.feed.channel_subscriptions.iter().any(
+                                    |(channel, symbols)| {
+                                        *channel == cryptofeed_core::exchange::Channel::L2Book
+                                            && symbols.contains(symbol)
+                                    },
+                                )
+                            || depth.is_some_and(|depth| depth == 0)
+                            || matches!(failure,super::RawSnapshotFailure::HttpStatus{status} if !(100..=599).contains(status))
+                        {
+                            return Err(invalid());
+                        }
                     }
                     RawObservationKind::Closed { .. } => *closed = true,
                     _ => unreachable!(),
@@ -189,7 +261,7 @@ impl TraceState {
         Ok(())
     }
     fn ended(&self, end: RecordingEnd) -> bool {
-        end != RecordingEnd::Complete || self.sessions.values().all(|(_, closed)| *closed)
+        end != RecordingEnd::Complete || self.sessions.values().all(|(_, closed, _, _)| *closed)
     }
 }
 pub struct RawRecordingWriter<W> {
@@ -211,7 +283,7 @@ impl<W: AsyncWrite + Unpin> RawRecordingWriter<W> {
         let bytes = encode(
             &Record::Header {
                 format: FORMAT.into(),
-                version: 1,
+                version: 2,
             },
             limits.records.max_record_bytes,
         )?;
@@ -315,6 +387,7 @@ pub struct RawRecordingReader<R> {
     state: TraceState,
     bytes: u64,
     header: bool,
+    format_version: u16,
     poisoned: bool,
     finished: Option<RecordingSummary>,
     replay_active: bool,
@@ -327,6 +400,7 @@ impl<R: AsyncBufRead + Unpin> RawRecordingReader<R> {
             state: TraceState::default(),
             bytes: 0,
             header: false,
+            format_version: 0,
             poisoned: false,
             finished: None,
             replay_active: false,
@@ -342,14 +416,22 @@ impl<R: AsyncBufRead + Unpin> RawRecordingReader<R> {
         if !self.header {
             let line = self.line().await?.ok_or_else(invalid)?;
             match serde_json::from_slice::<Record>(&line).map_err(|_| invalid())? {
-                Record::Header { format, version: 1 } if format == FORMAT => self.header = true,
+                Record::Header {
+                    format,
+                    version: version @ (1 | 2),
+                } if format == FORMAT => {
+                    self.header = true;
+                    self.format_version = version;
+                }
                 _ => return Err(invalid()),
             }
         }
         let line = self.line().await?.ok_or_else(invalid)?;
         match serde_json::from_slice::<Record>(&line).map_err(|_| invalid())? {
             Record::Observation { mut record } => {
-                if self.state.sequence >= self.limits.records.max_events {
+                if record.version > self.format_version
+                    || self.state.sequence >= self.limits.records.max_events
+                {
                     return Err(invalid());
                 }
                 self.state.apply(&record, self.limits.max_sessions)?;
@@ -504,7 +586,7 @@ mod tests {
         for mutation in 0..11 {
             let mut lines = original.clone();
             match mutation {
-                0 => lines[0]["header"]["version"] = json!(2),
+                0 => lines[0]["header"]["version"] = json!(99),
                 1 => lines[2]["observation"]["record"]["sequence"] = json!(5),
                 2 => {
                     lines[2]["observation"]["record"]["session"]["feed"]["sdk_version"] =
@@ -693,5 +775,82 @@ mod tests {
             RawRecordingLimits::default(),
         );
         assert!(reader.next_observation().await.is_err());
+    }
+    #[tokio::test]
+    async fn v2_causal_markers_validate_and_mixed_session_versions_fail() {
+        let (capture, mut input) = raw_capture_channel(32, 4096).unwrap();
+        let feed = crate::exchange::binance::Binance::new()
+            .l2_book()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .build();
+        let mut session = capture.session(RawFeedInfo::from_feed(&feed)).unwrap();
+        let value = json!({"e":"depthUpdate","s":"BTCUSDT"});
+        let sequence = session
+            .text(&value.to_string(), Some(&value), true, 2.0)
+            .unwrap();
+        session.link().snapshot(
+            feed.symbols[0].clone(),
+            Some(1000),
+            &json!({"lastUpdateId":100,"bids":[],"asks":[]}),
+            1.5,
+        );
+        session.processing(sequence);
+        session.close(true);
+        drop(session);
+        drop(capture);
+        let mut records = Vec::new();
+        while let Some(record) = input.recv().await.unwrap() {
+            records.push(record);
+        }
+        assert_eq!(records.len(), 5);
+        for mutation in 0..5 {
+            let mut changed = records.clone();
+            match mutation {
+                0 => {}
+                1 => {
+                    changed[3].kind = RawObservationKind::Processing {
+                        received_sequence: 1,
+                    }
+                }
+                2 => changed[1].version = 1,
+                3 => {
+                    let temp = changed[2].kind.clone();
+                    changed[2].kind = changed[3].kind.clone();
+                    changed[3].kind = temp;
+                }
+                4 => {
+                    changed[2].kind = RawObservationKind::HttpSnapshotError {
+                        symbol: feed.symbols[0].clone(),
+                        depth: Some(1000),
+                        failure: super::super::RawSnapshotFailure::HttpStatus { status: 999 },
+                    }
+                }
+                _ => unreachable!(),
+            }
+            let mut bytes = Vec::new();
+            let mut writer = RawRecordingWriter::new(&mut bytes, RawRecordingLimits::default())
+                .await
+                .unwrap();
+            let mut failed = false;
+            for record in changed {
+                if writer.append(record).await.is_err() {
+                    failed = true;
+                    break;
+                }
+            }
+            if mutation == 0 {
+                writer.finish(RecordingEnd::Complete).await.unwrap();
+                let mut reader =
+                    RawRecordingReader::new(bytes.as_slice(), RawRecordingLimits::default());
+                let mut count = 0;
+                while reader.next_observation().await.unwrap().is_some() {
+                    count += 1;
+                }
+                assert_eq!(count, 5);
+            } else {
+                assert!(failed, "mutation {mutation}");
+            }
+        }
     }
 }

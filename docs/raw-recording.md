@@ -35,12 +35,14 @@ Retain stop senders during capture. True/drop stops; false notifications do not.
 Use create_new to protect prior captures. The generic writer chooses no path or
 open policy. Applications can own/sync the file explicitly; flush is not fsync.
 
-## Version-1 segment format
+## Segment versions 1 and 2
 
-One externally tagged UTF-8 JSON object per newline:
+New writers use version 2; readers accept v1 and v2. Existing v1 schemas remain
+readable. [Version 2](http-l2-replay.md) adds causal processing and consumed HTTP
+L2 snapshot records. One externally tagged UTF-8 JSON object per newline:
 
-- `{"header":{"format":"cryptofeed-rs.raw-ws","version":1}}`
-- `{"observation":{"record":{...RawObservation version 1...}}}`
+- `{"header":{"format":"cryptofeed-rs.raw-ws","version":2}}`
+- `{"observation":{"record":{...RawObservation version 2...}}}`
 - `{"end":{"events":24,"reason":"limit_reached"}}`
 
 End reasons are complete, stopped, limit_reached. `events` counts **transport
@@ -92,8 +94,8 @@ prove filesystem durability. There is no cryptographic integrity claim.
 
 The next_observation API persists/validates transport input without executing
 parsers. [Native replay](raw-replay.md) is now separately available through replay,
-including three WS-native L2 paths. Captured HTTP/bootstrap, Binance/Gate L2 and
-transport activity simulation remain unfinished; plain JSON iteration is not
+including three WS-native L2 paths. Consumed HTTP/bootstrap and Binance/Gate L2 now have v2 replay support;
+generic HTTP/catalog capture and transport activity simulation remain unfinished; plain JSON iteration is not
 proof of those paths.
 
 Offline: `cargo test -p cryptofeed-rs --features recording --lib recording::raw::file`.
