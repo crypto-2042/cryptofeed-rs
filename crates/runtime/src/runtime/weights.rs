@@ -140,6 +140,8 @@ struct Window {
     duration: Duration,
     used: u32,
     entries: VecDeque<(Instant, u32)>,
+    // Independent conservative floor; never replaces the local rolling ledger.
+    observed: Option<(Instant, u64)>,
 }
 impl Window {
     fn new(bucket: Bucket) -> Self {
@@ -149,9 +151,13 @@ impl Window {
             duration,
             used: 0,
             entries: VecDeque::new(),
+            observed: None,
         }
     }
     fn ready(&mut self, now: Instant, cost: u32, ceiling: u32) -> Result<Instant> {
+        if self.observed.is_some_and(|(until, _)| until <= now) {
+            self.observed = None;
+        }
         while self
             .entries
             .front()
@@ -165,14 +171,18 @@ impl Window {
                 "request weight exceeds effective Binance window ceiling".into(),
             ));
         }
+        let observed_deadline = self
+            .observed
+            .filter(|(_, used)| used.saturating_add(u64::from(cost)) > u64::from(capacity))
+            .map_or(now, |(until, _)| until);
         if self.used + cost <= capacity {
-            return Ok(now);
+            return Ok(observed_deadline);
         }
         let mut remaining = self.used;
         for (at, weight) in &self.entries {
             remaining -= weight;
             if remaining + cost <= capacity {
-                return Ok(*at + self.duration);
+                return Ok((*at + self.duration).max(observed_deadline));
             }
         }
         unreachable!("expired weight can satisfy a valid charge")
@@ -180,6 +190,9 @@ impl Window {
     fn commit(&mut self, now: Instant, cost: u32) {
         self.entries.push_back((now, cost));
         self.used += cost;
+        if let Some((_, used)) = self.observed.as_mut().filter(|(until, _)| *until > now) {
+            *used = used.saturating_add(u64::from(cost));
+        }
     }
 }
 #[derive(Default)]
@@ -187,6 +200,48 @@ pub(super) struct Tracker {
     windows: HashMap<Bucket, Window>,
 }
 impl Tracker {
+    pub(super) fn observe_headers(
+        &mut self,
+        exchange: ExchangeId,
+        url: &str,
+        headers: &reqwest::header::HeaderMap,
+        now: Instant,
+    ) {
+        let Ok(Some(charge)) = charge(exchange, url) else {
+            return;
+        };
+        // USD funding has a distinct request-count window. USD-M bookTicker
+        // explicitly documents an inaccurate used-weight header.
+        if charge.bucket == Bucket::UsdFunding
+            || Url::parse(url).is_ok_and(|url| {
+                url.host_str() == Some("fapi.binance.com")
+                    && url.path() == "/fapi/v1/ticker/bookTicker"
+            })
+        {
+            return;
+        }
+        let mut values = headers.get_all("x-mbx-used-weight-1m").iter();
+        let Some(value) = values.next().and_then(|value| value.to_str().ok()) else {
+            return;
+        };
+        if values.next().is_some() || value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit())
+        {
+            return;
+        }
+        let Ok(used) = value.parse::<u32>() else {
+            return;
+        };
+        let window = self
+            .windows
+            .entry(charge.bucket)
+            .or_insert_with(|| Window::new(charge.bucket));
+        if window.observed.is_some_and(|(until, _)| until <= now) {
+            window.observed = None;
+        }
+        if u64::from(used) > window.observed.map_or(0, |(_, used)| used) {
+            window.observed = Some((now + window.duration, u64::from(used)));
+        }
+    }
     pub(super) fn ready(&mut self, charge: Charge, ceiling: u32, now: Instant) -> Result<Instant> {
         self.windows
             .entry(charge.bucket)

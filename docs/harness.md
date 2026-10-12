@@ -612,3 +612,12 @@ versus virtual delivery time and SystemTime catalog retention. The reference
 `replay-clock-contracts.json` is synthetic policy evidence. Existing native/model
 clock, cache-eviction, no-network and partial-I/O/cancellation suites remain the
 authority for the [full contract table](replay-contract-audit.md).
+
+## Binance used-weight header evidence
+
+`sample_data/binance.http.used-weight.jsonl` is a synthetic reference for live
+HTTP response metadata, not a replay capture or market payload. Assertions in
+`runtime/weights/tests.rs` and `runtime/snapshot.rs::used_weight_feedback_tests`
+cover strict header handling, independent floors/local ledgers, cancellation and
+response errors. HTTP payload replay continues to bypass live header admission;
+no historical header scheduling is inferred from payload archives.

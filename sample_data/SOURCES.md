@@ -440,3 +440,14 @@ field semantics, verified against the current [Spot specification](https://githu
 Counter payloads test shared-cursor behavior only and are not exchange catalog
 shapes. No native payload/normalization expectation was changed merely for a
 passing test. See [clock domains and evidence](../docs/replay-contract-audit.md).
+
+## Binance used-weight response headers — 2026-10-12
+
+`binance.http.used-weight.jsonl` is a synthetic header/admission reference, not a
+live capture. Values and effects are asserted in `runtime/weights/tests.rs` and
+`runtime/snapshot.rs::used_weight_feedback_tests`. Official sources:
+[Spot IP limits](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#ip-limits),
+[USD-M IP limits](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info),
+[COIN-M IP limits](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/general-info),
+and the [USD-M bookTicker exception](https://developers.binance.info/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data).
+No credentials or private response data are included.

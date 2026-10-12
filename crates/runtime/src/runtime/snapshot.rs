@@ -229,6 +229,12 @@ async fn read_response(
     max_bytes: usize,
     limiter: &HttpRequests,
 ) -> Result<serde_json::Value> {
+    limiter.clock.lock().await.weights.observe_headers(
+        exchange,
+        url,
+        response.headers(),
+        Instant::now(),
+    );
     let status = response.status();
     if !status.is_success() {
         let retry = retry_after(
@@ -1173,5 +1179,93 @@ mod weighted_replay_tests {
         assert_eq!(Instant::now(), start);
         assert_eq!(*budget.http().next.lock().await, clock);
         assert!(replay.verify_complete().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod used_weight_feedback_tests {
+    use super::*;
+    const URL: &str = "https://data-api.binance.vision/api/v3/ticker/bookTicker?symbol=BTCUSDT";
+
+    #[tokio::test(start_paused = true)]
+    async fn successful_and_failed_responses_both_apply_headers_before_body_validation() {
+        for (status, body) in [
+            (200, "{}"),
+            (400, "private diagnostic"),
+            (200, "invalid JSON"),
+        ] {
+            let limiter = HttpRequests::new(4, Duration::ZERO);
+            let response: reqwest::Response = http::Response::builder()
+                .status(status)
+                .header("X-MBX-USED-WEIGHT-1M", "100")
+                .body(body.to_owned())
+                .unwrap()
+                .into();
+            let result = read_response(response, URL, ExchangeId::Binance, 4096, &limiter).await;
+            match (status, body) {
+                (400, _) => assert!(matches!(result, Err(Error::HttpStatus { status: 400, .. }))),
+                (_, "invalid JSON") => assert!(matches!(result, Err(Error::MalformedData(_)))),
+                _ => assert_eq!(result.unwrap(), serde_json::json!({})),
+            }
+            let charge = super::super::weights::charge(ExchangeId::Binance, URL)
+                .unwrap()
+                .unwrap();
+            let start = Instant::now();
+            assert_eq!(
+                limiter
+                    .run_admitted(ExchangeId::Binance, None, Some(charge), 100, async {
+                        Instant::now()
+                    })
+                    .await
+                    .unwrap()
+                    - start,
+                Duration::from_secs(60)
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn feedback_wait_frees_permits_cancels_cleanly_and_leaves_other_venues_active() {
+        let limiter = HttpRequests::new(4, Duration::ZERO);
+        let scope = crate::resources::Gate::new(1, Duration::ZERO);
+        let response: reqwest::Response = http::Response::builder()
+            .header("x-mbx-used-weight-1m", "100")
+            .body("{}".to_owned())
+            .unwrap()
+            .into();
+        read_response(response, URL, ExchangeId::Binance, 4096, &limiter)
+            .await
+            .unwrap();
+        let charge = super::super::weights::charge(ExchangeId::Binance, URL)
+            .unwrap()
+            .unwrap();
+        let called = std::sync::atomic::AtomicBool::new(false);
+        {
+            let waiting = limiter.run_admitted(
+                ExchangeId::Binance,
+                Some(&scope),
+                Some(charge),
+                100,
+                async {
+                    called.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
+            );
+            tokio::pin!(waiting);
+            assert!(futures::poll!(waiting.as_mut()).is_pending());
+            assert_eq!(limiter.slots.available_permits(), 4);
+            assert_eq!(scope.slots.available_permits(), 1);
+            assert_eq!(limiter.run(ExchangeId::Okx, async { 42 }).await, 42);
+        }
+        assert!(!called.load(std::sync::atomic::Ordering::SeqCst));
+        tokio::time::advance(Duration::from_secs(60)).await;
+        assert_eq!(
+            limiter
+                .run_admitted(ExchangeId::Binance, Some(&scope), Some(charge), 2, async {
+                    42
+                })
+                .await
+                .unwrap(),
+            42
+        );
     }
 }

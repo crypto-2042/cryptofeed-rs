@@ -441,7 +441,8 @@ and start spacing, plus per-exchange WS capacity/spacing. Clones share limits;
 existing process and protocol safeguards remain active. See
 [resource admission and replacement](docs/resource-budgets.md).
 [Binance HTTP weights](docs/http-weights.md) add verified endpoint costs and
-rolling process windows, with an optional stricter policy ceiling.
+rolling process windows and conservative minute used-weight header feedback,
+with an optional stricter policy ceiling.
 [Other public HTTP limits](docs/public-http-frequency-audit.md) are verified
 against current process-wide pacing; cross-process quota coordination is deferred.
 

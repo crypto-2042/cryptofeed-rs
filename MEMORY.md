@@ -957,3 +957,10 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   Do not invent Binance weight tiers for these venues. Reopen endpoint-window
   accounting when adding routes or relaxing pacing. Header feedback/adaptive WS
   sends remain open; distributed coordination is explicitly deferred.
+
+- Binance minute header feedback (2026-10-12) is an independent 60-second
+  receipt-time usage floor, not a replacement/refund of the local rolling ledger.
+  Later admissions add cost; smaller/equal observations do not extend or reduce
+  it. Keep the USD-M bookTicker inaccurate-header exclusion and separate USD-M
+  funding window. Apply valid headers before status/body checks; replay bypasses
+  this live path. No server-clock reset or distributed quota guarantee is implied.

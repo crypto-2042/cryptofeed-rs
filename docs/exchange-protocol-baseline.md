@@ -816,3 +816,12 @@ shape changed; [the audit](replay-contract-audit.md) distinguishes clock domains
 request-count budgets for Bybit v5, Bitget v3, OKX v5 and Gate v4. Existing
 process-wide one-second HTTP admission is stricter; Binance endpoint weights
 remain a separate model. No protocol payload or parser change was needed.
+
+## Binance minute used-weight verification — 2026-10-12
+
+[Weight guide](http-weights.md#minute-used-weight-feedback--2026-10-12) records
+verified Spot/USD-M/COIN-M IP used-weight header semantics and the explicit
+USD-M bookTicker inaccurate-header exception. The SDK retains an independent
+conservative 60-second floor alongside its local rolling ledger; this retention
+is SDK policy, not a claimed server reset. Synthetic references and focused
+assertions were updated together. No market-data schema or parser changed.

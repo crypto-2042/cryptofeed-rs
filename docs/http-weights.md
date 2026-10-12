@@ -71,8 +71,46 @@ it is not a traffic capture or a server saturation test.
 
 [Other venue public count limits](public-http-frequency-audit.md) are now audited
 against existing paced HTTP admission and verified native cooldowns; no Binance
-weight table is inferred for them. Header used-weight feedback and fairness
-remain open. Cross-process/machine quotas are explicitly deferred. Verified native
+weight table is inferred for them. Minute used-weight feedback is now implemented below; fairness remains open. Cross-process/machine quotas are explicitly deferred. Verified native
 WS failures and opt-in proven minimum connection packing are now implemented.
 These windows bound SDK admissions, not server receipt times; no live limit was
 intentionally triggered.
+
+## Minute used-weight feedback — 2026-10-12
+
+The shared live HTTP path now consumes exactly one unsigned decimal
+`X-MBX-USED-WEIGHT-1M` header from known Binance public routes, including the
+Spot data host. [Spot](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#ip-limits),
+[USD-M](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info)
+and [COIN-M](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/general-info)
+document this as IP used weight. The [USD-M bookTicker contract](https://developers.binance.info/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data)
+explicitly marks that endpoint's header inaccurate: it is ignored, while its
+normal local request cost is still charged. USD-M funding's separate five-minute
+request-count bucket does not consume minute weight feedback.
+
+Feedback creates an independent conservative usage floor for the corresponding
+Spot or shared futures bucket. It does not replace, clear or refund the rolling
+local request ledger. An increasing observation retains its floor for 60 seconds
+from local header receipt; admitted requests during retention add their costs to
+that floor. Smaller/equal observations, including server resets and out-of-order
+responses, neither reduce nor extend the floor. On expiry only the floor clears;
+unexpired local requests still constrain admission. This deliberately may wait
+longer or count overlapping activity conservatively. The header provides no
+trusted window identity here, so no server-reset timestamp or synchronized wall
+clock is inferred. The effective ResourcePolicy ceiling still applies.
+
+Feedback is applied before checking HTTP status, content length or JSON, because
+a failed response can still report consumed capacity. Missing, duplicate,
+non-digit, signed, fractional, overflowing values and unrelated interval headers
+are ignored. Values through u32::MAX are accepted and conservatively delay new
+admissions even when above capacity. HTTP status/native errors and Retry-After
+keep their own semantics. Waiters release both permits and can be cancelled.
+Offline HTTP payload replay bypasses this live path and does not feed quota state.
+
+Eight new offline tests cover later charges/stricter callers, monotonic samples,
+expiry with a surviving local ledger, exact types/scopes/duplicates/maximum value,
+futures pool isolation, HTTP success/error/malformed-body handling, cancellation,
+permit release and unrelated venue progress. The synthetic reference is
+`sample_data/binance.http.used-weight.jsonl`; no live quota was triggered.
+Feedback observes only responses received by this process; it does not coordinate
+other clients or make a shared-IP guarantee. Adaptive WS send policy remains open.

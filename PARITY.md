@@ -1046,3 +1046,26 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Validation: 801 all-feature workspace tests passed, plus strict Clippy/rustdoc,
   no-default workspace compilation, formatting and diff checks. Production
   behavior/dependencies are unchanged; no new live or fresh MSRV run is claimed.
+
+## Binance minute used-weight feedback — 2026-10-12
+
+- Live shared HTTP responses now apply validated X-MBX-USED-WEIGHT-1M feedback
+  before status/body validation. Spot/data-host and futures retain separate
+  buckets; USD-M bookTicker explicitly ignores its documented inaccurate header.
+  USD-M funding keeps its independent five-minute request-count semantics.
+- An independent 60-second receipt-time floor only tightens local rolling usage;
+  later admissions charge both. Smaller/equal/duplicate/malformed feedback cannot
+  refund or prolong the floor. Expiry retains unexpired local ledger entries.
+  This conservative SDK policy does not claim server-reset synchronization.
+- Eight new focused regressions cover scoped ceilings, later requests, monotonic
+  samples, expiry, local-ledger survival, types/scopes/maxima, futures isolation,
+  failed responses, permit release, cancellation and other-venue progress.
+- [Guide](docs/http-weights.md#minute-used-weight-feedback--2026-10-12) and
+  sanitized synthetic references record current official semantics. No live
+  load or shared-IP guarantee; adaptive WS send quotas remain open and
+  distributed coordination stays explicitly deferred.
+- Final validation passed: 809 all-feature workspace tests, strict Clippy/rustdoc,
+  default/no-default compilation, minimal focused regressions and fresh-resolution
+  Rust 1.85 all-target check. Fresh resolution updated unicode-ident 1.0.26 to
+  1.0.27; full tests/lints/docs were repeated successfully on that dependency set.
+  Cargo.lock remains ignored. Formatting, diff and synthetic JSONL checks passed.

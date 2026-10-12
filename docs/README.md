@@ -64,7 +64,7 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
   limits for current non-Binance routes and the existing pacing boundary.
 
 - [Binance HTTP weights](http-weights.md): current endpoint tiers, rolling windows,
-  stricter shared usage thresholds and replay/cancellation semantics.
+  minute header feedback, stricter shared usage thresholds and replay/cancellation semantics.
 - [Replay contract audit](replay-contract-audit.md): model/delivery/cache clock
   domains, exact cursor consumption, request cohorts and terminal state evidence.
 - [Proven minimum connection planning](minimum-connections.md): optional exact
