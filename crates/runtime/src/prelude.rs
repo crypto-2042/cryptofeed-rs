@@ -101,7 +101,8 @@ pub use crate::recording::raw::{
 
 #[cfg(feature = "recording")]
 pub use crate::recording::raw::{
-    RawReplayEvent, RawReplayItem, RawReplayOptions, RawReplaySummary,
+    RawMergeInput, RawMergeItem, RawMergeOptions, RawMergeSummary, RawReplayEvent, RawReplayItem,
+    RawReplayOptions, RawReplaySummary, replay_raw_merge,
 };
 
 #[cfg(feature = "recording")]

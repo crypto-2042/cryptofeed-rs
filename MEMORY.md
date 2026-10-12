@@ -906,3 +906,11 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   is SDK-owned: known RFC/configuration failures terminal, normal/unknown closes
   retry; OKX private codes are not guessed for another exchange. Caller shutdown
   wins. Local handshake tests need loopback bind permission, not external access.
+
+- Independent raw merging is explicit replay composition, not raw-file concatenation:
+  caller offsets define the common elapsed axis; ties follow input order. Always
+  retain capture_id alongside native session/FeedIdentity/sequence. No wall-clock
+  synchronization or duplicate-event removal is inferred.
+- Single and merged replay use one native state implementation, with state isolated
+  per capture. File/series EOF and manifests must all certify; global budgets
+  apply across inputs, and streaming callbacks cannot be rolled back on late failure.

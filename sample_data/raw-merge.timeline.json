@@ -1,0 +1,52 @@
+{
+  "captures": [
+    {
+      "id": "a",
+      "offset_ns": 0
+    },
+    {
+      "id": "b",
+      "offset_ns": 5000000000
+    }
+  ],
+  "local_observation_times_ns": [
+    0,
+    10000000000,
+    20000000000,
+    30000000000
+  ],
+  "callback_order": [
+    [
+      "a",
+      0,
+      "started"
+    ],
+    [
+      "b",
+      5000000000,
+      "started"
+    ],
+    [
+      "a",
+      20000000000,
+      "market"
+    ],
+    [
+      "b",
+      25000000000,
+      "market"
+    ],
+    [
+      "a",
+      30000000000,
+      "ended"
+    ],
+    [
+      "b",
+      35000000000,
+      "ended"
+    ]
+  ],
+  "observations": 8,
+  "models": 2
+}

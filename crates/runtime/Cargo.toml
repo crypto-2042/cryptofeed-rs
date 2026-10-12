@@ -217,3 +217,7 @@ required-features = ["recording", "orderbook"]
 
 [package.metadata.docs.rs]
 all-features = true
+
+[[example]]
+name = "raw_merge"
+required-features = ["recording"]

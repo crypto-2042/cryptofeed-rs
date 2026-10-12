@@ -405,6 +405,8 @@ original model clocks, immediate/recorded timing and explicit failure/stop behav
 Broadcast lag is an error; incomplete files are rejected. A separate
 [sanitized WS observation channel](docs/raw-capture.md) now captures text before
 control/market parsing. [Raw WS files](docs/raw-recording.md) now persist and validate those observations.
+[Independent capture replay](docs/raw-merge.md) now merges raw files/series on
+explicit elapsed offsets, with capture-scoped identity and isolated native state.
 [Raw series rotation](docs/raw-series.md) preserves one logical stream across
 ordered files, with bounded manifests and continuous native replay.
 [Native parser/state replay](docs/raw-replay.md) now supports five public families

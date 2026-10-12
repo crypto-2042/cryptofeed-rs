@@ -585,3 +585,10 @@ references. Real local loopback servers reject upgrades and CONNECT, then test
 connection-slot reuse; no exchange service is called. These tests require local
 socket-bind permission. Paused clocks verify retry floors and typed close policy;
 in-memory WS pairs verify readiness withdrawal and clean shutdown precedence.
+
+Independent raw-merge tests reuse the native replay engine and existing public
+payload shapes. `raw-merge.timeline.json` records synthetic common-axis ordering,
+not clock synchronization inferred from captures. Tests cover five native families,
+colliding session IDs, local L2 state and consumed Binance/Gate HTTP causal links,
+rotated manifest certification, total resource budgets and terminal cancellation.
+No exchange/network bootstrap is created by merged replay.

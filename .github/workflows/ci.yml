@@ -31,6 +31,11 @@ jobs:
       - run: cargo check --workspace --no-default-features
       - run: cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features
       - run: cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features
+      - name: Check independent raw composition boundaries
+        run: |
+          cargo test -p cryptofeed-rs --lib independent_merge --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib independent_merge --no-default-features --features recording,trade
+          cargo test -p cryptofeed-rs --lib independent_merge --no-default-features --features recording,trade,orderbook
       - name: Check WebSocket lifecycle failures independently
         run: |
           cargo test -p cryptofeed-rs --lib ws_lifecycle --no-default-features

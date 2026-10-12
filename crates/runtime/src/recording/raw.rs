@@ -1,5 +1,7 @@
 //! Bounded, sanitized observation of actual public WS text before parsing.
 pub mod file;
+mod merge;
+pub use merge::{RawMergeInput, RawMergeItem, RawMergeOptions, RawMergeSummary, replay_raw_merge};
 pub mod replay;
 use crate::{exchange::ExchangeFeed, feed::FeedIdentity};
 use cryptofeed_core::{

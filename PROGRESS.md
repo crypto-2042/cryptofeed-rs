@@ -1287,3 +1287,27 @@ feature boundaries.
 - Gates passed: 762 all-feature workspace tests, strict Clippy/rustdoc, no-default
   and each isolated data/recording feature compile, minimal lifecycle regressions
   and fresh-resolution Rust 1.85 all-target compilation.
+
+## Independent raw capture replay — 2026-10-12
+
+- Added replay_raw_merge and file/series inputs with caller-defined elapsed
+  offsets, stable input-order ties and explicit capture identity namespaces.
+  Native session IDs/sequences/model clocks are preserved, not renumbered.
+- Shared the existing native replay state machine while retaining independent
+  parser/book/ticker/HTTP pending state per capture. Reconnect and v2 Processing
+  causality remain local; no transport/catalog/network fallback is constructed.
+- Bounded to 16 inputs, one head each, aggregate observation/logical byte/model
+  budgets and existing per-source validation. Every prefix/manifest EOF must
+  certify; errors/shutdown consume inputs, and streaming effects are not rolled back.
+- Twelve new offline regressions cover five families, identical session/book IDs,
+  Binance/Gate consumed HTTP causality, clocks/ties, prefix ends, rotation, budgets,
+  late corruption, overflow and cancellation/callback failures. Added an offline
+  CLI example and [usage guide](docs/raw-merge.md). Broader replay edge audits,
+  minimum packing and adaptive/distributed quotas remain unfinished.
+- Gates passed: 774 all-feature workspace tests, strict Clippy/rustdoc, no-default,
+  every isolated data/recording feature and recording/data combination compile,
+  minimal merge tests and fresh-resolution Rust 1.85 all-target check.
+- Offline CLI smoke replayed the same sanitized v2 Binance reference under two
+  capture IDs with a five-second offset: 14 observations, 6 L2 models, 7052 logical
+  bytes and both EOFs certified. This is synthetic composition evidence, not two
+  independent live captures or a throughput test.

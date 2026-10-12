@@ -406,3 +406,11 @@ or credentials are present.
 RFC close meanings, OKX-specific codes and retry choices. Only public delay/code
 fields are included; no credentials, cookies, real private data or live ban
 evidence. Loopback upgrade/CONNECT tests verify transport behavior independently.
+
+## 2026-10-12 independent raw merge timeline
+
+`raw-merge.timeline.json` is a synthetic scheduling reference matching inline
+independent_merge alignment tests. It contains only offsets/lifecycle labels and
+counts, not an exchange capture. Native payloads in merge tests reuse already
+asserted raw replay/consumed HTTP fixtures; no parser expectation or wire shape
+changed. See [identity, bounds and clocks](../docs/raw-merge.md).

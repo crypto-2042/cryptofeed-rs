@@ -96,7 +96,7 @@ callbacks may perform user-chosen actions, but the library replay path itself
 opens no network connection or HTTP client request.
 
 The larger objective still includes broader L2
-replay edge audits, independent-capture merge, broader storage
+replay edge audits, broader storage
 and resource policy work. [Sinks](sinks.md), [trade/custom aggregation](aggregation.md)
 and [NBBO](nbbo.md) are implemented separately. Consumed Binance/Gate bootstrap replay is now implemented in v2. WS-native state replay does not certify those remaining paths.
 
@@ -112,3 +112,7 @@ across ordered physical parts. It does not merge unrelated capture origins.
 [Public HTTP result recording](http-recording.md) now covers shared directory/
 REST/bootstrap calls separately. [HTTP payload replay](http-replay.md) now injects these responses into existing
 directory/REST APIs. It does not replace consumed-session L2 causality.
+
+[Independent capture replay](raw-merge.md) now composes raw files/series with
+explicit offsets, per-capture native/HTTP state, retained local identity and
+aggregate budgets. Rotation itself still represents one capture.

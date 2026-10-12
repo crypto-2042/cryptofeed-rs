@@ -65,8 +65,9 @@ against an actor rewriting data and the manifest. No new dependency is required.
 Privacy, protocol version, global sequence/elapsed time, session lifecycle,
 frozen contexts, causal HTTP/Processing links and native parser/bridge rules are
 still validated by the original codec. A checksum does not replace those gates.
-Independent captures are not merged: different origins, IDs, clocks and sequences
-need a separate explicit policy, not implicit file concatenation.
+Rotation does not merge independent captures. [Explicit merged replay](raw-merge.md)
+now composes unrelated files/series with caller-provided offsets and namespaced
+identity; it never treats them as an implicit concatenation.
 
 ## Bounds and failure
 

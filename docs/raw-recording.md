@@ -61,8 +61,9 @@ health, peer close acknowledgement or exchange-wide completeness.
 A standalone segment starts at the beginning of a fresh capture channel.
 [Raw series rotation](raw-series.md) now stores one logical v2 stream across
 ordered physical parts, preserving session/causal state for continuous replay.
-Mid-stream resumption, independent-capture merging and implicit session/state
-reconstruction remain unsupported. Reopening starts the logical capture again.
+Mid-stream resumption and implicit session/state reconstruction remain unsupported.
+Independent captures use [explicit merged replay](raw-merge.md); reopening a
+single recording starts its logical capture again.
 
 ## Validation, privacy and bounds
 
@@ -109,3 +110,7 @@ A synthetic segment reference is in sample_data/recording.raw-ws.v1.jsonl with m
 [Public HTTP result recording](http-recording.md) now covers shared directory/
 REST/bootstrap calls separately. [HTTP payload replay](http-replay.md) now injects these responses into existing
 directory/REST APIs. It does not replace consumed-session L2 causality.
+
+[Independent capture replay](raw-merge.md) now composes raw files/series with
+explicit offsets, per-capture native/HTTP state, retained local identity and
+aggregate budgets. Rotation itself still represents one capture.

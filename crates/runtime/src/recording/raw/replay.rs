@@ -1,5 +1,5 @@
 //! Offline native normalization, with fresh per-connection parser/book state.
-use super::{RawObservationKind, RawRecordingReader, RawSessionInfo};
+use super::{RawObservation, RawObservationKind, RawPayload, RawRecordingReader, RawSessionInfo};
 use crate::{
     feed::{FeedEvent, FeedIdentity},
     recording::{RecordingSummary, ReplayOptions, ReplayTiming},
@@ -34,9 +34,9 @@ pub struct RawReplaySummary {
 }
 #[derive(Clone, Copy, Debug)]
 pub struct RawReplayOptions {
-    delivery: ReplayOptions,
-    maximum_batch: usize,
-    maximum_models: u64,
+    pub(super) delivery: ReplayOptions,
+    pub(super) maximum_batch: usize,
+    pub(super) maximum_models: u64,
 }
 impl Default for RawReplayOptions {
     fn default() -> Self {
@@ -93,9 +93,7 @@ where
     F: FnMut(RawReplayItem) -> Fut,
     Fut: Future<Output = Result<()>>,
 {
-    let mut sessions = HashMap::new();
-    let mut pending = HashMap::new();
-    let mut models = 0u64;
+    let mut state = ReplayState::default();
     let started = tokio::time::Instant::now();
     loop {
         if *shutdown.borrow() {
@@ -103,9 +101,10 @@ where
         }
         let next = tokio::select! {biased;_=super::super::stopped(&mut shutdown)=>return Ok(None),result=reader.read_observation()=>result?};
         let Some(record) = next else {
-            return Ok(reader
-                .summary()
-                .map(|recording| RawReplaySummary { recording, models }));
+            return Ok(reader.summary().map(|recording| RawReplaySummary {
+                recording,
+                models: state.models,
+            }));
         };
         if options.delivery.timing == ReplayTiming::Recorded {
             let deadline = started
@@ -115,6 +114,30 @@ where
                 })?;
             tokio::select! {biased;_=super::super::stopped(&mut shutdown)=>return Ok(None),_=tokio::time::sleep_until(deadline)=>{}}
         }
+        let output = state.process(record, options).await?;
+        for item in output {
+            let future =
+                std::panic::AssertUnwindSafe(async { callback(item).await }).catch_unwind();
+            tokio::select! {biased;
+                _=super::super::stopped(&mut shutdown)=>return Ok(None),
+                result=tokio::time::timeout(options.delivery.callback_deadline,future)=>result.map_err(|_|Error::Protocol("raw replay callback deadline".into()))?.map_err(|_|Error::Protocol("raw replay callback panicked".into()))??,
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct ReplayState {
+    sessions: HashMap<u64, crate::runtime::RawParserSession>,
+    pending: HashMap<u64, (u64, RawPayload, f64)>,
+    pub(super) models: u64,
+}
+impl ReplayState {
+    pub(super) async fn process(
+        &mut self,
+        record: RawObservation,
+        options: RawReplayOptions,
+    ) -> Result<Vec<RawReplayItem>> {
         let id = record.session.session_id;
         let mut output = Vec::new();
         match record.kind {
@@ -124,20 +147,21 @@ where
                     options.maximum_batch,
                     record.version >= 2,
                 )?;
-                sessions.insert(id, session);
+                self.sessions.insert(id, session);
                 output.push(RawReplayItem::SessionStarted(record.session));
             }
             RawObservationKind::Received(payload) if record.version == 1 => {
-                let session = sessions
+                let session = self
+                    .sessions
                     .get_mut(&id)
                     .ok_or_else(|| Error::MalformedData("raw parser session absent".into()))?;
                 let parsed = session
                     .process(&payload, record.observed_ts, options.maximum_batch)
                     .await?;
-                if parsed.len() as u64 > options.maximum_models.saturating_sub(models) {
+                if parsed.len() as u64 > options.maximum_models.saturating_sub(self.models) {
                     return Err(Error::Protocol("raw replay total model budget".into()));
                 }
-                models += parsed.len() as u64;
+                self.models += parsed.len() as u64;
                 for event in parsed {
                     output.push(RawReplayItem::Market(RawReplayEvent {
                         session_id: id,
@@ -148,10 +172,11 @@ where
                 }
             }
             RawObservationKind::Received(payload) => {
-                pending.insert(id, (record.sequence, payload, record.observed_ts));
+                self.pending
+                    .insert(id, (record.sequence, payload, record.observed_ts));
             }
             RawObservationKind::Processing { received_sequence } => {
-                let (sequence, payload, time) = pending.remove(&id).ok_or_else(|| {
+                let (sequence, payload, time) = self.pending.remove(&id).ok_or_else(|| {
                     Error::MalformedData("missing recorded WS processing input".into())
                 })?;
                 if sequence != received_sequence {
@@ -159,16 +184,17 @@ where
                         "recorded WS processing reference mismatch".into(),
                     ));
                 }
-                let session = sessions
+                let session = self
+                    .sessions
                     .get_mut(&id)
                     .ok_or_else(|| Error::MalformedData("raw parser session absent".into()))?;
                 let parsed = session
                     .process(&payload, time, options.maximum_batch)
                     .await?;
-                if parsed.len() as u64 > options.maximum_models.saturating_sub(models) {
+                if parsed.len() as u64 > options.maximum_models.saturating_sub(self.models) {
                     return Err(Error::Protocol("raw replay total model budget".into()));
                 }
-                models += parsed.len() as u64;
+                self.models += parsed.len() as u64;
                 for event in parsed {
                     output.push(RawReplayItem::Market(RawReplayEvent {
                         session_id: id,
@@ -185,16 +211,17 @@ where
                 payload,
                 received_ts,
             } => {
-                let session = sessions
+                let session = self
+                    .sessions
                     .get_mut(&id)
                     .ok_or_else(|| Error::MalformedData("raw parser session absent".into()))?;
                 let parsed = session
                     .snapshot(&symbol, depth, &payload, received_ts, options.maximum_batch)
                     .await?;
-                if parsed.len() as u64 > options.maximum_models.saturating_sub(models) {
+                if parsed.len() as u64 > options.maximum_models.saturating_sub(self.models) {
                     return Err(Error::Protocol("raw replay total model budget".into()));
                 }
-                models += parsed.len() as u64;
+                self.models += parsed.len() as u64;
                 for event in parsed {
                     output.push(RawReplayItem::Market(RawReplayEvent {
                         session_id: id,
@@ -205,8 +232,8 @@ where
                 }
             }
             RawObservationKind::Closed { clean } => {
-                sessions.remove(&id);
-                pending.remove(&id);
+                self.sessions.remove(&id);
+                self.pending.remove(&id);
                 output.push(RawReplayItem::SessionEnded {
                     session: record.session,
                     clean,
@@ -214,19 +241,12 @@ where
             }
             RawObservationKind::Sent(_) => {}
         }
-        for item in output {
-            let future =
-                std::panic::AssertUnwindSafe(async { callback(item).await }).catch_unwind();
-            tokio::select! {biased;
-                _=super::super::stopped(&mut shutdown)=>return Ok(None),
-                result=tokio::time::timeout(options.delivery.callback_deadline,future)=>result.map_err(|_|Error::Protocol("raw replay callback deadline".into()))?.map_err(|_|Error::Protocol("raw replay callback panicked".into()))??,
-            }
-        }
+        Ok(output)
     }
 }
 
 #[cfg(all(test, feature = "trade"))]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         exchange::ExchangeFeedBuilder,
@@ -240,7 +260,7 @@ mod tests {
         symbol::Symbol,
     };
     use serde_json::{Value, json};
-    fn feed(exchange: ExchangeId) -> RawFeedInfo {
+    pub(crate) fn feed(exchange: ExchangeId) -> RawFeedInfo {
         let native = match exchange {
             ExchangeId::Okx => "BTC-USDT",
             ExchangeId::Gateio => "BTC_USDT",
@@ -254,7 +274,7 @@ mod tests {
                 .build(),
         )
     }
-    fn trade(exchange: ExchangeId) -> Value {
+    pub(crate) fn trade(exchange: ExchangeId) -> Value {
         match exchange {
             ExchangeId::Binance => {
                 json!({"e":"aggTrade","s":"BTCUSDT","a":1,"p":"100.01","q":"0.25","T":1000,"m":false})
@@ -274,7 +294,11 @@ mod tests {
             _ => unreachable!(),
         }
     }
-    async fn segment(info: RawFeedInfo, messages: Vec<Value>, reconnect: bool) -> Vec<u8> {
+    pub(crate) async fn segment(
+        info: RawFeedInfo,
+        messages: Vec<Value>,
+        reconnect: bool,
+    ) -> Vec<u8> {
         let (capture, mut input) = raw_capture_channel(64, 64 * 1024).unwrap();
         let mut session = capture.session(info.clone()).unwrap();
         for (i, message) in messages.into_iter().enumerate() {

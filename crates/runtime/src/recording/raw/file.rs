@@ -417,6 +417,9 @@ impl<R: AsyncBufRead + Unpin> RawRecordingReader<R> {
     pub fn summary(&self) -> Option<RecordingSummary> {
         self.finished
     }
+    pub(crate) fn read_bytes(&self) -> u64 {
+        self.bytes
+    }
     async fn line(&mut self) -> Result<Option<Vec<u8>>> {
         bounded_line(&mut self.reader, &mut self.bytes, self.limits.records).await
     }

@@ -380,6 +380,9 @@ impl RawSeriesReader {
     pub fn summary(&self) -> Option<RecordingSummary> {
         self.summary
     }
+    pub(crate) fn read_bytes(&self) -> u64 {
+        self.inner.read_bytes()
+    }
     /// Number of parts declared by the bounded manifest, not EOF certification.
     pub fn part_count(&self) -> usize {
         self.inner.reader.get_ref().parts.len()
