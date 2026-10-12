@@ -302,3 +302,41 @@ async fn failure_without_a_queued_record_wakes_an_already_waiting_receiver() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn codec_roundtrip_preserves_fixed_ci_timestamp_bits() {
+    // Exact binary floats observed in Linux CI; do not replace with tolerances.
+    for observed_ts in [
+        1791785796.2712793_f64,
+        1791785924.688584_f64,
+        1791785796.292915_f64,
+    ] {
+        let row = HttpObservation {
+            sequence: 1,
+            elapsed_ns: 0,
+            observed_ts,
+            kind: HttpObservationKind::Request {
+                request_id: 1,
+                exchange: ExchangeId::Okx,
+                url: URL.into(),
+            },
+        };
+        let mut bytes = Vec::new();
+        let mut writer = HttpRecordingWriter::new(&mut bytes, RecordingLimits::default())
+            .await
+            .unwrap();
+        writer.append(row).await.unwrap();
+        writer.finish(RecordingEnd::Stopped).await.unwrap();
+        let mut reader = HttpRecordingReader::new(bytes.as_slice(), RecordingLimits::default());
+        assert_eq!(
+            reader
+                .next_observation()
+                .await
+                .unwrap()
+                .unwrap()
+                .observed_ts
+                .to_bits(),
+            observed_ts.to_bits()
+        );
+    }
+}

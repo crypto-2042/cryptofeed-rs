@@ -981,3 +981,13 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Quote single-line YAML run commands when Rust filters end in `::` before a
   space; otherwise the workflow fails to parse and GitHub may create no jobs/logs.
   YAML syntax validation is not a successful remote CI run; inspect execution.
+
+- l2_book_cross_check is opt-in (default false), checks exact best bid >= ask
+  after native sync/filtering and before every output. Reject by withdrawing
+  the affected native/local/recovery/readiness state and propagating recoverable
+  MalformedData; reconnect must start fresh. Keep native integrity checks.
+  Raw metadata records true only; old/default records decode false; replay
+  restores the same policy. Maximum delivered depth remains separate work.
+- Keep serde_json float_roundtrip alongside arbitrary_precision. Real Linux CI
+  timestamp values reproduce one-bit f64 deserialization loss without it through
+  HTTP/raw recording. Preserve exact equality/to_bits checks, never tolerances.

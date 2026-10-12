@@ -834,3 +834,11 @@ assertions were updated together. No market-data schema or parser changed.
 retain 250 ms text spacing; native limits are not auto-raised. Spot server Ping
 cadence is 20 seconds; Binance futures retain three minutes. Synthetic references
 and focused assertions were added together; market schemas remain unchanged.
+
+## Optional crossed-L2 policy — 2026-10-12
+
+[Guide](book-cross-check.md) separates the Python best-bid >= best-ask semantic
+check from native sequence/checksum rules. The new Bybit synthetic replay case
+uses the currently verified official snapshot/delta fields and zero-size delete
+contract; equality is a deliberate SDK-policy test, not live exchange evidence.
+No native parser, endpoint or bridge rule changed.

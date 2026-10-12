@@ -1470,3 +1470,30 @@ feature boundaries.
   Clippy/rustdoc and fresh Rust 1.85. No production behavior changed this step.
 - Remote prior run failed without jobs/logs; the workflow repair needs a new
   remote execution before claiming GitHub CI green.
+
+## Optional crossed-L2 policy and receipt-clock codec repair — 2026-10-12
+
+- Implemented orderbook-feature l2_book_cross_check(true), disabled by default.
+  Exact best bid >= best ask checks the complete reconstructed state after
+  native sync/filtering, before handlers/counters/broadcast/recovery publication.
+  Rejection clears the affected local/native state and recovery/readiness, then
+  propagates recoverable MalformedData through all five dispatch/session paths.
+- Native raw metadata records the enabled boolean; old/default-false records
+  retain their shape and default false. Replay restores the policy and rejects
+  crossed native deltas before model emission, without online fallback.
+- Nine focused regressions cover precision, equality, empty/deleted/unsorted
+  sides, sparse planning, default compatibility, all venues, publication fences,
+  recovery/epochs, symbol/feed isolation, retries and native Bybit replay.
+- Previous repaired CI ran five jobs: package/security/MSRV passed, while
+  quality/features exposed f64 timestamp roundtrip drift in HTTP/raw recording.
+  A fixed actual-codec test reproduces one-bit loss locally. Enabling
+  serde_json/float_roundtrip preserves exact bits alongside arbitrary_precision;
+  the new and existing exact assertions remain strict.
+- [Policy](docs/book-cross-check.md), source references, synthetic examples and
+  [requirement audit](docs/python-alignment-audit.md) are updated. Maximum
+  delivered depth remains required; no overall completion or live run is claimed.
+- Gates passed: 827 all-feature workspace tests, strict Clippy/rustdoc, default/
+  no-default and all ten isolated feature builds/boundary tests, focused minimal
+  orderbook/recording policy and fixed-clock tests, and fresh Rust 1.85 all-target
+  compilation. Fresh dependency resolution matches the tested set. Formatting,
+  diff, YAML and synthetic JSONL checks passed; remote rerun remains necessary.

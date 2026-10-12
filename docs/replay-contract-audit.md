@@ -78,3 +78,12 @@ admission/cooldown timers or arbitrary original cancellation/coalescing races.
 These previously documented unsupported simulations are not silently inferred
 from elapsed observations. New protocol/runtime behavior must retain the audit
 and add targeted regression evidence when these contracts change.
+
+## Exact floating receipt-clock codec follow-up — 2026-10-12
+
+GitHub Linux run 38211639919 exposed a one-bit f64 change when HTTP/raw receipt
+clocks were deserialized. Fixed values reproduce it locally through the actual
+HTTP codec. Workspace serde_json now enables float_roundtrip alongside existing
+arbitrary_precision. The regression compares to_bits and existing full-row/raw
+series equality remains strict. This preserves captured clock values; it does
+not add historical network/admission-clock simulation.

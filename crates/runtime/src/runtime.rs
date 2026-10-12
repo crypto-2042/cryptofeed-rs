@@ -11,6 +11,8 @@ mod weights;
 pub(crate) use raw_replay::RawParserSession;
 pub mod connection;
 mod control;
+#[cfg(all(test, feature = "orderbook"))]
+mod cross_check_tests;
 #[cfg(all(test, feature = "trade"))]
 pub(crate) use control::tests::start as test_managed_runtime;
 pub(crate) mod planning;
@@ -1023,7 +1025,7 @@ where
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
+async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -1043,7 +1045,7 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
         #[cfg(feature = "orderbook")]
         BinanceEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
         #[cfg(feature = "orderbook")]
-        BinanceEvent::L2Book(book) => dispatch_l2_book(feed, book).await,
+        BinanceEvent::L2Book(book) => dispatch_l2_book(feed, book).await?,
         #[cfg(feature = "openinterest")]
         BinanceEvent::OpenInterest(open_interest) => {
             dispatch_open_interest(feed, open_interest).await;
@@ -1053,10 +1055,11 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
         #[cfg(feature = "trade")]
         BinanceEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
+async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -1075,22 +1078,23 @@ async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
         BitgetEvent::Liquidation(liquidation) => dispatch_liquidation(feed, liquidation).await,
         #[cfg(feature = "orderbook")]
         BitgetEvent::L2Book(book) => {
-            dispatch_bitget_l2_book(feed, book).await;
+            dispatch_bitget_l2_book(feed, book).await?;
         }
         #[cfg(feature = "ticker")]
         BitgetEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
         BitgetEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_bitget_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_bitget_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
+async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -1115,22 +1119,23 @@ async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
         BybitEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
         #[cfg(feature = "orderbook")]
         BybitEvent::L2Book(book) => {
-            dispatch_bybit_l2_book(feed, book).await;
+            dispatch_bybit_l2_book(feed, book).await?;
         }
         #[cfg(feature = "ticker")]
         BybitEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
         BybitEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_bybit_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_bybit_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
+async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -1155,17 +1160,18 @@ async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
         OkxEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
         #[cfg(feature = "orderbook")]
         OkxEvent::L2Book(book) => {
-            dispatch_okx_l2_book(feed, book).await;
+            dispatch_okx_l2_book(feed, book).await?;
         }
         #[cfg(feature = "ticker")]
         OkxEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
         OkxEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
+async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -1179,7 +1185,7 @@ async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
             dispatch_index_price(feed, index_price).await;
         }
         #[cfg(feature = "orderbook")]
-        GateioEvent::L2Book(book) => dispatch_l2_book(feed, book).await,
+        GateioEvent::L2Book(book) => dispatch_l2_book(feed, book).await?,
         #[cfg(feature = "orderbook")]
         GateioEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
         #[cfg(feature = "markprice")]
@@ -1195,16 +1201,17 @@ async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
         #[cfg(feature = "trade")]
         GateioEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_gateio_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_gateio_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_okx_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_okx_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -1215,7 +1222,7 @@ async fn process_binance_text_message(
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
     for event in BinanceAdapter::parse_messages(&message, received_ts) {
-        dispatch_binance_event(feed, event).await;
+        dispatch_binance_event(feed, event).await?;
     }
     Ok(())
 }
@@ -1229,7 +1236,7 @@ async fn process_binance_text_message_for_plan(
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
     let instrument = binance_instrument_for_message(plan, &message)?;
     for event in BinanceAdapter::parse_messages_for_instrument(&message, received_ts, instrument) {
-        dispatch_binance_event(feed, event).await;
+        dispatch_binance_event(feed, event).await?;
     }
     Ok(())
 }
@@ -1259,7 +1266,7 @@ fn binance_instrument_for_message<'a>(
 }
 
 #[cfg(feature = "orderbook")]
-fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Book) {
+fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Book) -> Result<()> {
     use cryptofeed_orderbook::L2Book;
 
     let symbol = match book {
@@ -1275,11 +1282,21 @@ fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Boo
         })
     });
     state.apply(book.clone());
+    let crossed = feed.l2_book_cross_check && state.is_crossed();
+    drop(states);
+    if crossed {
+        feed.clear_connection_books(std::slice::from_ref(book.symbol()));
+        return Err(Error::MalformedData(format!(
+            "crossed L2 book: {}",
+            book.symbol().as_str()
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_binance_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_binance_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg(feature = "candles")]
@@ -1450,11 +1467,11 @@ async fn dispatch_trade(feed: &ExchangeFeed, trade: cryptofeed_trade::Trade) {
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) {
+async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
     if !subscribed_to(feed, Channel::L2Book, book.symbol()) {
-        return;
+        return Ok(());
     }
-    apply_orderbook_state(feed, &book);
+    apply_orderbook_state(feed, &book)?;
     if let (Some(monitor), Some(tracker), Some(epoch)) = (
         &feed.monitor,
         &feed.connection_tracker,
@@ -1478,6 +1495,7 @@ async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) {
         })
         .await;
     }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
@@ -1681,7 +1699,7 @@ async fn poll_binance_snapshot_bootstraps(
                 }
             };
             for book in books {
-                dispatch_binance_l2_book(feed, book).await;
+                dispatch_binance_l2_book(feed, book).await?;
             }
             receivers.remove(&key);
         }
@@ -1834,7 +1852,7 @@ async fn apply_binance_sequenced_update(
 
         match maybe_book {
             Ok(Some(book)) => {
-                dispatch_binance_l2_book(feed, book).await;
+                dispatch_binance_l2_book(feed, book).await?;
             }
             Ok(None) => {}
             Err(err) => {
@@ -2037,7 +2055,7 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
         match bootstrap_gateio_book(feed, &key, snapshot, buffered.clone()) {
             Ok(books) => {
                 for book in books {
-                    dispatch_gateio_l2_book(feed, book).await;
+                    dispatch_gateio_l2_book(feed, book).await?;
                 }
                 receivers.remove(&key);
                 resnapshot_attempts.remove(&key);
@@ -2173,7 +2191,7 @@ async fn process_gateio_orderbook_message(
 
         match maybe_book {
             Ok(Some(book)) => {
-                dispatch_gateio_l2_book(feed, book).await;
+                dispatch_gateio_l2_book(feed, book).await?;
             }
             Ok(None) => {}
             Err(err) => {
@@ -2243,7 +2261,7 @@ async fn process_gateio_orderbook_message_for_plan(
             sync.apply_next_delta(update.clone())
         };
         match maybe_book {
-            Ok(Some(book)) => dispatch_gateio_l2_book(feed, book).await,
+            Ok(Some(book)) => dispatch_gateio_l2_book(feed, book).await?,
             Ok(None) => {}
             Err(Error::Parse(_)) => {
                 schedule_gateio_resync_for_plan(
@@ -2299,7 +2317,7 @@ async fn apply_gateio_full_push(
     }
     receivers.remove(&symbol_key);
     pending.remove(&symbol_key);
-    dispatch_gateio_l2_book(feed, L2Book::Snapshot(snapshot)).await;
+    dispatch_gateio_l2_book(feed, L2Book::Snapshot(snapshot)).await?;
     Ok(())
 }
 
@@ -2445,7 +2463,7 @@ async fn process_bitget_text_message(
         ));
     }
     for event in events {
-        dispatch_bitget_event(feed, event).await;
+        dispatch_bitget_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2573,7 +2591,7 @@ async fn process_bybit_message(
         )));
     }
     for event in events {
-        dispatch_bybit_event(feed, event).await;
+        dispatch_bybit_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2595,7 +2613,7 @@ async fn process_bybit_orderbook_message(
 
     if topic.starts_with("orderbook.1.") {
         for event in BybitAdapter::parse_messages_for_feed(feed, message, received_ts) {
-            dispatch_bybit_event(feed, event).await;
+            dispatch_bybit_event(feed, event).await?;
         }
         return Ok(true);
     }
@@ -2621,7 +2639,7 @@ async fn process_bybit_orderbook_message(
     };
 
     if let Some(book) = maybe_book {
-        dispatch_bybit_l2_book(feed, book).await;
+        dispatch_bybit_l2_book(feed, book).await?;
     }
 
     Ok(true)
@@ -2647,7 +2665,7 @@ async fn process_okx_text_message(feed: &ExchangeFeed, text: &str, received_ts: 
         return Ok(());
     }
     for event in OkxAdapter::parse_messages_for_feed(feed, &message, received_ts) {
-        dispatch_okx_event(feed, event).await;
+        dispatch_okx_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2670,7 +2688,7 @@ async fn process_gateio_text_message(
         )));
     }
     for event in GateioAdapter::parse_messages(&message, received_ts) {
-        dispatch_gateio_event(feed, event).await;
+        dispatch_gateio_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2711,7 +2729,7 @@ async fn process_gateio_text_message_for_plan(
                         received_ts,
                         instrument,
                     ) {
-                        dispatch_gateio_event(feed, event).await;
+                        dispatch_gateio_event(feed, event).await?;
                     }
                 }
             }
@@ -2721,7 +2739,7 @@ async fn process_gateio_text_message_for_plan(
     let instrument = GateioAdapter::instrument_for_message(&message, &plan.instruments)
         .ok_or_else(|| Error::Parse("gateio message instrument is not in the plan".to_owned()))?;
     for event in GateioAdapter::parse_messages_for_instrument(&message, received_ts, instrument) {
-        dispatch_gateio_event(feed, event).await;
+        dispatch_gateio_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2792,7 +2810,7 @@ async fn process_okx_orderbook_message(
         };
 
         if let Some(book) = maybe_book {
-            dispatch_okx_l2_book(feed, book).await;
+            dispatch_okx_l2_book(feed, book).await?;
         }
     }
 
@@ -2894,7 +2912,7 @@ async fn process_bitget_orderbook_message(
         };
 
         if let Some(book) = maybe_book {
-            dispatch_bitget_l2_book(feed, book).await;
+            dispatch_bitget_l2_book(feed, book).await?;
         }
     }
 
@@ -3290,18 +3308,26 @@ mod tests {
         let attempt = super::readiness::begin(&mut feed).unwrap();
         attempt.connected();
         let symbol = feed.symbols[0].clone();
-        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 1)).await;
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 1))
+            .await
+            .unwrap();
         assert!(handle.recover(identity, &symbol).snapshot.is_some());
         feed.invalidate_book_readiness("BTC-USDT");
-        super::dispatch_l2_book(&feed, crate::books::tests::book(false, 2)).await;
+        super::dispatch_l2_book(&feed, crate::books::tests::book(false, 2))
+            .await
+            .unwrap();
         assert!(handle.recover(identity, &symbol).snapshot.is_none());
-        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 3)).await;
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 3))
+            .await
+            .unwrap();
         assert!(handle.recover(identity, &symbol).snapshot.is_some());
         drop(attempt);
         assert!(handle.recover(identity, &symbol).snapshot.is_none());
         let attempt = super::readiness::begin(&mut feed).unwrap();
         attempt.connected();
-        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 4)).await;
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 4))
+            .await
+            .unwrap();
         assert_eq!(
             handle
                 .recover(identity, &symbol)
@@ -3312,7 +3338,9 @@ mod tests {
             2
         );
         monitor.lifecycle(FeedState::Stopping);
-        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 9)).await;
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 9))
+            .await
+            .unwrap();
         assert!(handle.recover(identity, &symbol).snapshot.is_none());
     }
 
@@ -3521,8 +3549,12 @@ mod tests {
         assert!(matches!(trade_event, BinanceEvent::Trade(_)));
         assert!(matches!(ticker_event, BinanceEvent::Ticker(_)));
 
-        super::dispatch_binance_event(&feed, trade_event).await;
-        super::dispatch_binance_event(&feed, ticker_event).await;
+        super::dispatch_binance_event(&feed, trade_event)
+            .await
+            .unwrap();
+        super::dispatch_binance_event(&feed, ticker_event)
+            .await
+            .unwrap();
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
         assert_eq!(*ticker_seen.lock().expect("lock"), 1);
@@ -3573,7 +3605,8 @@ mod tests {
                         received_ts: 2.0,
                     }),
                 )
-                .await;
+                .await
+                .unwrap();
             }
         }
         assert_eq!(*trade_seen.lock().unwrap(), 1);
@@ -3731,7 +3764,7 @@ mod tests {
         let event = BinanceAdapter::parse_message(&message, 1710000001.5).expect("book event");
         assert!(matches!(event, BinanceEvent::L2Book(_)));
 
-        super::dispatch_binance_event(&feed, event).await;
+        super::dispatch_binance_event(&feed, event).await.unwrap();
         assert_eq!(*seen.lock().expect("lock"), 1);
         let states = feed.orderbook_states.lock().expect("lock");
         let state = states.get("BTC-USDT").expect("btc-usdt state");
@@ -3792,7 +3825,7 @@ mod tests {
         let book = super::bootstrap_binance_book(&feed, "BTC-USDT", 100, snapshot, vec![])
             .expect("bootstrap")
             .expect("snapshot event");
-        super::dispatch_binance_l2_book(&feed, book).await;
+        super::dispatch_binance_l2_book(&feed, book).await.unwrap();
 
         assert_eq!(*seen.lock().expect("lock"), 1);
         let states = feed.orderbook_states.lock().expect("lock");
@@ -5415,7 +5448,7 @@ mod tests {
         let event = BitgetAdapter::parse_message(&message, 1710000001.5).expect("bitget ticker");
         assert!(matches!(event, BitgetEvent::Ticker(_)));
 
-        super::dispatch_bitget_event(&feed, event).await;
+        super::dispatch_bitget_event(&feed, event).await.unwrap();
         assert_eq!(*seen.lock().expect("lock"), 1);
     }
 
@@ -5466,7 +5499,7 @@ mod tests {
         let event = BitgetAdapter::parse_message(&message, 1710000001.5).expect("bitget book");
         assert!(matches!(event, BitgetEvent::L2Book(_)));
 
-        super::dispatch_bitget_event(&feed, event).await;
+        super::dispatch_bitget_event(&feed, event).await.unwrap();
         assert_eq!(*seen.lock().expect("lock"), 1);
         let states = feed.orderbook_states.lock().expect("lock");
         let state = states.get("BTC-USDT").expect("btc-usdt state");

@@ -34,6 +34,8 @@ pub struct RawFeedInfo {
     pub candle_interval: String,
     pub candle_policy: Option<String>,
     pub l2_book_depth: Option<u16>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub l2_book_cross_check: bool,
     pub l2_book_interval: Option<String>,
 }
 impl RawFeedInfo {
@@ -58,6 +60,16 @@ impl RawFeedInfo {
                 }
             },
             l2_book_depth: feed.l2_book_depth,
+            l2_book_cross_check: {
+                #[cfg(feature = "orderbook")]
+                {
+                    feed.l2_book_cross_check
+                }
+                #[cfg(not(feature = "orderbook"))]
+                {
+                    false
+                }
+            },
             l2_book_interval: feed.l2_book_interval.clone(),
         }
     }

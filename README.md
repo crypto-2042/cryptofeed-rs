@@ -160,7 +160,8 @@ Key API surface:
   `instrument(Symbol)` (typed product identity; option/MARGIN variants are
   retained for fixtures and future work but rejected in the 0.1 runtime),
   `exchange_symbol(...)` (explicit native mapping), `candles_interval(...)`,
-  `l2_book_depth(...)`, `l2_book_interval(...)` (Binance only), one
+  `l2_book_depth(...)`, `l2_book_interval(...)` (Binance only),
+  optional `l2_book_cross_check(true)` before publication ([policy](docs/book-cross-check.md)), one
   `*_handler(...)` per data category and `add_*_handler(...)` for additional
   serial callbacks. Each callback defaults to a five-second timeout; catchable panic or
   timeout continues to the next callback. See [handler semantics](docs/handlers.md).
@@ -508,8 +509,8 @@ repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 Managed add/remove/replace is available through a retained control handle.
 Readiness is available through the managed state API; remaining policy work is tracked in the
 [Python usage alignment plan](docs/python-usage-alignment.md).
-The [requirement audit](docs/python-alignment-audit.md) still identifies optional
-crossed-book checking and maximum delivered book depth as implementation gaps.
+The [requirement audit](docs/python-alignment-audit.md) now records optional crossed-book checking as implemented;
+maximum delivered book depth remains an implementation gap.
 
 ## Development
 

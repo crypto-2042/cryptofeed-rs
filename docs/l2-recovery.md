@@ -109,3 +109,7 @@ metadata, public REST/history, recording, sinks and aggregation have progressed
 under [the alignment plan](python-usage-alignment.md). [NBBO](nbbo.md) can consume
 tops derived from recovered full books; the caller must suspend it on invalidation
 and recover before resuming. Remaining plan items are tracked in that guide.
+
+[Optional crossed-book checking](book-cross-check.md) now rejects invalid L2
+state before recovery publication and immediately withdraws the affected book.
+The policy does not trim internal books or replace sequence/checksum checks.

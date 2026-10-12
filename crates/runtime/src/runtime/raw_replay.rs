@@ -58,6 +58,10 @@ impl RawParserSession {
         feed.channel_subscriptions = info.channel_subscriptions.clone();
         feed.candle_interval = info.candle_interval.clone();
         feed.l2_book_depth = info.l2_book_depth;
+        #[cfg(feature = "orderbook")]
+        {
+            feed.l2_book_cross_check = info.l2_book_cross_check;
+        }
         feed.l2_book_interval = info.l2_book_interval.clone();
         #[cfg(feature = "candles")]
         {
@@ -435,6 +439,58 @@ mod ws_quota_tests {
                 .await;
             assert!(matches!(result,Err(Error::RateLimited{code:found,..}) if found==code));
             assert_eq!(tokio::time::Instant::now(), start);
+        }
+    }
+}
+
+#[cfg(all(test, feature = "orderbook"))]
+mod cross_check_replay_tests {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn l2_cross_check_recorded_policy_replays_native_snapshot_and_delta_before_emission() {
+        use crate::{
+            exchange::bybit::Bybit,
+            recording::raw::{RawFeedInfo, RawPayload},
+        };
+        for enabled in [false, true] {
+            let feed = Bybit::new()
+                .l2_book()
+                .symbol("BTC-USDT")
+                .exchange_symbol("BTCUSDT")
+                .l2_book_cross_check(enabled)
+                .build();
+            let info = RawFeedInfo::from_feed(&feed);
+            let encoded = serde_json::to_value(&info).unwrap();
+            if enabled {
+                assert_eq!(encoded["l2_book_cross_check"], true);
+            } else {
+                assert!(encoded.get("l2_book_cross_check").is_none());
+            }
+            let info: RawFeedInfo = serde_json::from_value(encoded).unwrap();
+            assert_eq!(info.l2_book_cross_check, enabled);
+            let mut replay = RawParserSession::new(&info, 100, false).unwrap();
+            let snapshot = RawPayload::Json {
+                redacted: false,
+                value: serde_json::json!({
+                    "topic":"orderbook.50.BTCUSDT", "type":"snapshot", "ts":1000,
+                    "data":{"s":"BTCUSDT","b":[["99","1"]],"a":[["101","1"]],"u":1,"seq":1}
+                }),
+            };
+            assert_eq!(replay.process(&snapshot, 1.0, 100).await.unwrap().len(), 1);
+            let delta = RawPayload::Json {
+                redacted: false,
+                value: serde_json::json!({
+                    "topic":"orderbook.50.BTCUSDT", "type":"delta", "ts":1001,
+                    "data":{"s":"BTCUSDT","b":[["101","1"]],"a":[],"u":2,"seq":2}
+                }),
+            };
+            let result = replay.process(&delta, 2.0, 100).await;
+            if enabled {
+                assert!(matches!(result, Err(Error::MalformedData(_))));
+                assert!(replay.feed.orderbook_states.lock().unwrap().is_empty());
+            } else {
+                assert_eq!(result.unwrap().len(), 1);
+            }
         }
     }
 }

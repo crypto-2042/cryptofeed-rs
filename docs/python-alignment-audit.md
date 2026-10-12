@@ -35,7 +35,7 @@ protocol and delivery limitations remain in the linked public guides.
 | Multi-handler order, deadlines, panic isolation and shutdown | `runtime.rs`; `multiple_handlers_preserve_order_primary_replacement_and_single_publication`, `handler_panic_and_timeout_allow_later_handlers_and_future_events`, `shutdown_cancels_slow_handler_before_remaining_callbacks` | Implemented; handlers own business errors, broadcast remains lossy |
 | Candle completion policy on every output surface | `runtime.rs`; `candle_completion_policy_filters_every_delivery_surface_without_guessing` | Implemented; All remains Rust default |
 | Recoverable L2 snapshot/delta consumption and invalidation | `books.rs`; `lag_recovery_replaces_queue_and_resumes_after_full_snapshot`, `concurrent_recovery_has_no_snapshot_to_subscription_hole`; runtime resync/disconnect/stop hooks | Implemented; no lossless delivery guarantee |
-| Optional Python crossed-book check | Python `feed.py::book_callback/check_bid_ask_overlapping`; Rust `dispatch_l2_book` and `L2BookState` have no corresponding configurable check | **Missing; must implement** |
+| Optional Python crossed-book check | Python `feed.py::book_callback/check_bid_ask_overlapping`; Rust `l2_book_cross_check`, `L2BookState::is_crossed`, `runtime/cross_check_tests.rs` and raw replay policy assertions | Implemented opt-in; [publication and recovery semantics](book-cross-check.md) |
 | Python maximum delivered depth | Python `feed.py` describes `max_depth` as maximum levels returned per side; active adapters pass it to OrderBook. Rust `l2_book_depth` selects native subscription depth, not a common output projection | **Missing; must implement separately from native depth** |
 | Existing native sequence/checksum integrity | Five exchange `book_sync.rs` modules; bridge/gap/reset and available checksum tests | Implemented; disabling integrity checks to imitate Python defaults is not required |
 | Retry/deadline/idle/start-delay and explicit HTTP/WS proxy | `options.rs`, `runtime/supervisor.rs`, `transport.rs`; finite retry, sparse preservation, idle heartbeat/shutdown and CONNECT boundary tests | Implemented typed async configuration; no Python syntax/config-file compatibility claim |
@@ -48,7 +48,7 @@ protocol and delivery limitations remain in the linked public guides.
 
 ## Remaining implementation sequence
 
-1. Add an opt-in crossed-L2-book policy, default disabled as in Python. Check
+1. **Implemented:** opt-in crossed-L2-book policy, default disabled as in Python. Check
    reconstructed full sides after native sync and exact subscription filtering,
    before callback/counter/broadcast/recovery publication. Match Python's
    `best_bid >= best_ask` rule; either empty side does not overlap. Reject the
@@ -62,7 +62,7 @@ protocol and delivery limitations remain in the linked public guides.
    one coherent contract for handlers, ordinary/identified broadcast and retained
    recovery. Verify replacements/reconnects, sparse subscriptions, scale-preserving
    Decimals, empty sides and promotion across the cutoff.
-3. Re-run the full requirement audit after both changes. Compile isolated
+3. Re-run the full requirement audit after delivered depth is implemented. Compile isolated
    features, run focused/default/all-feature gates, fresh-resolution MSRV and
    inspect actual remote CI. Keep the goal active if a named requirement lacks
    implementation or evidence. The two gaps are not silently deferred.
@@ -102,3 +102,16 @@ protocol and delivery limitations remain in the linked public guides.
   has the same issue. Quoting both complete commands repairs YAML parsing; all
   five jobs remain. This is a workflow configuration repair, not a passing
   remote run. The pushed repair must still be observed executing in GitHub.
+
+## Crossed-book and remote CI follow-up — 2026-10-12
+
+Crossed-L2 checking now has nine focused model/runtime/native-replay regressions
+and the common error propagation path. Maximum delivered depth remains missing;
+overall completion is still unproven. The workflow syntax repair did create five
+real jobs in run 38211639919. Package/security/MSRV passed; quality/features exposed
+exact f64 timestamp roundtrip differences in HTTP/raw recording. Fixed values
+reproduce a one-bit mismatch locally. Enabling serde_json/float_roundtrip repairs
+parsing while retaining arbitrary_precision and strict equality; the new fixed
+HTTP codec regression and the existing raw-series equality assertions remain
+strict. The next remote run must verify the repair; syntax success alone is not
+CI success.

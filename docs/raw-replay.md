@@ -120,3 +120,10 @@ aggregate budgets. Rotation itself still represents one capture.
 [Clock/cache/concurrency audit](replay-contract-audit.md) now records executable
 evidence for the published replay behavior and keeps unsupported historical
 scheduling distinct from model timestamp preservation.
+
+## Recorded crossed-book policy
+
+Raw feed metadata's optional boolean `l2_book_cross_check` defaults to false for
+older files. Native replay restores it and propagates the same pre-publication
+error as live L2 dispatch. Default-false captures omit the field; strict older
+SDK readers may reject captures containing true. See [policy](book-cross-check.md).

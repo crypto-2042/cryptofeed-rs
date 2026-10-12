@@ -459,3 +459,13 @@ No credentials or private response data are included.
 windows/starts and actual duplex Pong behavior. [Send budget guide](../docs/ws-send-budgets.md)
 links current official Spot/futures, Bitget v3 and OKX source rules, separating
 native limits from conservative SDK pacing. No market-data schema was changed.
+
+## Crossed L2 policy — 2026-10-12
+
+`public-l2.cross-check.jsonl` is a synthetic policy reference, not live exchange
+traffic. Exact assertions reside in orderbook model tests, runtime cross-check
+and raw-replay tests. Python commit `3a6d3ca` supplies the best-bid >= best-ask
+semantic rule. The Bybit v5 frame shape was checked against current official
+[orderbook documentation](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook);
+its equal-price delta is intentionally constructed to test rejection. No market
+parser, official expected value or sequence rule was changed.

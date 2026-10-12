@@ -99,6 +99,14 @@ pub struct L2BookState {
 }
 
 impl L2BookState {
+    /// Whether both sides exist and the best bid is at or above the best ask.
+    pub fn is_crossed(&self) -> bool {
+        match (self.bids.last_key_value(), self.asks.first_key_value()) {
+            (Some((bid, _)), Some((ask, _))) => bid >= ask,
+            _ => false,
+        }
+    }
+
     pub fn new(symbol: Symbol) -> Self {
         Self {
             symbol,
@@ -181,6 +189,65 @@ mod tests {
     use super::{L2Book, L2BookDelta, L2BookSnapshot, L2BookState, PriceLevel};
     use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
     use rust_decimal::Decimal;
+
+    #[test]
+    fn l2_cross_check_preserves_decimal_precision_and_handles_empty_unsorted_deleted_sides() {
+        let symbol = Symbol::spot("BTC", "USDT");
+        let level = |price: &str, amount: &str| PriceLevel {
+            price: Decimal::from_str_exact(price).unwrap(),
+            amount: Decimal::from_str_exact(amount).unwrap(),
+        };
+        let mut state = L2BookState::new(symbol.clone());
+        assert!(!state.is_crossed());
+        state.apply(L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Okx,
+            symbol: symbol.clone(),
+            bids: vec![level("99", "1"), level("100.000000000000000000000001", "1")],
+            asks: vec![
+                level("101", "1"),
+                level("100.000000000000000000000002", "1"),
+            ],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(!state.is_crossed());
+        state.apply(L2Book::Delta(L2BookDelta {
+            exchange: ExchangeId::Okx,
+            symbol: symbol.clone(),
+            bids: vec![level("100.000000000000000000000002", "1")],
+            asks: vec![],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(state.is_crossed());
+        state.apply(L2Book::Delta(L2BookDelta {
+            exchange: ExchangeId::Okx,
+            symbol: symbol.clone(),
+            bids: vec![level("100.000000000000000000000002", "0")],
+            asks: vec![],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(!state.is_crossed());
+        state.apply(L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Okx,
+            symbol: symbol.clone(),
+            bids: vec![level("102", "1")],
+            asks: vec![],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(!state.is_crossed());
+        state.apply(L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Okx,
+            symbol,
+            bids: vec![],
+            asks: vec![level("101", "1")],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(!state.is_crossed());
+    }
 
     #[test]
     fn snapshot_initializes_state() {

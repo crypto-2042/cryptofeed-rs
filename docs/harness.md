@@ -628,3 +628,12 @@ no historical header scheduling is inferred from payload archives.
 examples. `runtime/send_budget.rs::tests` and duplex WebSocket session tests
 assert rolling windows, hourly controls, cancellation and automatic-Pong
 behavior. Native payload replay does not simulate this live session scheduler.
+
+## Crossed-book policy and timestamp fidelity
+
+`sample_data/public-l2.cross-check.jsonl` is a synthetic semantic/native-envelope
+reference asserted by the orderbook model, runtime and native-replay tests.
+Crossed-book checking is opt-in and does not change default public parity values.
+Fixed Linux-CI receipt timestamps now assert exact f64 bit roundtrip through
+HTTP recording. Workspace serde_json enables float_roundtrip alongside
+arbitrary_precision; do not weaken exact assertions to a tolerance.

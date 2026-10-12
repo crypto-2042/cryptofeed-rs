@@ -42,6 +42,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Multiple handlers](handlers.md): registration order, per-callback deadlines,
   panic/error semantics, backpressure and shutdown.
 
+- [Optional crossed-L2 policy](book-cross-check.md): exact best-price checks
+  before publication, recovery withdrawal and recorded replay configuration.
+
 - [Recoverable L2 consumption](l2-recovery.md): atomic snapshots/subscriptions,
   continuity anchors, lag recovery and cache invalidation.
 

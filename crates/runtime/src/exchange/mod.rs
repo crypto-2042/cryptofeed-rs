@@ -85,6 +85,9 @@ pub struct ExchangeFeed {
     /// Requested L2 depth level; `None` means the exchange default (Bybit 50,
     /// OKX/Bitget full book, Binance full depth).
     pub l2_book_depth: Option<u16>,
+    /// Reject crossed reconstructed L2 books before publication; default false.
+    #[cfg(feature = "orderbook")]
+    pub l2_book_cross_check: bool,
     /// Requested L2 book update interval (Binance only; other exchanges use
     /// the exchange default). `None` means the fastest `100ms` stream.
     pub l2_book_interval: Option<String>,
@@ -567,6 +570,8 @@ pub struct ExchangeFeedBuilder {
     #[cfg(feature = "candles")]
     candle_policy: CandlePolicy,
     l2_book_depth: Option<u16>,
+    #[cfg(feature = "orderbook")]
+    l2_book_cross_check: bool,
     l2_book_interval: Option<String>,
     #[cfg(feature = "ticker")]
     ticker_handler: Option<Arc<dyn TickerHandler>>,
@@ -634,6 +639,8 @@ impl ExchangeFeedBuilder {
             #[cfg(feature = "candles")]
             candle_policy: CandlePolicy::All,
             l2_book_depth: None,
+            #[cfg(feature = "orderbook")]
+            l2_book_cross_check: false,
             l2_book_interval: None,
             #[cfg(feature = "ticker")]
             ticker_handler: None,
@@ -761,6 +768,14 @@ impl ExchangeFeedBuilder {
     /// exchange default (Bybit 50, OKX/Bitget full book, Binance full depth).
     pub fn l2_book_depth(mut self, level: u16) -> Self {
         self.l2_book_depth = Some(level);
+        self
+    }
+
+    /// Opt into rejecting reconstructed L2 books whose best bid >= best ask.
+    /// Native sync/checksum checks remain active; this check defaults to false.
+    #[cfg(feature = "orderbook")]
+    pub fn l2_book_cross_check(mut self, enabled: bool) -> Self {
+        self.l2_book_cross_check = enabled;
         self
     }
 
@@ -1033,6 +1048,8 @@ impl ExchangeFeedBuilder {
             #[cfg(feature = "candles")]
             candle_policy: self.candle_policy,
             l2_book_depth: self.l2_book_depth,
+            #[cfg(feature = "orderbook")]
+            l2_book_cross_check: self.l2_book_cross_check,
             l2_book_interval: self.l2_book_interval,
             #[cfg(feature = "ticker")]
             ticker_handler: self.ticker_handler,
