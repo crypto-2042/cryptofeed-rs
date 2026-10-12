@@ -1376,3 +1376,16 @@ feature boundaries.
 - Gates passed: 800 all-feature workspace tests, strict Clippy/rustdoc, default/
   no-default and each isolated feature compile, minimal recording/ticker audit
   tests and fresh-resolution Rust 1.85 all-target check. No live load test.
+
+## Distributed quota coordination deferred — 2026-10-12
+
+- Maintainer withdrew the standalone Rust coordinator choice. Cross-process and
+  multi-machine quota coordination are deferred from current delivery scope,
+  rather than an outstanding Python-parity gate. No service code was introduced.
+- Retain existing process-local HTTP/WS budgets, endpoint weights and shared
+  cooldowns. Separate processes do not share these quotas, including behind NAT.
+- Inspected Python connection/feed/backend code provides local HTTP retries,
+  optional backend writer subprocesses and Redis storage, not distributed quota
+  admission. Revisit only for a concrete shared-egress multi-collector workflow.
+- Documentation-only change; historical milestone pending lists remain dated
+  records and are superseded by this decision.

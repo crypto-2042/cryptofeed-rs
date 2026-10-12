@@ -943,3 +943,10 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   HTTP REST receipts use current SystemTime, native optional timestamps remain
   separate, and catalog TTL is real SystemTime rather than Tokio replay elapsed
   time. docs/replay-contract-audit.md records finite executable contract evidence.
+
+- 2026-10-12 maintainer decision supersedes earlier distributed-quota plans:
+  defer cross-process/machine quota coordination from current scope and withdraw
+  the standalone Rust coordinator choice. No coordinator implementation exists.
+  Keep process-local safeguards; independent processes do not aggregate quotas.
+  Python backend subprocesses/Redis storage are not quota coordination. Revisit
+  only when a concrete shared-egress collector deployment requires it.

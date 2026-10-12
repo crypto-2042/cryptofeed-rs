@@ -85,13 +85,17 @@ cargo run -p cryptofeed-rs --example resource_budget_public
 ```
 
 [Binance endpoint weights](http-weights.md) now supplement the process-local
-safeguards. Adaptive WS quotas, distributed/shared-IP coordination, fairness guarantees,
-and sustained throughput certification remain separate work under the full plan.
+safeguards. Adaptive WS quotas, fairness guarantees and sustained throughput
+certification remain separate work. Cross-process/machine shared-IP coordination
+is explicitly deferred from the current delivery scope (2026-10-12); the earlier
+standalone Rust coordinator choice is withdrawn. Multiple SDK processes can run
+independently, but their limits do not aggregate across a shared egress IP.
 [Minimum packing](minimum-connections.md) is now an opt-in exact policy under
 fixed SDK route/instrument constraints, with a separate work budget.
 
 [Native REST codes](native-rate-limits.md) now augment shared HTTP cooldown;
-other venue weights and a distributed quota service remain unfinished.
+other venue weights remain unfinished. No distributed quota service is planned
+for the current stage.
 
 [WS quota responses](ws-control-errors.md) now extend the process venue start
 clock across groups. Scope pacing/capacity still applies; healthy connections
