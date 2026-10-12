@@ -37,6 +37,6 @@ snapshot tests cover cooldown/cancellation, scoped pacing, slot bounds and repla
 bypass. `rest/{adapter,history,candles,trades,trade_history}.rs` and `markets.rs`
 provide the route inventory; no request, parser, model or fixture changed.
 
-There was no live traffic or saturation test. Binance minute used-weight feedback is implemented; adaptive WS send quotas
-remain open. Cross-process/machine quota coordination
+There was no live traffic or saturation test. Binance minute used-weight feedback and [per-session WS send windows](ws-send-budgets.md)
+are implemented. Cross-process/machine quota coordination
 is explicitly deferred by the maintainer; it is not a current Python-parity gate.

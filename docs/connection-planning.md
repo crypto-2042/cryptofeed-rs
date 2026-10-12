@@ -44,7 +44,9 @@ Sources, rechecked 2026-10-10:
 ## Sending, connection attempts, and cancellation
 
 Subscription messages are queued with at least 250 ms between sends on one
-session. While the queue is waiting, normal socket reads, application heartbeats,
+session. [Per-session send budgets](ws-send-budgets.md) now also share text
+spacing across heartbeats/direct sends, reserve Pong headroom and enforce verified
+hourly control request windows. While the queue is waiting, normal socket reads, application heartbeats,
 and shutdown continue. Gate subscription `time` is regenerated at the actual
 send, so a long queue does not reuse the connection-start timestamp. Reconnects
 rebuild the queue from current concrete configuration.

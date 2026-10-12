@@ -440,6 +440,8 @@ cancellable async worker admission.
 and start spacing, plus per-exchange WS capacity/spacing. Clones share limits;
 existing process and protocol safeguards remain active. See
 [resource admission and replacement](docs/resource-budgets.md).
+[Per-session WS send budgets](docs/ws-send-budgets.md) coordinate text/heartbeat
+spacing, Pong headroom and verified hourly control limits.
 [Binance HTTP weights](docs/http-weights.md) add verified endpoint costs and
 rolling process windows and conservative minute used-weight header feedback,
 with an optional stricter policy ceiling.

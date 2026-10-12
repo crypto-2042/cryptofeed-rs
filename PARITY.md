@@ -1069,3 +1069,24 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   Rust 1.85 all-target check. Fresh resolution updated unicode-ident 1.0.26 to
   1.0.27; full tests/lints/docs were repeated successfully on that dependency set.
   Cargo.lock remains ignored. Formatting, diff and synthetic JSONL checks passed.
+
+## Traffic-aware WS send windows — 2026-10-12
+
+- Shared all text admissions (subscriptions, heartbeats and direct low-level
+  sends) under existing 250 ms SDK pacing. Per-session rolling frame windows
+  reserve Pong headroom and adapt deadlines to actual starts; verified Bitget
+  240/hour and OKX 480/hour control windows are now enforced.
+- Queue waits preserve reads, heartbeat, idle/ack deadlines and shutdown. Pong
+  writes now have a bounded timeout; exhausted server-ping bursts return a
+  retryable transport failure before flushing an over-budget automatic Pong.
+- Eight new regressions cover native windows, bounded state, exact operation
+  classification, no burst credit, uncharged waits/cancellation, heartbeat
+  exclusions, connection isolation and actual duplex Pong/market/stop behavior.
+  The idle-disabled synthetic heartbeat assertion now accounts for text pacing.
+- [Guide](docs/ws-send-budgets.md) separates official rules from conservative SDK
+  choices. No remote capacity learning, private feed or historical send-schedule
+  replay is claimed. Distributed coordination remains explicitly deferred.
+- Gates passed: 817 all-feature workspace tests, 24 focused no-default-feature
+  tests, strict Clippy/rustdoc, default/no-default compilation and fresh-resolution
+  Rust 1.85 all-target check. Fresh dependency resolution matches the tested set.
+  Formatting/diff and synthetic JSONL checks passed; no live traffic was used.

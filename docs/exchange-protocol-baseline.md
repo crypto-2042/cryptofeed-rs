@@ -825,3 +825,12 @@ USD-M bookTicker inaccurate-header exception. The SDK retains an independent
 conservative 60-second floor alongside its local rolling ledger; this retention
 is SDK policy, not a claimed server reset. Synthetic references and focused
 assertions were updated together. No market-data schema or parser changed.
+
+## WS send quota verification — 2026-10-12
+
+[Send guide](ws-send-budgets.md) links official Spot five/second, Binance futures
+10/second, Bitget v3 10/second + 240 subscription requests/hour, and OKX
+480 control requests/hour. Conservative SDK windows reserve Pong headroom and
+retain 250 ms text spacing; native limits are not auto-raised. Spot server Ping
+cadence is 20 seconds; Binance futures retain three minutes. Synthetic references
+and focused assertions were added together; market schemas remain unchanged.

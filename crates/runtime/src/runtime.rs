@@ -15,6 +15,7 @@ mod control;
 pub(crate) use control::tests::start as test_managed_runtime;
 pub(crate) mod planning;
 pub(crate) mod readiness;
+mod send_budget;
 pub(crate) mod snapshot;
 pub mod supervisor;
 

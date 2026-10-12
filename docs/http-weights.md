@@ -113,4 +113,5 @@ futures pool isolation, HTTP success/error/malformed-body handling, cancellation
 permit release and unrelated venue progress. The synthetic reference is
 `sample_data/binance.http.used-weight.jsonl`; no live quota was triggered.
 Feedback observes only responses received by this process; it does not coordinate
-other clients or make a shared-IP guarantee. Adaptive WS send policy remains open.
+other clients or make a shared-IP guarantee. [Per-session WS send windows](ws-send-budgets.md) now adapt deadlines to actual
+traffic and verified hourly control quotas.

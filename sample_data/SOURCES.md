@@ -451,3 +451,11 @@ live capture. Values and effects are asserted in `runtime/weights/tests.rs` and
 [COIN-M IP limits](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/general-info),
 and the [USD-M bookTicker exception](https://developers.binance.info/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data).
 No credentials or private response data are included.
+
+## Per-session WS send budgets — 2026-10-12
+
+`public-ws.send-budgets.jsonl` is a synthetic admission reference, not live traffic.
+`runtime/send_budget.rs::tests` and `runtime/connection.rs::tests` assert its
+windows/starts and actual duplex Pong behavior. [Send budget guide](../docs/ws-send-budgets.md)
+links current official Spot/futures, Bitget v3 and OKX source rules, separating
+native limits from conservative SDK pacing. No market-data schema was changed.

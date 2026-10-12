@@ -964,3 +964,12 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   it. Keep the USD-M bookTicker inaccurate-header exclusion and separate USD-M
   funding window. Apply valid headers before status/body checks; replay bypasses
   this live path. No server-clock reset or distributed quota guarantee is implied.
+
+- WS send admission now shares text/heartbeat spacing per physical session.
+  Verified rolling frame and hourly control windows adapt deadlines to actual
+  starts; reserve Pong headroom. Never sleep through reads/shutdown while a
+  queued subscription waits. Only sent requests start ack deadlines.
+- On excessive server Pings, return before flushing tungstenite's automatic
+  Pong and drop the failed session; manual payload-preserving Pong replaces its
+  queued automatic reply. Direct callers own cancellation and must drop failed
+  sessions. These SDK start windows do not certify remote arrival timing.

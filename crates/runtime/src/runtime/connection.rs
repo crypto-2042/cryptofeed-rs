@@ -25,6 +25,7 @@ enum HeartbeatKind {
 
 #[derive(Clone, Copy, Debug)]
 pub struct HeartbeatPolicy {
+    exchange: Option<ExchangeId>,
     kind: HeartbeatKind,
     interval: Duration,
     idle_timeout: Duration,
@@ -33,11 +34,8 @@ pub struct HeartbeatPolicy {
 impl HeartbeatPolicy {
     pub fn for_exchange(exchange: ExchangeId, url: &Url) -> Self {
         let (kind, interval, idle_timeout) = match exchange {
-            // Binance sends a server ping frame only every 3 minutes and the
-            // client sends no application heartbeat, so the idle timeout must
-            // comfortably exceed that cadence — a quiet symbol (no trades, no
-            // bookTicker change) would otherwise be killed as idle and the
-            // feed would terminally fail after the retries.
+            // Binance futures ping every 3 minutes (Spot every 20 seconds).
+            // Keep the shared idle watchdog above the quiet futures cadence.
             ExchangeId::Binance => (
                 HeartbeatKind::None,
                 Duration::from_secs(60),
@@ -84,6 +82,7 @@ impl HeartbeatPolicy {
             ),
         };
         Self {
+            exchange: Some(exchange),
             kind,
             interval,
             idle_timeout,
@@ -122,6 +121,7 @@ impl HeartbeatPolicy {
     #[cfg(test)]
     fn for_test(payload: Option<&'static str>, interval: Duration, idle_timeout: Duration) -> Self {
         Self {
+            exchange: None,
             kind: payload.map_or(HeartbeatKind::None, HeartbeatKind::Text),
             interval,
             idle_timeout,
@@ -251,6 +251,7 @@ pub struct Session<S> {
     _connection_slot: Option<super::budget::ConnectionSlots>,
     readiness: Option<super::readiness::ConnectionAttempt>,
     next_subscription: Instant,
+    sends: super::send_budget::SendBudget,
     retry_progress: Option<std::sync::Arc<super::supervisor::RetryProgress>>,
 }
 
@@ -339,6 +340,7 @@ impl<S> Session<S> {
             _connection_slot: None,
             readiness: None,
             next_subscription: now,
+            sends: super::send_budget::SendBudget::new(heartbeat.exchange),
             retry_progress: None,
         }
     }
@@ -355,6 +357,9 @@ where
     const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
     pub async fn send_text(&mut self, text: &str) -> Result<()> {
+        let control = super::send_budget::is_control(text);
+        tokio::time::sleep_until(self.sends.text_ready(Instant::now(), control)).await;
+        self.sends.text_started(Instant::now(), control);
         let result = tokio::time::timeout(
             Self::SEND_TIMEOUT,
             self.stream.send(Message::Text(text.to_owned())),
@@ -420,7 +425,18 @@ where
             let idle_deadline = self
                 .idle_timeout
                 .map(|timeout| self.last_received + timeout);
-            let heartbeat_deadline = self.next_heartbeat.unwrap_or_else(Instant::now);
+            let now = Instant::now();
+            let heartbeat_deadline = self
+                .next_heartbeat
+                .unwrap_or(now)
+                .max(self.sends.text_ready(now, false));
+            let subscription_control = self
+                .pending_subscriptions
+                .front()
+                .is_some_and(|message| super::send_budget::is_control(message));
+            let subscription_deadline = self
+                .next_subscription
+                .max(self.sends.text_ready(now, subscription_control));
             let acknowledgement_deadline = self
                 .readiness
                 .as_ref()
@@ -448,7 +464,7 @@ where
                     }
                     self.next_heartbeat = Some(Instant::now() + self.heartbeat.interval);
                 }
-                _ = tokio::time::sleep_until(self.next_subscription), if !self.pending_subscriptions.is_empty() => {
+                _ = tokio::time::sleep_until(subscription_deadline), if !self.pending_subscriptions.is_empty() => {
                     let mut message = self.pending_subscriptions.pop_front().expect("pending subscription");
                     if matches!(self.heartbeat.kind, HeartbeatKind::Gate(_)) {
                         let mut payload: serde_json::Value = serde_json::from_str(&message)
@@ -493,7 +509,9 @@ where
                         Some(Ok(Message::Ping(payload))) => {
                             self.last_received = Instant::now();
                             if let Some(readiness) = &self.readiness { readiness.received(); }
-                            self.stream.send(Message::Pong(payload)).await
+                            self.sends.pong_started(Instant::now())?;
+                            tokio::time::timeout(Self::SEND_TIMEOUT, self.stream.send(Message::Pong(payload))).await
+                                .map_err(|_| Error::Transport("websocket pong timed out".to_owned()))?
                                 .map_err(|error| Error::Transport(error.to_string()))?;
                         }
                         Some(Ok(Message::Pong(_) | Message::Binary(_) | Message::Frame(_))) => {
@@ -605,6 +623,7 @@ mod tests {
     use std::time::Duration;
     use tokio::io::duplex;
     use tokio::sync::watch;
+    use tokio::time::Instant;
     use tokio_tungstenite::{
         WebSocketStream,
         tungstenite::{Message, protocol::Role},
@@ -786,7 +805,7 @@ mod tests {
         let (stop, mut shutdown) = watch::channel(false);
         let task = tokio::spawn(async move { session.next_text_or_shutdown(&mut shutdown).await });
         tokio::time::timeout(Duration::from_secs(1), async {
-            for _ in 0..5 { assert!(matches!(server.next().await.unwrap().unwrap(), Message::Text(value) if value == "ping")); }
+            for _ in 0..3 { assert!(matches!(server.next().await.unwrap().unwrap(), Message::Text(value) if value == "ping")); }
         }).await.unwrap();
         stop.send(true).unwrap();
         assert!(
@@ -846,6 +865,146 @@ mod tests {
         assert!(progress.take()); // All initial subscription writes completed.
         shutdown_tx.send(true).unwrap();
         task.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shared_send_budget_reserves_one_pong_and_keeps_market_reads_live() {
+        let (client, mut server) = websocket_pair().await;
+        let url = Url::parse("wss://stream.binance.com/ws").unwrap();
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_exchange(ExchangeId::Binance, &url),
+        );
+        let start = Instant::now();
+        for _ in 0..4 {
+            session.send_text("control").await.unwrap();
+            assert!(matches!(
+                server.next().await.unwrap().unwrap(),
+                Message::Text(_)
+            ));
+        }
+        session.queue_subscriptions(["fifth".to_owned()]);
+        server.send(Message::Ping(vec![1, 2, 3])).await.unwrap();
+        server.send(Message::Text("market".into())).await.unwrap();
+        let (stop, mut shutdown) = watch::channel(false);
+        assert_eq!(
+            session.next_text_or_shutdown(&mut shutdown).await.unwrap(),
+            Some("market".into())
+        );
+        assert!(
+            matches!(server.next().await.unwrap().unwrap(), Message::Pong(payload) if payload == vec![1,2,3])
+        );
+        assert!(Instant::now() - start < Duration::from_secs(1));
+        let task = tokio::spawn(async move { session.next_text_or_shutdown(&mut shutdown).await });
+        assert!(
+            matches!(server.next().await.unwrap().unwrap(), Message::Text(text) if text == "fifth")
+        );
+        assert!(Instant::now() - start >= Duration::from_millis(1250));
+        stop.send(true).unwrap();
+        assert!(task.await.unwrap().unwrap().is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn hourly_budget_wait_preserves_heartbeat_reads_and_shutdown() {
+        let (client, mut server) = websocket_pair().await;
+        let url = Url::parse("wss://ws.bitget.com/v3/ws/public").unwrap();
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_exchange(ExchangeId::Bitget, &url),
+        )
+        .runtime_options(
+            crate::options::RuntimeOptions::default()
+                .idle_policy(crate::options::IdlePolicy::Disabled)
+                .unwrap(),
+        );
+        let start = Instant::now();
+        for index in 0..240 {
+            session
+                .sends
+                .text_started(start + Duration::from_secs(index), true);
+        }
+        tokio::time::advance(Duration::from_secs(240)).await;
+        session.queue_subscriptions([r#"{"op":"subscribe","args":[]}"#.to_owned()]);
+        server.send(Message::Text("market".into())).await.unwrap();
+        let (stop, mut shutdown) = watch::channel(false);
+        assert_eq!(
+            session.next_text_or_shutdown(&mut shutdown).await.unwrap(),
+            Some("market".into())
+        );
+        assert!(
+            matches!(server.next().await.unwrap().unwrap(), Message::Text(text) if text == "ping")
+        );
+        assert_eq!(session.pending_subscriptions.len(), 1);
+        stop.send(true).unwrap();
+        assert!(
+            session
+                .next_text_or_shutdown(&mut shutdown)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(
+            server.next().await.unwrap().unwrap(),
+            Message::Close(_)
+        ));
+        assert!(Instant::now() - start < Duration::from_secs(3600));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelling_direct_send_before_admission_consumes_no_request() {
+        let (client, mut server) = websocket_pair().await;
+        let url = Url::parse("wss://ws.okx.com/ws/v5/public").unwrap();
+        let mut session =
+            Session::new(client, HeartbeatPolicy::for_exchange(ExchangeId::Okx, &url));
+        session
+            .send_text(r#"{"op":"subscribe","args":[]}"#)
+            .await
+            .unwrap();
+        assert!(matches!(
+            server.next().await.unwrap().unwrap(),
+            Message::Text(_)
+        ));
+        {
+            let cancelled = session.send_text(r#"{"op":"subscribe","args":[]}"#);
+            tokio::pin!(cancelled);
+            assert!(futures::poll!(cancelled.as_mut()).is_pending());
+        }
+        tokio::time::advance(Duration::from_millis(250)).await;
+        session
+            .send_text(r#"{"op":"subscribe","args":[]}"#)
+            .await
+            .unwrap();
+        assert!(matches!(
+            server.next().await.unwrap().unwrap(),
+            Message::Text(_)
+        ));
+        assert_eq!(session.sends.control_count_for_test(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ping_burst_drops_session_before_flushing_an_over_budget_automatic_pong() {
+        let (client, mut server) = websocket_pair().await;
+        let url = Url::parse("wss://stream.binance.com/ws").unwrap();
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_exchange(ExchangeId::Binance, &url),
+        );
+        for index in 0..6 {
+            server.send(Message::Ping(vec![index])).await.unwrap();
+        }
+        let (_stop, mut shutdown) = watch::channel(false);
+        let error = session
+            .next_text_or_shutdown(&mut shutdown)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::Transport(message) if message.contains("ping burst")));
+        drop(session);
+        for index in 0..5 {
+            assert!(
+                matches!(server.next().await.unwrap().unwrap(), Message::Pong(payload) if payload == vec![index])
+            );
+        }
+        assert!(matches!(server.next().await, None | Some(Err(_))));
     }
 
     #[tokio::test]

@@ -621,3 +621,10 @@ HTTP response metadata, not a replay capture or market payload. Assertions in
 cover strict header handling, independent floors/local ledgers, cancellation and
 response errors. HTTP payload replay continues to bypass live header admission;
 no historical header scheduling is inferred from payload archives.
+
+## WS send quota evidence
+
+`sample_data/public-ws.send-budgets.jsonl` records synthetic SDK admission
+examples. `runtime/send_budget.rs::tests` and duplex WebSocket session tests
+assert rolling windows, hourly controls, cancellation and automatic-Pong
+behavior. Native payload replay does not simulate this live session scheduler.

@@ -18,6 +18,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Python usage alignment](python-usage-alignment.md): source-backed gap inventory,
   implementation phases, and supported discovery/lifecycle conveniences.
 
+- [Per-session WS send budgets](ws-send-budgets.md): shared text/heartbeat/Pong
+  admission, native hourly control windows and cancellation.
+
 - [Connection planning, state isolation and budgets](connection-planning.md): native subscription
   limits, paced sending/handshakes, snapshot admission, and cancellation.
 

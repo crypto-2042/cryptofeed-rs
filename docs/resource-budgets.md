@@ -85,7 +85,7 @@ cargo run -p cryptofeed-rs --example resource_budget_public
 ```
 
 [Binance endpoint weights](http-weights.md) now supplement the process-local
-safeguards. Adaptive WS quotas, fairness guarantees and sustained throughput
+safeguards. [Per-session WS quotas](ws-send-budgets.md) are implemented. Fairness guarantees and sustained throughput
 certification remain separate work. Cross-process/machine shared-IP coordination
 is explicitly deferred from the current delivery scope (2026-10-12); the earlier
 standalone Rust coordinator choice is withdrawn. Multiple SDK processes can run
