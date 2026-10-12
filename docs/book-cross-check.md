@@ -41,8 +41,8 @@ Native sequence and checksum checks remain active regardless of this flag. It
 adds a semantic policy; it does not replace integrity checks or relax native gap
 rules. It applies to L2, not L1, ticker, REST snapshot fetching or authenticated
 feeds. Standalone consumers can call `L2BookState::is_crossed()` on their own
-reconstructed state. Native subscription depth is unchanged; maximum **delivered**
-depth remains the next required [alignment step](python-alignment-audit.md).
+reconstructed state. Native subscription depth is unchanged; [maximum delivered depth](book-delivery-depth.md) is a separate implemented
+policy applied after this check.
 
 ## Recording and replay
 

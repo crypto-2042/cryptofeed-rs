@@ -113,3 +113,7 @@ and recover before resuming. Remaining plan items are tracked in that guide.
 [Optional crossed-book checking](book-cross-check.md) now rejects invalid L2
 state before recovery publication and immediately withdraws the affected book.
 The policy does not trim internal books or replace sequence/checksum checks.
+
+[Maximum delivered depth](book-delivery-depth.md) also limits recovery snapshots.
+The cache applies the same removal/promotion deltas as callbacks and broadcasts;
+internal native sync state remains full. Resync clears the delivery projection.

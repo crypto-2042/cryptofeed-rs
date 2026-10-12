@@ -141,6 +141,8 @@ records one real OKX replacement and clean removal/shutdown.
 Opt-in [listing reconciliation](discovery.md) now uses
 `replace_feed_if_current(expected_identity, candidate)` to reject stale owners
 before preparing a candidate. Other replacement semantics remain the same.
-Multi-handler delivery, closed-only candles, recoverable L2
-consumption, public REST/history and ecosystem tooling remain separate unfinished
-alignment work. This control increment is not completion of the overall goal.
+[Multi-handler delivery](handlers.md), [candle policies](candle-delivery.md),
+[recoverable L2 consumption](l2-recovery.md), [book policies](book-delivery-depth.md)
+and bounded [public REST/history](public-rest.md) are now implemented separately.
+Optional ecosystem boundaries and final acceptance remain in the
+[requirement audit](python-alignment-audit.md).

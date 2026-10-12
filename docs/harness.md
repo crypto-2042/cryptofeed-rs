@@ -531,7 +531,8 @@ cancellation, exact numeric JSON/redaction, pending-request footer rules, malfor
 versions/counts/private URLs/payloads, queue/line bounds, clone cache namespaces,
 proxy auth retention and sleeping receiver failure notification. Raw WS has a
 matching private-frame wakeup regression. These are deterministic HTTP-result
-ledger assertions, not yet offline response-injection/catalog-query tests.
+ledger assertions. The separate offline response-injection/catalog-query
+assertions are listed below.
 
 
 `src/recording/http/replay/tests.rs` asserts invocation-order matching despite
@@ -637,3 +638,11 @@ Crossed-book checking is opt-in and does not change default public parity values
 Fixed Linux-CI receipt timestamps now assert exact f64 bit roundtrip through
 HTTP recording. Workspace serde_json enables float_roundtrip alongside
 arbitrary_precision; do not weaken exact assertions to a tolerance.
+
+## Delivered-depth evidence
+
+`sample_data/public-l2.delivery-depth.jsonl` records synthetic top-N transitions
+and a current-schema Bybit replay example. Model/runtime/replay tests assert
+them and compare sequential projected updates against an independently rebuilt
+full-book top-N oracle. Default public parity values and native integrity rules
+remain unchanged. CI also tests minimal orderbook and recording/orderbook builds.

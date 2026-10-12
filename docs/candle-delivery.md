@@ -44,5 +44,6 @@ reconnect and managed replacement through the existing feed configuration.
 The offline `candle_completion_policy` regression covers all three flags/policies,
 handler counts, both event streams, configuration identity, counters, unchanged
 models and receipt-after-end behavior. Existing parser/session parity tests
-remain enabled. Multi-handler/error/deadline behavior and recoverable L2
-consumers are still separate unfinished phase 4 work.
+remain enabled. [Multi-handler/error/deadline behavior](handlers.md) and [recoverable L2
+consumption](l2-recovery.md) are implemented separately; [book delivery policies](book-delivery-depth.md)
+now add bounded output depth after native integrity checks.

@@ -88,6 +88,9 @@ pub struct ExchangeFeed {
     /// Reject crossed reconstructed L2 books before publication; default false.
     #[cfg(feature = "orderbook")]
     pub l2_book_cross_check: bool,
+    /// Maximum delivered levels per side, independent of native subscription depth.
+    #[cfg(feature = "orderbook")]
+    pub l2_book_max_depth: Option<std::num::NonZeroUsize>,
     /// Requested L2 book update interval (Binance only; other exchanges use
     /// the exchange default). `None` means the fastest `100ms` stream.
     pub l2_book_interval: Option<String>,
@@ -129,6 +132,8 @@ pub struct ExchangeFeed {
     pub(crate) additional_orderbook_handlers: Vec<Arc<dyn OrderBookHandler>>,
     #[cfg(feature = "orderbook")]
     pub(crate) orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
+    #[cfg(feature = "orderbook")]
+    pub(crate) book_projections: Arc<Mutex<HashMap<String, cryptofeed_orderbook::L2BookSnapshot>>>,
     #[cfg(feature = "orderbook")]
     pub(crate) binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
     #[cfg(feature = "orderbook")]
@@ -206,6 +211,11 @@ impl ExchangeFeed {
     }
 
     pub(crate) fn invalidate_book_readiness(&self, symbol: &str) {
+        #[cfg(feature = "orderbook")]
+        self.book_projections
+            .lock()
+            .expect("book projection lock")
+            .remove(symbol);
         if let (Some(monitor), Some(tracker), Some(epoch)) = (
             &self.monitor,
             &self.connection_tracker,
@@ -230,6 +240,7 @@ impl ExchangeFeed {
         #[cfg(feature = "orderbook")]
         {
             self.orderbook_states = Default::default();
+            self.book_projections = Default::default();
             self.binance_book_syncs = Default::default();
             self.bitget_book_syncs = Default::default();
             self.bybit_book_syncs = Default::default();
@@ -572,6 +583,8 @@ pub struct ExchangeFeedBuilder {
     l2_book_depth: Option<u16>,
     #[cfg(feature = "orderbook")]
     l2_book_cross_check: bool,
+    #[cfg(feature = "orderbook")]
+    l2_book_max_depth: Option<std::num::NonZeroUsize>,
     l2_book_interval: Option<String>,
     #[cfg(feature = "ticker")]
     ticker_handler: Option<Arc<dyn TickerHandler>>,
@@ -612,6 +625,8 @@ pub struct ExchangeFeedBuilder {
     #[cfg(feature = "orderbook")]
     orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
     #[cfg(feature = "orderbook")]
+    book_projections: Arc<Mutex<HashMap<String, cryptofeed_orderbook::L2BookSnapshot>>>,
+    #[cfg(feature = "orderbook")]
     binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
     #[cfg(feature = "orderbook")]
     bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
@@ -641,6 +656,8 @@ impl ExchangeFeedBuilder {
             l2_book_depth: None,
             #[cfg(feature = "orderbook")]
             l2_book_cross_check: false,
+            #[cfg(feature = "orderbook")]
+            l2_book_max_depth: None,
             l2_book_interval: None,
             #[cfg(feature = "ticker")]
             ticker_handler: None,
@@ -680,6 +697,8 @@ impl ExchangeFeedBuilder {
             additional_orderbook_handlers: Vec::new(),
             #[cfg(feature = "orderbook")]
             orderbook_states: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            book_projections: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             binance_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
@@ -776,6 +795,14 @@ impl ExchangeFeedBuilder {
     #[cfg(feature = "orderbook")]
     pub fn l2_book_cross_check(mut self, enabled: bool) -> Self {
         self.l2_book_cross_check = enabled;
+        self
+    }
+
+    /// Limit delivered L2 state to this many best levels per side. Zero disables
+    /// trimming. Native subscription depth and full sync/checksum state are unchanged.
+    #[cfg(feature = "orderbook")]
+    pub fn l2_book_max_depth(mut self, maximum: usize) -> Self {
+        self.l2_book_max_depth = std::num::NonZeroUsize::new(maximum);
         self
     }
 
@@ -1050,6 +1077,8 @@ impl ExchangeFeedBuilder {
             l2_book_depth: self.l2_book_depth,
             #[cfg(feature = "orderbook")]
             l2_book_cross_check: self.l2_book_cross_check,
+            #[cfg(feature = "orderbook")]
+            l2_book_max_depth: self.l2_book_max_depth,
             l2_book_interval: self.l2_book_interval,
             #[cfg(feature = "ticker")]
             ticker_handler: self.ticker_handler,
@@ -1089,6 +1118,8 @@ impl ExchangeFeedBuilder {
             additional_index_price_handlers: self.additional_index_price_handlers,
             #[cfg(feature = "orderbook")]
             orderbook_states: self.orderbook_states,
+            #[cfg(feature = "orderbook")]
+            book_projections: self.book_projections,
             #[cfg(feature = "orderbook")]
             binance_book_syncs: self.binance_book_syncs,
             #[cfg(feature = "orderbook")]

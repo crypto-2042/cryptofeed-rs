@@ -70,6 +70,8 @@ normal-close and transport-failure tests remain active.
 assertions. No live exchange rate limit was triggered. Local loopback tests require
 permission to bind a local socket and do not access external exchange services.
 
-Distributed/shared-IP coordination, adaptive per-connection send quotas, minimum
-packing and independent capture merging remain unfinished. These classifications
+Distributed/shared-IP coordination is explicitly deferred. [Per-session send
+windows](ws-send-budgets.md), [opt-in proven minimum packing](minimum-connections.md)
+and [independent capture merging](raw-merge.md) are now implemented within their
+documented bounds. These classifications
 do not certify sustained throughput or reproduce historical network timing in replay.

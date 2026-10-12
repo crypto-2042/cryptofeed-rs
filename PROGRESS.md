@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-10-08
+Last updated: 2026-10-12
 
 ## Current State
 
@@ -1497,3 +1497,28 @@ feature boundaries.
   orderbook/recording policy and fixed-clock tests, and fresh Rust 1.85 all-target
   compilation. Fresh dependency resolution matches the tested set. Formatting,
   diff, YAML and synthetic JSONL checks passed; remote rerun remains necessary.
+
+## Maximum delivered L2 depth and final core acceptance — 2026-10-12
+
+- Implemented orderbook-feature l2_book_max_depth(N), with zero/omission keeping
+  unlimited delivery. Native depth and complete sync/checksum/cross-check state
+  stay separate. Bounded snapshot copies and previous-view diffs produce correct
+  removals, promotions and displaced levels, not truncated delta arrays.
+- Callbacks, both broadcasts, normalized recording and recovery consume the same
+  projected event. Deep-only updates retain empty deltas/clocks/revisions; quantity
+  scale changes are preserved. Resync/connection/fresh-generation invalidation
+  clears views; a delta cannot create an initialized view or revive recovery.
+- Native raw metadata/replay preserve the optional positive delivery limit; old
+  records default unlimited and explicit zero metadata is rejected. Ten focused
+  tests include independent consumer-state oracles, sparse/native-depth isolation,
+  lifecycle/cross-check interactions and actual native Bybit replay.
+- [Depth contract](docs/book-delivery-depth.md) and [requirement audit](docs/python-alignment-audit.md)
+  now cover the two final book-policy requirements. Corrected stale public guide
+  statuses and synchronized AGENTS/CLAUDE architecture and policy invariants.
+- Local gates passed: 837 all-feature and 732 default workspace tests, strict
+  Clippy/rustdoc, default/no-default builds, all ten isolated features with
+  boundary tests, minimal/recording depth tests and no-default test compilation.
+  Fresh-resolution Rust 1.85 all-target check passed on identical dependencies.
+  Formatting/diff/YAML/JSONL checks passed; no lockfile or build output is tracked.
+- Prior 14ec357 passed all five remote CI jobs. Final acceptance of this increment
+  still requires its own remote CI run; no live exchange traffic was generated.

@@ -97,8 +97,9 @@ prove filesystem durability. There is no cryptographic integrity claim.
 The next_observation API persists/validates transport input without executing
 parsers. [Native replay](raw-replay.md) is now separately available through replay,
 including three WS-native L2 paths. Consumed HTTP/bootstrap and Binance/Gate L2 now have v2 replay support;
-HTTP payload replay is implemented separately; transport activity simulation remains unfinished; plain JSON iteration is not
-proof of those paths.
+HTTP payload replay is implemented separately. Historical network/admission
+scheduling is explicitly unsupported in the [replay contract](replay-contract-audit.md);
+plain JSON iteration is not proof of native/HTTP reconstruction paths.
 
 Offline: `cargo test -p cryptofeed-rs --features recording --lib recording::raw::file`.
 Manual public capture + offline file validation:

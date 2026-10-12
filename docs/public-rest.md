@@ -124,10 +124,10 @@ in WS bootstrap supervision, while transient HTTP failures remain reconnectable.
 Error bodies are not echoed by the HTTP-status path. Authentication is only
 explicit proxy authentication, never exchange account credentials.
 
-This is bounded SDK admission and HTTP-header backoff, not complete exchange-
-weight/native-code accounting, a distributed quota service or a guarantee about
-other applications sharing an IP. Large depth requests have higher native cost;
-weighted budgets and provider-native quota/error-code adaptation remain pending.
+Shared [Binance weights and minute feedback](http-weights.md), verified
+[native REST quota handling](native-rate-limits.md) and [other public count limits](public-http-frequency-audit.md)
+now complement bounded admission/header backoff. Distributed quota coordination
+is explicitly deferred; no guarantee covers other applications sharing an IP.
 
 ## Verification and sources
 
