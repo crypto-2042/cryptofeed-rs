@@ -508,6 +508,8 @@ repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 Managed add/remove/replace is available through a retained control handle.
 Readiness is available through the managed state API; remaining policy work is tracked in the
 [Python usage alignment plan](docs/python-usage-alignment.md).
+The [requirement audit](docs/python-alignment-audit.md) still identifies optional
+crossed-book checking and maximum delivered book depth as implementation gaps.
 
 ## Development
 

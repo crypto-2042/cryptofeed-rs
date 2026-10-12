@@ -29,8 +29,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --workspace --no-default-features
-      - run: cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features
-      - run: cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features
+      - run: 'cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features'
+      - run: 'cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features'
       - name: Check replay clock and concurrency contracts
         run: |
           cargo test -p cryptofeed-rs --lib replay_audit --no-default-features
@@ -62,8 +62,15 @@ jobs:
       - name: Check weighted admission independently
         run: |
           cargo test -p cryptofeed-rs --lib runtime::weights:: --no-default-features
+          cargo test -p cryptofeed-rs --lib used_weight_feedback_tests --no-default-features
           cargo test -p cryptofeed-rs --lib weighted_ --no-default-features
           cargo test -p cryptofeed-rs --lib weighted_ --no-default-features --features recording
+      - name: Check session send budgets independently
+        run: |
+          cargo test -p cryptofeed-rs --lib runtime::send_budget:: --no-default-features
+          cargo test -p cryptofeed-rs --lib runtime::connection::tests --no-default-features
+          cargo test -p cryptofeed-rs --lib runtime::send_budget:: --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib runtime::connection::tests --no-default-features --features recording
       - name: Check shared resource scopes independently
         run: |
           cargo test -p cryptofeed-rs --lib resources:: --no-default-features

@@ -1090,3 +1090,23 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   tests, strict Clippy/rustdoc, default/no-default compilation and fresh-resolution
   Rust 1.85 all-target check. Fresh dependency resolution matches the tested set.
   Formatting/diff and synthetic JSONL checks passed; no live traffic was used.
+
+## Requirement audit and CI workflow repair — 2026-10-12
+
+- [Requirement map](docs/python-alignment-audit.md) ties the existing phases to
+  source and focused tests. Overall completion is explicitly unproven: Python
+  crossed-L2 checking and maximum delivered depth remain missing. Native depth
+  subscriptions and recovery do not substitute for these policies.
+- The plan now names both required follow-ups with fail-before-publication and
+  correct top-N promotion/deletion criteria; no new exclusion was introduced.
+  Optional ecosystem and explicitly deferred distributed scope remain separate.
+- Found invalid workflow YAML in two unquoted Rust test-filter commands ending
+  `::` before a space. Local parsing reproduces the committed failure and passes
+  after quoting both commands. Five CI jobs are retained; new entries cover the
+  recent session/weight feedback tests under minimal and recording-only builds.
+- All ten isolated feature checks/boundary tests and no-default test compilation
+  passed locally; 50 targeted minimal/recording regression executions passed.
+  Previous implementation baseline remains 817 full-feature tests plus strict
+  Clippy/rustdoc and fresh Rust 1.85. No production behavior changed this step.
+- Remote prior run failed without jobs/logs; the workflow repair needs a new
+  remote execution before claiming GitHub CI green.

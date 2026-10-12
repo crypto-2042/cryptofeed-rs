@@ -3,8 +3,10 @@
 Status: active improvement plan, updated 2026-10-12 against the sibling Python
 checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing and per-channel subscriptions
 are implemented; conservative connection sizing and paced sends are now implemented.
-Phase 3 core runtime commands/identity, retained readiness and opt-in directory reconciliation are implemented;
-phases 4–5 and the remaining design work below remain unfinished. Exchange count and instrument-type coverage are
+Phase 3 core runtime commands/identity, retained readiness and opt-in directory reconciliation are implemented.
+The [requirement audit](python-alignment-audit.md) finds two remaining book-policy
+gaps: opt-in crossed-book checks and maximum delivered depth. Phase 4 is incomplete;
+phase 5 implements the bounded core helpers while full backend adapters remain optional. Exchange count and instrument-type coverage are
 excluded. Authenticated feeds and trading remain outside the 0.1 scope.
 
 ## Goal and compatibility
@@ -70,7 +72,7 @@ shutdown without hydration. Workspace tests, strict Clippy, no-default and
 single-feature compilation, rustdoc, formatting, and Rust 1.85 must pass.
 No exchange wire parser or endpoint changes are part of this phase.
 
-## Phase 2 — subscription planning and refresh (in progress)
+## Phase 2 — subscription planning and refresh (implemented bounded contracts)
 
 1. **Implemented: catalog refresh and request sharing.**
    `MarketCatalog::refresh` bypasses cached responses, including every requested
@@ -107,8 +109,9 @@ No exchange wire parser or endpoint changes are part of this phase.
    before deterministic contiguous slicing, avoiding duplication of small routes.
    [Opt-in exact minimum packing](minimum-connections.md) now proves the fewest
    physical connections under fixed SDK routes and atomic instruments, with a
-   bounded search budget and cancellable async worker admission. Distributed/
-   other-venue weighted quotas remain separate improvements. Binance public HTTP weights
+   bounded search budget and cancellable async worker admission. Other venue public
+   count quotas are audited against existing pacing; distributed coordination is
+   explicitly deferred. Binance public HTTP weights
    are now implemented with [verified costs](http-weights.md). [ResourceBudget](resource-budgets.md)
    now adds configurable stricter shared HTTP/WS groups with atomic layered pacing
    and managed per-scope capacity reservations.
@@ -159,7 +162,7 @@ concurrent shutdown, pending snapshots, stale generations, state reset, and
 healthy-feed isolation. In-place subscribe/unsubscribe can follow only where
 current exchange protocols and acknowledgement handling are verified.
 
-## Phase 4 — event and handler semantics
+## Phase 4 — event and handler semantics (incomplete book policies)
 
 Implemented [closed-only candles and explicit unknown-completion policy](candle-delivery.md),
 with compatible all-update defaults and filtering before all delivery surfaces.
@@ -175,6 +178,11 @@ deadlines, successful-subscription retry/backoff reset, idle policy and startup
 delay. [TransportConfig](transport.md) now covers explicit HTTP/WS proxy routing,
 including standalone/periodic catalogs and REST bootstrap/resync. General Python
 config-file loading is not claimed.
+
+The [requirement audit](python-alignment-audit.md) identifies missing optional
+Python `cross_check` and maximum delivered depth semantics. Native subscription
+depth is not equivalent to output depth. Both remain required implementation
+steps; existing sequence/checksum and recovery support does not close them.
 
 Acceptance: tests cover unfinished/unknown candles, handler ordering and failure,
 lag-and-recovery continuity, and shutdown with slow consumers. Preserve existing

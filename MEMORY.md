@@ -973,3 +973,11 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   Pong and drop the failed session; manual payload-preserving Pong replaces its
   queued automatic reply. Direct callers own cancellation and must drop failed
   sessions. These SDK start windows do not certify remote arrival timing.
+
+- Completion audit 2026-10-12 found two required Python book-policy gaps:
+  optional crossed-L2 validation and maximum delivered depth. Native subscription
+  depth and L2 recovery are not substitutes. Preserve native full-book checksum/
+  sequence state when later projecting top-N, including promotion/deletion.
+- Quote single-line YAML run commands when Rust filters end in `::` before a
+  space; otherwise the workflow fails to parse and GitHub may create no jobs/logs.
+  YAML syntax validation is not a successful remote CI run; inspect execution.
