@@ -1,11 +1,12 @@
 # Python usage alignment
 
-Status: active improvement plan, updated 2026-10-12 against the sibling Python
+Status: necessary core alignment implemented and accepted, updated 2026-10-12 against the sibling Python
 checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing and per-channel subscriptions
 are implemented; conservative connection sizing and paced sends are now implemented.
 Phase 3 core runtime commands/identity, retained readiness and opt-in directory reconciliation are implemented.
 The [requirement audit](python-alignment-audit.md) records opt-in crossed-book checks and maximum delivered depth as implemented;
-final acceptance still includes the engineering gates and remote CI.
+the local engineering gates and the final implementation
+[remote CI run](https://github.com/crypto-2042/cryptofeed-rs/actions/runs/38241618238) passed.
 phase 5 implements the bounded core helpers while full backend adapters remain optional. Exchange count and instrument-type coverage are
 excluded. Authenticated feeds and trading remain outside the 0.1 scope.
 

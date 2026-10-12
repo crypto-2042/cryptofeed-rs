@@ -1001,8 +1001,9 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   projection ownership. A delta without a valid delivery snapshot is recoverable
   malformed data, never a fabricated snapshot. Raw replay restores optional
   positive metadata; old/default records omit it and explicit zero is invalid.
-- Final local acceptance: 837 all-feature/732 default tests, strict lints/docs,
-  feature boundaries and fresh Rust 1.85 passed. 14ec357 remote CI is green;
-  the final delivered-depth commit must pass its own remote run before completing
-  the active alignment goal. Optional ecosystem and explicitly deferred scopes
-  remain as recorded in the public requirement audit.
+- Final core acceptance: 837 all-feature/732 default tests, strict lints/docs,
+  feature boundaries and fresh Rust 1.85 passed. Delivered-depth implementation
+  ad9f22a passed remote run 38241618238 with all five jobs green. Necessary core
+  alignment is accepted; optional ecosystem and explicitly deferred scopes remain
+  as recorded in the public requirement audit. Do not infer new missing core
+  requirements from older dated milestone pending lists.

@@ -1,6 +1,6 @@
 # Python alignment requirement audit — 2026-10-12
 
-**Implementation result: required core contracts implemented; final engineering acceptance requires the recorded local gates and green remote CI.** This audit checks the existing [alignment plan](python-usage-alignment.md)
+**Result: necessary core alignment accepted within the agreed scope.** This audit checks the existing [alignment plan](python-usage-alignment.md)
 against implementation and executable evidence. It does not redefine completion
 around already implemented features. The inspected Python sibling is commit
 `3a6d3ca`; the prior fully tested and remotely accepted Rust implementation is
@@ -63,7 +63,7 @@ protocol and delivery limitations remain in the linked public guides.
    one coherent contract for handlers, ordinary/identified broadcast and retained
    recovery. Verify replacements/reconnects, sparse subscriptions, scale-preserving
    Decimals, empty sides and promotion across the cutoff.
-3. **Acceptance:** re-run the full requirement audit and engineering gates after delivered depth is implemented. Compile isolated
+3. **Verified:** the full requirement audit and engineering gates passed after delivered depth was implemented. Compile isolated
    features, run focused/default/all-feature gates, fresh-resolution MSRV and
    inspect actual remote CI. Keep the goal active if a named requirement lacks
    implementation or evidence. The two gaps are not silently deferred.
@@ -126,8 +126,8 @@ surfaces share one projected event. Resync/reconnect/managed fresh state clears
 views and cannot promote a delta into a new snapshot. Source and test evidence
 now cover both named book gaps. The prior implementation (14ec357) passed all
 five remote CI jobs, including Linux quality/features after the timestamp fix.
-Current local gate results are recorded in PROGRESS/PARITY; final acceptance of
-this implementation also requires its own [CI run](https://github.com/crypto-2042/cryptofeed-rs/actions/workflows/ci.yml).
+Current local gate results are recorded in PROGRESS/PARITY. Implementation
+`ad9f22a` passed its own [five-job CI run](https://github.com/crypto-2042/cryptofeed-rs/actions/runs/38241618238).
 No optional ecosystem exclusion or supported product/channel scope changed.
 
 Final local acceptance for delivered depth: 837 all-feature / 732 default tests,
@@ -135,4 +135,17 @@ strict Clippy/rustdoc, every isolated feature compile/boundary suite, minimal
 orderbook/recording policy tests, no-default test compilation and fresh-resolution
 Rust 1.85 all-target compilation passed with the tested dependency set unchanged.
 AGENTS/CLAUDE remain identical; public guide statuses now match implemented
-contracts. Final remote acceptance is the CI run for the evaluated commit.
+contracts. Final implementation acceptance is proven by remote run 38241618238 for
+`ad9f22a53ac12bb2e0b63aaf69493b62de2cf3d1`: quality, features, MSRV, package and
+security all completed successfully.
+
+## Acceptance conclusion
+
+Every required core workflow in the original five-phase plan now has inspected
+implementation and focused executable evidence, with default/all-feature tests,
+isolated features, fresh MSRV and actual Linux CI acceptance. The two book-policy
+gaps found during audit are implemented rather than deferred. No additional
+required implementation item remains under this agreed scope. This conclusion
+does not claim every Python backend, all venues/products/private APIs, remote
+durability or the explicitly deferred distributed quota service. Those boundaries
+remain unchanged and visible above.

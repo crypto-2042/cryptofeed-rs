@@ -1160,5 +1160,6 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   boundary tests, minimal/recording depth tests and no-default test compilation.
   Fresh-resolution Rust 1.85 all-target check passed on identical dependencies.
   Formatting/diff/YAML/JSONL checks passed; no lockfile or build output is tracked.
-- Prior 14ec357 passed all five remote CI jobs. Final acceptance of this increment
-  still requires its own remote CI run; no live exchange traffic was generated.
+- Final implementation ad9f22a passed all five remote CI jobs (run 38241618238):
+  quality, features, MSRV, package and security. Necessary core alignment is
+  accepted within the original agreed scope; no live exchange traffic was generated.
