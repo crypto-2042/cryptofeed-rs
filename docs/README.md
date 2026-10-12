@@ -170,3 +170,6 @@ change earlier observations.
 Current milestones and remaining release work are tracked in
 [PROGRESS.md](../PROGRESS.md). Internal review notes, retired implementation
 plans, and presentation drafts stay in ignored `.local/docs/`.
+
+[Route-first capacity planning](connection-planning.md#route-first-capacity-planning--2026-10-12)
+now keeps small routes together when another endpoint needs capacity shards.

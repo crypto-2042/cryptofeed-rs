@@ -782,3 +782,11 @@ close codes are scoped to their venue; SDK retry decisions are stated separately
 No endpoints or market normalization changed. Synthetic lifecycle references and
 inline assertions were added together; local HTTP/CONNECT tests do not contact
 exchange services or prove a live quota threshold.
+
+### 2026-10-12 route-first allocation
+
+[Route-first planning](connection-planning.md#route-first-capacity-planning--2026-10-12)
+uses existing adapter routes and subscription budgets without changing wire
+contracts, endpoints or native limits. Synthetic allocation references and inline
+assertions document SDK behavior, not newly discovered exchange instruments or
+quota guarantees. Product homogeneity is enforced before logical projection.

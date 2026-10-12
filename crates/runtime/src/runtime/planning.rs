@@ -44,15 +44,140 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
     }
 }
 
-pub(crate) fn physical_connection_count(feed: &ExchangeFeed) -> Result<usize> {
-    Ok(match feed.exchange {
-        ExchangeId::Binance => BinanceAdapter::connection_plans(feed)?.len(),
-        ExchangeId::Bybit => BybitAdapter::subscription_urls(feed).len(),
-        ExchangeId::Okx => OkxAdapter::subscription_urls(feed).len(),
-        ExchangeId::Gateio => GateioAdapter::connection_plans(feed)?.len(),
-        ExchangeId::Bitget => 1,
+fn native_routes(feed: &ExchangeFeed) -> Result<Vec<String>> {
+    let urls = match feed.exchange {
+        ExchangeId::Binance => BinanceAdapter::connection_plans(feed)?
+            .into_iter()
+            .map(|plan| plan.websocket_url)
+            .collect(),
+        ExchangeId::Bybit => BybitAdapter::subscription_urls(feed),
+        ExchangeId::Okx => OkxAdapter::subscription_urls(feed),
+        ExchangeId::Gateio => GateioAdapter::connection_plans(feed)?
+            .into_iter()
+            .map(|plan| plan.websocket_url)
+            .collect(),
+        ExchangeId::Bitget => vec![BitgetAdapter::websocket_url().into()],
         _ => return Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
-    })
+    };
+    Ok(urls
+        .into_iter()
+        .map(|url| {
+            if feed.exchange == ExchangeId::Binance {
+                match url.find("?streams=") {
+                    Some(index) => url[..index].to_owned(),
+                    None => url,
+                }
+            } else {
+                url
+            }
+        })
+        .collect())
+}
+
+pub(crate) fn physical_connection_count(feed: &ExchangeFeed) -> Result<usize> {
+    Ok(native_routes(feed)?.len())
+}
+
+// Only oversized multi-route feeds need this projection. Native adapters remain
+// the routing authority; grouping never invents an endpoint or subscription pair.
+fn route_feeds(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
+    let routes = native_routes(feed)?;
+    if routes.len() <= 1 {
+        return Ok(vec![feed.clone()]);
+    }
+    let membership: Vec<_> = feed
+        .channels
+        .iter()
+        .map(|channel| {
+            if feed.channel_subscriptions.is_empty() {
+                None
+            } else {
+                Some(
+                    feed.channel_subscriptions
+                        .iter()
+                        .filter(|(entry, _)| entry == channel)
+                        .flat_map(|(_, symbols)| symbols.iter())
+                        .collect::<std::collections::HashSet<_>>(),
+                )
+            }
+        })
+        .collect();
+    let mut template = feed.clone();
+    template.symbols.clear();
+    template.exchange_symbols.clear();
+    template.channels.clear();
+    template.channel_subscriptions.clear();
+    let mut groups: Vec<_> = routes
+        .iter()
+        .map(|_| {
+            let mut planned = template.clone();
+            planned.channels = feed.channels.clone();
+            planned.channel_subscriptions = feed
+                .channels
+                .iter()
+                .map(|channel| (*channel, Vec::new()))
+                .collect();
+            (planned, vec![false; feed.symbols.len()])
+        })
+        .collect();
+    let mut pair = template;
+    for (symbol_index, symbol) in feed.symbols.iter().enumerate() {
+        pair.symbols.clear();
+        pair.symbols.push(symbol.clone());
+        pair.exchange_symbols.clear();
+        if !feed.exchange_symbols.is_empty() {
+            pair.exchange_symbols
+                .push(feed.exchange_symbols[symbol_index].clone());
+        }
+        for (channel_index, channel) in feed.channels.iter().enumerate() {
+            if !membership[channel_index]
+                .as_ref()
+                .is_none_or(|selected| selected.contains(symbol))
+            {
+                continue;
+            }
+            pair.channels.clear();
+            pair.channels.push(*channel);
+            for route in native_routes(&pair)? {
+                let index = routes
+                    .iter()
+                    .position(|known| known == &route)
+                    .ok_or_else(|| {
+                        Error::InvalidConfiguration(
+                            "pair route is absent from logical connection plan".into(),
+                        )
+                    })?;
+                let (planned, seen) = &mut groups[index];
+                if !seen[symbol_index] {
+                    seen[symbol_index] = true;
+                    planned.symbols.push(symbol.clone());
+                    if !feed.exchange_symbols.is_empty() {
+                        planned
+                            .exchange_symbols
+                            .push(feed.exchange_symbols[symbol_index].clone());
+                    }
+                }
+                planned.channel_subscriptions[channel_index]
+                    .1
+                    .push(symbol.clone());
+            }
+        }
+    }
+    Ok(groups
+        .into_iter()
+        .filter_map(|(mut planned, _)| {
+            planned
+                .channel_subscriptions
+                .retain(|(_, symbols)| !symbols.is_empty());
+            planned.channels.retain(|channel| {
+                planned
+                    .channel_subscriptions
+                    .iter()
+                    .any(|(entry, _)| entry == channel)
+            });
+            (!planned.symbols.is_empty()).then_some(planned)
+        })
+        .collect())
 }
 
 pub(crate) fn validate_connection_counts(feeds: &[ExchangeFeed]) -> Result<()> {
@@ -98,6 +223,17 @@ pub(crate) fn shard(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
             "normalized and exchange symbol counts must match".to_owned(),
         ));
     }
+    if fits(feed)? {
+        return Ok(vec![feed.clone()]);
+    }
+    let mut result = Vec::new();
+    for route in route_feeds(feed)? {
+        result.extend(shard_route(&route)?);
+    }
+    Ok(result)
+}
+
+fn shard_route(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
     if fits(feed)? {
         return Ok(vec![feed.clone()]);
     }
@@ -237,3 +373,6 @@ mod tests {
         assert!(shard(&input).is_err());
     }
 }
+
+#[cfg(all(test, feature = "trade"))]
+mod route_tests;

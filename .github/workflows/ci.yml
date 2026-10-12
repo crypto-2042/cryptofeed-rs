@@ -31,6 +31,10 @@ jobs:
       - run: cargo check --workspace --no-default-features
       - run: cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features
       - run: cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features
+      - name: Check route-first planning independently
+        run: |
+          cargo test -p cryptofeed-rs --lib route_first --no-default-features --features trade
+          cargo test -p cryptofeed-rs --lib route_first --no-default-features --features trade,candles,orderbook
       - name: Check independent raw composition boundaries
         run: |
           cargo test -p cryptofeed-rs --lib independent_merge --no-default-features --features recording

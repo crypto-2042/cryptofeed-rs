@@ -319,13 +319,11 @@ impl ExchangeFeed {
     /// Compiles per-channel subscriptions into concrete feeds for adapter
     /// planning. Exact channel/symbol pairs share native connections where their
     /// routes allow, then split by native subscription budgets while retaining
-    /// normalized/native symbol alignment.
+    /// normalized/native symbol alignment. Oversized multi-route feeds project
+    /// native routes before capacity slicing; each logical feed must use one product kind.
     /// Explicit native names map to the first-seen union in `self.symbols`.
     pub fn connection_feeds(&self) -> Result<Vec<Self>> {
         self.validate_subscription_configuration()?;
-        if self.channel_subscriptions.is_empty() {
-            return crate::runtime::planning::shard(self);
-        }
         self.product_kind()?;
         if !self.exchange_symbols.is_empty() {
             self.ensure_symbol_mapping_is_complete()?;

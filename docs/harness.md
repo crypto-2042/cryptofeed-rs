@@ -592,3 +592,9 @@ not clock synchronization inferred from captures. Tests cover five native famili
 colliding session IDs, local L2 state and consumed Binance/Gate HTTP causal links,
 rotated manifest certification, total resource budgets and terminal cancellation.
 No exchange/network bootstrap is created by merged replay.
+
+Route-first planning tests reproduce four-to-three socket reductions without
+opening connections. `connection-planning.routes.json` is a synthetic allocation
+reference, using generated caller-asserted names rather than live instruments.
+Exact channel/symbol pair coverage, native alignment, product scope, snapshot
+ownership, scoped connection admission and overflow rejection are asserted.

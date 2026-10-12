@@ -914,3 +914,12 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Single and merged replay use one native state implementation, with state isolated
   per capture. File/series EOF and manifests must all certify; global budgets
   apply across inputs, and streaming callbacks cannot be rolled back on late failure.
+
+- Oversized multi-route feeds must project exact subscriptions by adapter-native
+  route before capacity slicing; otherwise a heavy endpoint duplicates small
+  routes and can falsely exceed ResourceBudget. Preserve logical hydration order
+  and per-route native mappings; concrete concatenation order can differ.
+- connection_feeds enforces product homogeneity in shared and sparse modes.
+  Splitting cannot salvage a mixed logical product or drop an oversized pair.
+  Route-first packing retains existing protocol budgets, not a global minimum
+  bin-packing guarantee for arbitrary subscription sizes.

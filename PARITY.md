@@ -964,3 +964,24 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   capture IDs with a five-second offset: 14 observations, 6 L2 models, 7052 logical
   bytes and both EOFs certified. This is synthetic composition evidence, not two
   independent live captures or a throughput test.
+
+## Route-first connection capacity planning — 2026-10-12
+
+- Four regressions reproduced avoidable 4-socket plans: a heavy route's symbol
+  slicing duplicated a small endpoint. Projecting exact pairs by native adapter
+  route before capacity slicing now uses 3 sockets in each case, their lower bound.
+- Covered Binance public/market, OKX public/business, Bybit linear/inverse and
+  Gate settlement routes; Bitget/small-feed paths retain existing ordering.
+  No exchange URL, wire payload or budget constant changed.
+- Logical union hydration is unchanged; concrete groups retain per-route channel/
+  symbol order, native mappings, handlers, transport/resource scope and exact
+  membership. A 3-slot OKX scope now accepts the candidate.
+- Legacy low-level connection_feeds also rejects mixed product kinds before
+  projection. Single-symbol overflow still rejects the entire candidate.
+- Seven new regressions and [synthetic allocation evidence](docs/connection-planning.md#route-first-capacity-planning--2026-10-12).
+  Global minimum variable-size packing, adaptive/distributed quotas and broader
+  replay edge audits remain unfinished.
+- Final gates passed: 781 all-feature workspace tests, strict Clippy/rustdoc,
+  default/no-default and every isolated category/recording feature compile,
+  minimal route regressions and Rust 1.85 all-target compilation against fresh
+  dependency resolution. No live load or rate-limit test was performed.

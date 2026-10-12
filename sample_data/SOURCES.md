@@ -414,3 +414,11 @@ independent_merge alignment tests. It contains only offsets/lifecycle labels and
 counts, not an exchange capture. Native payloads in merge tests reuse already
 asserted raw replay/consumed HTTP fixtures; no parser expectation or wire shape
 changed. See [identity, bounds and clocks](../docs/raw-merge.md).
+
+## 2026-10-12 route-first allocation reference
+
+`connection-planning.routes.json` is synthetic SDK allocation evidence matching
+inline route_first tests. Generated symbols and oversized native strings are
+caller assertions used to exercise budgets; they are not exchange directory
+captures. Existing adapter routes/limits are unchanged. See the [planning
+guide](../docs/connection-planning.md#route-first-capacity-planning--2026-10-12).

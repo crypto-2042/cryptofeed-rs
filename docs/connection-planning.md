@@ -11,9 +11,11 @@ sharing an IP, remote service availability, or optimal socket packing.
    mapping ambiguity across all channels.
 3. Retain the first-seen union and exact channel/symbol membership. All five
    adapters omit unrequested pairs before serializing native subscriptions.
-4. Split this union into the largest contiguous symbol slices that
-   fit native subscription budgets. Topic aliases are deduplicated by the
-   existing exchange adapters before measuring each physical endpoint.
+4. If an oversized feed spans multiple native routes, project its exact pairs
+   into adapter-defined route groups before capacity slicing. Each group then
+   uses the largest contiguous symbol slices that fit its native budget. Feeds
+   that already fit and single-route feeds retain their existing path. Topic
+   aliases are deduplicated by the adapters before measuring each endpoint.
 5. Reject a single instrument that exceeds a budget and reject more than 100
    planned physical connections to one exchange within a handler before WS
    startup. This planning happens after hydration because native names matter.
@@ -155,3 +157,49 @@ running and queued starts retain their existing capacity reservations.
 numeric close codes. Transient hints extend shared venue starts; rejected
 establishment releases both capacity layers. Known protocol/OKX configuration
 closes fail fast, normal remote closes reconnect, and caller shutdown stays clean.
+
+## Route-first capacity planning — 2026-10-12
+
+An oversized route previously split the entire logical symbol union, so small
+unrelated routes could be duplicated across capacity shards. Four deterministic
+regressions reproduced four physical connections where three suffice:
+
+| Configuration | Previous sockets | Current sockets |
+| --- | --- | --- |
+| Binance USD-M: 1025 L2 symbols, Trade on first/last | 4 | 3: two public, one market |
+| OKX: public message exceeds 64 KiB, two small candle subscriptions | 4 | 3: two public, one business |
+| Bybit: linear message exceeds its budget, two inverse symbols at opposite ends | 4 | 3: two linear, one inverse |
+| Gate: 1025 USDT-perpetual messages, two BTC-settlement subscriptions | 4 | 3: two USDT, one BTC |
+
+These are synthetic caller-asserted symbol/native-name fixtures, not evidence
+that unusually long names or generated symbols exist in an exchange directory.
+Each heavy route requires at least two sockets and the distinct light endpoint
+requires at least one; three is the lower bound for these cases. A three-slot
+ResourceBudget preflight now accepts the OKX case instead of rejecting the
+avoidable fourth socket.
+
+The SDK derives routes from the existing adapters for each requested pair;
+it adds no exchange-specific endpoint or limit constants. Binance stream-list
+query content is excluded from its route identity. Symbol/native alignment and
+exact per-channel pairs are retained, including shared native-topic aliases.
+Each physical route retains logical channel order and first-seen symbol order.
+Concrete output groups follow adapter route order before capacity slices, so
+concatenating oversized groups need not reproduce the logical union order.
+Hydration and the public logical configuration retain the original union.
+
+Low-level connection_feeds now checks product homogeneity for legacy shared
+subscriptions as well as sparse subscriptions, before projection. Mixed spot/
+perpetual/futures logical feeds cannot become valid by splitting their routes.
+Single-instrument overflow remains an error for the whole candidate; a healthy
+route is not silently returned while dropping an oversized one. Existing global/
+scoped connection caps, readiness, book ownership and native budgets remain active.
+
+Seven new focused regressions cover all five exchange families, exact pair
+coverage, native mappings, product scope, snapshot ownership, three-slot admission,
+legacy/small-feed ordering and overflow rejection. No wire payload or exchange
+API changed. The reference is `sample_data/connection-planning.routes.json`.
+
+This removes duplication caused by splitting unrelated routes together. Within
+one route, slicing remains deterministic contiguous packing; a global minimum
+solver for arbitrary variable-size subscriptions remains separate work. Adaptive/distributed quotas and broader replay edge audits
+also remain under the active alignment plan.

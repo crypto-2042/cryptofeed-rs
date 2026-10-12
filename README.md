@@ -427,6 +427,9 @@ and numeric close codes, distinguishing retryable failures from known permanent 
 [Native REST quota responses](docs/native-rate-limits.md) now also feed shared
 per-exchange cooldowns while preserving original JSON and existing error semantics.
 
+Oversized multi-route feeds now [partition routes before capacity slicing](docs/connection-planning.md#route-first-capacity-planning--2026-10-12),
+keeping small unrelated endpoints together and avoiding extra connections.
+
 ## Shared resource budgets
 
 `ResourceBudget` groups transports/feeds/REST clients under stricter HTTP capacity
