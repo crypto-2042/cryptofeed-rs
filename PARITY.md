@@ -985,3 +985,27 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   default/no-default and every isolated category/recording feature compile,
   minimal route regressions and Rust 1.85 all-target compilation against fresh
   dependency resolution. No live load or rate-limit test was performed.
+
+## Optional proven minimum connection planning — 2026-10-12
+
+- Added RuntimeOptions::minimum_connections(Some(evaluation_budget)); None preserves
+  default planning. Success proves minimum physical connections for one logical
+  feed under existing fixed routes, atomic instruments and native/SDK budgets.
+- Native demand/envelope lower bounds, disjoint-cost GCD bounds, greedy upper
+  bounds and iterative exhaustive search retain shared aliases. Additive remainder
+  pruning finds a real SDK case that greedy misses: Bitget 98 args/49 per socket,
+  contiguous/first-fit 3 versus proven 2. No silent approximation on exhaustion.
+- Async compilation is offloaded with two process-wide worker permits; caller
+  cancellation signals cooperative stop and permits stay with running jobs.
+  Invalid/unproved replacements preserve the healthy old feed and identity.
+- Fourteen focused regressions include independent exhaustive oracles, all five
+  native budget families, alias isolation, exact membership/native mappings,
+  budget/overflow/cancellation, worker admission and managed preservation.
+  [Scope and example](docs/minimum-connections.md) distinguish the fixed SDK model
+  from alternate APIs/across-logical-feed sharing. Adaptive/distributed quotas,
+  other venue weights and broader replay edge audits remain unfinished.
+- Final gates passed: 795 all-feature workspace tests, strict Clippy/rustdoc,
+  default/no-default and each isolated data/recording feature compile, minimum
+  tests in minimal/recording combinations and fresh-resolution Rust 1.85
+  all-target compilation. Offline example verified 3 -> 2 with args [49,49].
+  No live exchange load or rate limit was triggered.

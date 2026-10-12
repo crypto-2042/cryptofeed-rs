@@ -923,3 +923,14 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   Splitting cannot salvage a mixed logical product or drop an oversized pair.
   Route-first packing retains existing protocol budgets, not a global minimum
   bin-packing guarantee for arbitrary subscription sizes.
+
+- Minimum packing is opt-in through RuntimeOptions, with a positive evaluation
+  budget. Success means proof under fixed adapter routes and atomic instruments;
+  exhaustion must error without returning an unproven layout. Preserve defaults.
+- Native demand is a union; shared aliases forbid scalar equal-load symmetry
+  pruning. GCD/remainder bounds apply only to proven disjoint/additive pressure.
+  Iterative search avoids input-depth recursion; candidate groups retain original
+  order, exact pairs/native mappings and existing budget predicates.
+- Enabled async planning is offloaded with two process-wide permits and a Drop
+  cancellation signal. A running job owns its permit until exit; failed planning
+  must not stop an old managed feed. Synchronous helper callers own scheduling.

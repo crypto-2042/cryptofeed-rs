@@ -790,3 +790,13 @@ uses existing adapter routes and subscription budgets without changing wire
 contracts, endpoints or native limits. Synthetic allocation references and inline
 assertions document SDK behavior, not newly discovered exchange instruments or
 quota guarantees. Product homogeneity is enforced before logical projection.
+
+### 2026-10-12 minimum packing model
+
+[Minimum packing](minimum-connections.md) measures existing generated native
+subscriptions and preserves all previously documented limits/routes. Count
+demand and JSON-argument byte demand exclude only the fixed envelope/reserve
+used by current SDK budget checks. Aliases retain their native deduplication.
+The proof is for fixed SDK routes and atomic instruments; it is not a new venue
+limit or an alternate subscription API. Synthetic references and native tests
+were updated together; no market parser or normalized payload changed.

@@ -62,6 +62,8 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
 - [Binance HTTP weights](http-weights.md): current endpoint tiers, rolling windows,
   stricter shared usage thresholds and replay/cancellation semantics.
+- [Proven minimum connection planning](minimum-connections.md): optional exact
+  packing, native lower bounds, search limits and cancellable runtime execution.
 - [Independent raw capture replay](raw-merge.md): explicit common-axis offsets,
   namespaced identity, isolated native/HTTP/L2 state and aggregate bounds.
 - [WS handshake and close failures](ws-lifecycle-failures.md): HTTP delay hints,

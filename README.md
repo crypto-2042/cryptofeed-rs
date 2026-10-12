@@ -429,6 +429,9 @@ per-exchange cooldowns while preserving original JSON and existing error semanti
 
 Oversized multi-route feeds now [partition routes before capacity slicing](docs/connection-planning.md#route-first-capacity-planning--2026-10-12),
 keeping small unrelated endpoints together and avoiding extra connections.
+[Opt-in minimum packing](docs/minimum-connections.md) proves the fewest physical
+connections under existing route/instrument budgets, with bounded search and
+cancellable async worker admission.
 
 ## Shared resource budgets
 

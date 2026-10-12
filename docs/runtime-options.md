@@ -113,3 +113,12 @@ do. Startup regressions cover cancellation and false watch notifications; duplex
 sessions cover custom idle expiry and disabled idle with continued heartbeat
 and shutdown. No external endpoint, fixture or parser was changed; these are SDK policy
 tests, not new live protocol evidence.
+
+## Minimum connection work budget
+
+minimum_connections(Some(n)) opts into [proven minimum packing](minimum-connections.md)
+for one logical feed under existing route/atomic-instrument budgets. Positive n
+bounds optimizer work; None retains default contiguous planning. It runs after
+hydration, independently of handshake/callback deadlines. Runtime planning uses
+a cancellable two-worker process admission; budget exhaustion does not replace a
+healthy current feed with an unproven candidate.

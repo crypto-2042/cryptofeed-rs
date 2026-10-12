@@ -2,7 +2,9 @@
 
 Implemented 2026-10-10. These policies cover the current FeedHandler path and
 `ExchangeFeed::connection_feeds`. They are not a guarantee about other clients
-sharing an IP, remote service availability, or optimal socket packing.
+sharing an IP or remote service availability. Default packing is conservative;
+[minimum-connection policy](minimum-connections.md) adds a bounded proof-producing
+optimizer for the existing route/instrument model.
 
 ## Planning order
 
@@ -97,8 +99,9 @@ extra market data, which exact dispatch filters omit. L2 REST URL lists, initial
 snapshot jobs, resync indexing, retained readiness and recovery ownership contain
 only requested L2 symbols. Unrequested depth does not create sync/bootstrap work.
 
-This is deterministic contiguous-union packing, not a globally minimum bin-packing
-or cross-endpoint allocation solver. Endpoint/product boundaries are preserved;
+Default packing uses deterministic contiguous slices. [Opt-in minimum planning](minimum-connections.md)
+now proves minimum physical connections under the existing fixed route/instrument
+constraints; it returns an error when its search budget cannot establish proof. Endpoint/product boundaries are preserved;
 stricter caller-shared HTTP/WS policies are now implemented in
 [ResourceBudget](resource-budgets.md). Binance weights are implemented; other
 venue weights and distributed resource policies remain in the
@@ -200,6 +203,7 @@ legacy/small-feed ordering and overflow rejection. No wire payload or exchange
 API changed. The reference is `sample_data/connection-planning.routes.json`.
 
 This removes duplication caused by splitting unrelated routes together. Within
-one route, slicing remains deterministic contiguous packing; a global minimum
-solver for arbitrary variable-size subscriptions remains separate work. Adaptive/distributed quotas and broader replay edge audits
-also remain under the active alignment plan.
+one route, default slicing remains deterministic contiguous packing.
+[Opt-in exact minimum packing](minimum-connections.md) now handles variable-size
+subscriptions under fixed routes and atomic instruments with bounded proof/search.
+Adaptive/distributed quotas and broader replay edge audits remain active work.

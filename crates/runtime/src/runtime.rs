@@ -157,7 +157,7 @@ async fn hydrate_feed_symbols(feeds: Vec<ExchangeFeed>) -> Result<Vec<ExchangeFe
     let hydrated: Vec<Result<Vec<ExchangeFeed>>> =
         futures::future::join_all(feeds.into_iter().map(|mut feed| async move {
             feed.exchange_symbols = markets::resolve_feed_symbols(&feed).await?;
-            feed.connection_feeds()
+            planning::prepare(feed).await
         }))
         .await;
     let mut result = Vec::new();

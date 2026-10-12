@@ -221,3 +221,7 @@ all-features = true
 [[example]]
 name = "raw_merge"
 required-features = ["recording"]
+
+[[example]]
+name = "minimum_connections"
+required-features = ["trade", "ticker", "orderbook"]

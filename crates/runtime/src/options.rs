@@ -18,6 +18,7 @@ pub struct RuntimeOptions {
     idle_policy: IdlePolicy,
     connect_timeout: Duration,
     handler_timeout: Duration,
+    packing_evaluations: Option<u64>,
 }
 impl Default for RuntimeOptions {
     fn default() -> Self {
@@ -27,10 +28,26 @@ impl Default for RuntimeOptions {
             idle_policy: IdlePolicy::ExchangeDefault,
             connect_timeout: Duration::from_secs(20),
             handler_timeout: Duration::from_secs(5),
+            packing_evaluations: None,
         }
     }
 }
 impl RuntimeOptions {
+    /// Opt into proven minimum physical connections under existing route/budget
+    /// and atomic-instrument constraints. None preserves contiguous planning.
+    /// Exhaustion returns an error rather than an unproven layout.
+    pub fn minimum_connections(mut self, maximum_evaluations: Option<u64>) -> Result<Self> {
+        if maximum_evaluations == Some(0) {
+            return Err(Error::InvalidConfiguration(
+                "minimum packing needs a positive evaluation budget".into(),
+            ));
+        }
+        self.packing_evaluations = maximum_evaluations;
+        Ok(self)
+    }
+    pub fn packing_evaluation_limit(self) -> Option<u64> {
+        self.packing_evaluations
+    }
     /// Maximum transient retries since the last successful subscription send.
     /// None is unbounded; Some(0) permits only the initial session attempt.
     pub fn max_retries(mut self, limit: Option<usize>) -> Self {

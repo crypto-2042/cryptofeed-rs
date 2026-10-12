@@ -31,6 +31,11 @@ jobs:
       - run: cargo check --workspace --no-default-features
       - run: cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features
       - run: cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features
+      - name: Check exact packing boundaries
+        run: |
+          cargo test -p cryptofeed-rs --lib minimum_packing --no-default-features
+          cargo test -p cryptofeed-rs --lib minimum_packing --no-default-features --features trade,orderbook
+          cargo test -p cryptofeed-rs --lib minimum_packing --no-default-features --features recording,trade,orderbook
       - name: Check route-first planning independently
         run: |
           cargo test -p cryptofeed-rs --lib route_first --no-default-features --features trade

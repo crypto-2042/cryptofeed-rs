@@ -1,3 +1,4 @@
+mod optimal;
 use crate::exchange::{
     ExchangeFeed, binance::adapter::BinanceAdapter, bitget::adapter::BitgetAdapter,
     bybit::adapter::BybitAdapter, gateio::adapter::GateioAdapter, okx::adapter::OkxAdapter,
@@ -8,6 +9,21 @@ use cryptofeed_core::{
 };
 use serde_json::Value;
 
+const BINANCE_STREAMS: usize = 1024;
+const BITGET_TOPICS: usize = 49;
+const BYBIT_BYTES: usize = 21000;
+const OKX_BYTES: usize = 64 * 1024;
+const GATE_MESSAGES: usize = 1024;
+const GATE_MESSAGE_BYTES: usize = 64 * 1024;
+const REQUEST_METADATA_BYTES: usize = 64;
+
+fn check_cancelled(cancelled: Option<&std::sync::atomic::AtomicBool>) -> Result<()> {
+    if cancelled.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+        return Err(Error::Transport("connection planning cancelled".into()));
+    }
+    Ok(())
+}
+
 // Official limits and conservative SDK budgets are distinguished in the
 // protocol baseline. Count generated native topics, not normalized channels.
 fn fits(feed: &ExchangeFeed) -> Result<bool> {
@@ -15,30 +31,31 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
         ExchangeId::Binance => Ok(BinanceAdapter::connection_plans(feed)?.iter().all(|plan| {
             plan.websocket_url
                 .split_once("?streams=")
-                .is_some_and(|(_, streams)| streams.split('/').count() <= 1024)
+                .is_some_and(|(_, streams)| streams.split('/').count() <= BINANCE_STREAMS)
         })),
         ExchangeId::Bitget => {
             let payload: Value = serde_json::from_str(&BitgetAdapter::subscription_message(feed))
                 .map_err(|error| Error::Parse(error.to_string()))?;
             Ok(payload["args"]
                 .as_array()
-                .is_some_and(|args| args.len() < 50))
+                .is_some_and(|args| args.len() <= BITGET_TOPICS))
         }
         ExchangeId::Bybit => Ok(BybitAdapter::subscription_urls(feed).iter().all(|url| {
             let planned = super::bybit_feed_for_url(feed, url);
-            BybitAdapter::subscription_message(&planned).len() + 64 <= 21000
+            BybitAdapter::subscription_message(&planned).len() + REQUEST_METADATA_BYTES
+                <= BYBIT_BYTES
         })),
         ExchangeId::Okx => Ok(OkxAdapter::subscription_urls(feed).iter().all(|url| {
             let planned = super::okx_feed_for_url(feed, url);
-            OkxAdapter::subscription_message(&planned).len() <= 64 * 1024
+            OkxAdapter::subscription_message(&planned).len() <= OKX_BYTES
         })),
         ExchangeId::Gateio => Ok(GateioAdapter::connection_plans(feed)?.iter().all(|plan| {
             // SDK resource ceilings; these are not claimed as Gate limits.
-            plan.subscription_messages.len() <= 1024
+            plan.subscription_messages.len() <= GATE_MESSAGES
                 && plan
                     .subscription_messages
                     .iter()
-                    .all(|message| message.len() + 64 <= 64 * 1024)
+                    .all(|message| message.len() + REQUEST_METADATA_BYTES <= GATE_MESSAGE_BYTES)
         })),
         _ => Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
     }
@@ -80,7 +97,11 @@ pub(crate) fn physical_connection_count(feed: &ExchangeFeed) -> Result<usize> {
 
 // Only oversized multi-route feeds need this projection. Native adapters remain
 // the routing authority; grouping never invents an endpoint or subscription pair.
-fn route_feeds(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
+fn route_feeds(
+    feed: &ExchangeFeed,
+    cancelled: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Vec<ExchangeFeed>> {
+    check_cancelled(cancelled)?;
     let routes = native_routes(feed)?;
     if routes.len() <= 1 {
         return Ok(vec![feed.clone()]);
@@ -122,6 +143,7 @@ fn route_feeds(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
         .collect();
     let mut pair = template;
     for (symbol_index, symbol) in feed.symbols.iter().enumerate() {
+        check_cancelled(cancelled)?;
         pair.symbols.clear();
         pair.symbols.push(symbol.clone());
         pair.exchange_symbols.clear();
@@ -217,29 +239,45 @@ fn slice(feed: &ExchangeFeed, start: usize, len: usize) -> ExchangeFeed {
     planned
 }
 
+#[cfg(test)]
 pub(crate) fn shard(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
+    shard_cancelable(feed, None)
+}
+pub(crate) fn shard_cancelable(
+    feed: &ExchangeFeed,
+    cancelled: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Vec<ExchangeFeed>> {
+    check_cancelled(cancelled)?;
     if !feed.exchange_symbols.is_empty() && feed.exchange_symbols.len() != feed.symbols.len() {
         return Err(Error::InvalidConfiguration(
             "normalized and exchange symbol counts must match".to_owned(),
         ));
     }
+    if let Some(limit) = feed.runtime_options.packing_evaluation_limit() {
+        return optimal::shard(feed, limit, cancelled);
+    }
     if fits(feed)? {
         return Ok(vec![feed.clone()]);
     }
     let mut result = Vec::new();
-    for route in route_feeds(feed)? {
-        result.extend(shard_route(&route)?);
+    for route in route_feeds(feed, cancelled)? {
+        result.extend(shard_route(&route, cancelled)?);
     }
     Ok(result)
 }
 
-fn shard_route(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
+fn shard_route(
+    feed: &ExchangeFeed,
+    cancelled: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Vec<ExchangeFeed>> {
+    check_cancelled(cancelled)?;
     if fits(feed)? {
         return Ok(vec![feed.clone()]);
     }
     let mut result = Vec::new();
     let mut start = 0;
     while start < feed.symbols.len() {
+        check_cancelled(cancelled)?;
         if !fits(&slice(feed, start, 1))? {
             return Err(Error::InvalidConfiguration(format!(
                 "{:?}: one instrument exceeds the subscription budget",
@@ -249,6 +287,7 @@ fn shard_route(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
         let (mut low, mut high) = (1, feed.symbols.len() - start);
         // Generated topic/message sizes are monotonic as symbols are appended.
         while low < high {
+            check_cancelled(cancelled)?;
             let middle = low + (high - low).div_ceil(2);
             if fits(&slice(feed, start, middle))? {
                 low = middle;
@@ -260,6 +299,43 @@ fn shard_route(feed: &ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
         start += low;
     }
     Ok(result)
+}
+
+struct CancelPlanning(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for CancelPlanning {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+/// Exact search stays off async socket/command workers. At most two SDK async
+/// planning jobs own blocking workers; cancelled jobs retain their permit until exit.
+pub(crate) async fn prepare(feed: ExchangeFeed) -> Result<Vec<ExchangeFeed>> {
+    if feed.runtime_options.packing_evaluation_limit().is_none() {
+        return feed.connection_feeds();
+    }
+    on_planning_worker(move |cancelled| feed.connection_feeds_cancelable(Some(&cancelled))).await
+}
+async fn on_planning_worker<T, F>(work: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce(std::sync::Arc<std::sync::atomic::AtomicBool>) -> Result<T> + Send + 'static,
+{
+    static SLOTS: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+        std::sync::OnceLock::new();
+    let permit = SLOTS
+        .get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(2)))
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("planning admission stays open");
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _guard = CancelPlanning(cancelled.clone());
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        work(cancelled)
+    })
+    .await
+    .map_err(|_| Error::Transport("connection planning worker failed".into()))?
 }
 
 #[cfg(all(
@@ -376,3 +452,57 @@ mod tests {
 
 #[cfg(all(test, feature = "trade"))]
 mod route_tests;
+
+#[cfg(test)]
+mod minimum_worker_tests {
+    use super::*;
+    #[tokio::test(flavor = "current_thread")]
+    async fn minimum_packing_workers_are_bounded_and_dropped_futures_cancel_work() {
+        use std::{
+            sync::{
+                Arc,
+                atomic::{AtomicBool, Ordering},
+            },
+            time::{Duration, Instant},
+        };
+        let mut jobs = Vec::new();
+        for _ in 0..2 {
+            let (started, wait) = tokio::sync::oneshot::channel();
+            let (done, finished) = tokio::sync::oneshot::channel();
+            let job = tokio::spawn(on_planning_worker(move |cancelled| {
+                let _ = started.send(());
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while !cancelled.load(Ordering::Acquire) && Instant::now() < deadline {
+                    std::thread::yield_now();
+                }
+                let _ = done.send(cancelled.load(Ordering::Acquire));
+                Ok(())
+            }));
+            tokio::time::timeout(Duration::from_secs(1), wait)
+                .await
+                .unwrap()
+                .unwrap();
+            jobs.push((job, finished));
+        }
+        let third_started = Arc::new(AtomicBool::new(false));
+        let flag = third_started.clone();
+        let third = tokio::spawn(on_planning_worker(move |_| {
+            flag.store(true, Ordering::Release);
+            Ok(())
+        }));
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(!third_started.load(Ordering::Acquire));
+        third.abort();
+        assert!(third.await.unwrap_err().is_cancelled());
+        for (job, finished) in jobs {
+            job.abort();
+            assert!(job.await.unwrap_err().is_cancelled());
+            assert!(
+                tokio::time::timeout(Duration::from_secs(1), finished)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            );
+        }
+    }
+}

@@ -323,12 +323,18 @@ impl ExchangeFeed {
     /// native routes before capacity slicing; each logical feed must use one product kind.
     /// Explicit native names map to the first-seen union in `self.symbols`.
     pub fn connection_feeds(&self) -> Result<Vec<Self>> {
+        self.connection_feeds_cancelable(None)
+    }
+    pub(crate) fn connection_feeds_cancelable(
+        &self,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<Vec<Self>> {
         self.validate_subscription_configuration()?;
         self.product_kind()?;
         if !self.exchange_symbols.is_empty() {
             self.ensure_symbol_mapping_is_complete()?;
         }
-        crate::runtime::planning::shard(self)
+        crate::runtime::planning::shard_cancelable(self, cancelled)
     }
 
     /// Publishes a normalized event to the `FeedHandler` event stream (when

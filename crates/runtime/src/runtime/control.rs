@@ -837,6 +837,29 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn minimum_packing_unproved_replacement_keeps_old_feed_running() {
+        let (control, mut events, _statuses, running, _stop) = start(FeedHandler::new());
+        let old = control.add_feed(input("BTC")).await.unwrap();
+        event_for(&mut events, old).await;
+        let mut candidate = Bitget::new()
+            .trade()
+            .instruments((0..50).map(|index| Symbol::spot(&format!("S{index}"), "USDT")))
+            .runtime_options(
+                RuntimeOptions::default()
+                    .minimum_connections(Some(1))
+                    .unwrap(),
+            )
+            .build();
+        candidate.exchange_symbols = (0..50).map(|index| format!("S{index}USDT")).collect();
+        let error = control.replace_feed(old.id, candidate).await.unwrap_err();
+        assert!(error.to_string().contains("optimality not proved"));
+        assert_eq!(control.feeds().await.unwrap()[0].identity, old);
+        while events.try_recv().is_ok() {}
+        event_for(&mut events, old).await;
+        control.shutdown().await.unwrap();
+        running.await.unwrap().unwrap();
+    }
+    #[tokio::test]
     async fn add_replace_remove_preserves_identity_and_rejects_invalid_candidate() {
         let (control, mut events, mut statuses, running, _stop) = start(FeedHandler::new());
         let old = control.add_feed(input("BTC")).await.unwrap();

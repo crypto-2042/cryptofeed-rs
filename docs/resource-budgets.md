@@ -85,9 +85,10 @@ cargo run -p cryptofeed-rs --example resource_budget_public
 ```
 
 [Binance endpoint weights](http-weights.md) now supplement the process-local
-safeguards. Native WS quota control, distributed/shared-IP coordination, fairness guarantees,
-global minimum socket packing or sustained throughput certification. Those remain
-separate work under the full alignment plan.
+safeguards. Adaptive WS quotas, distributed/shared-IP coordination, fairness guarantees,
+and sustained throughput certification remain separate work under the full plan.
+[Minimum packing](minimum-connections.md) is now an opt-in exact policy under
+fixed SDK route/instrument constraints, with a separate work budget.
 
 [Native REST codes](native-rate-limits.md) now augment shared HTTP cooldown;
 other venue weights and a distributed quota service remain unfinished.

@@ -598,3 +598,10 @@ opening connections. `connection-planning.routes.json` is a synthetic allocation
 reference, using generated caller-asserted names rather than live instruments.
 Exact channel/symbol pair coverage, native alignment, product scope, snapshot
 ownership, scoped connection admission and overflow rejection are asserted.
+
+Minimum-packing tests compare iterative exact assignment and safe additive bounds
+with an independent exhaustive small-weight oracle. Native fixtures cover all
+five budget families and a Bitget case where both contiguous and first-fit need
+three sockets but exact search proves two. `connection-planning.minimum.json` is
+synthetic SDK allocation evidence, not a wire capture. Worker cancellation/admission
+and rejected replacement preservation are exercised without live exchange load.
