@@ -69,8 +69,10 @@ bounds and replay without live weight changes. The synthetic reference
 `sample_data/public-rest.weights.jsonl` records representative asserted costs;
 it is not a traffic capture or a server saturation test.
 
-Other exchanges retain paced HTTP admission and verified native cooldowns.
-Header used-weight feedback, external clients sharing an IP, distributed quotas,
-fairness, native WS quota classification and globally minimum connection packing
-remain unfinished. These windows bound SDK admissions, not server receipt times,
-and no live limit was intentionally triggered.
+[Other venue public count limits](public-http-frequency-audit.md) are now audited
+against existing paced HTTP admission and verified native cooldowns; no Binance
+weight table is inferred for them. Header used-weight feedback and fairness
+remain open. Cross-process/machine quotas are explicitly deferred. Verified native
+WS failures and opt-in proven minimum connection packing are now implemented.
+These windows bound SDK admissions, not server receipt times; no live limit was
+intentionally triggered.

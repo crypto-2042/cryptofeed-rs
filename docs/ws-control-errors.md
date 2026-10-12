@@ -58,6 +58,6 @@ is a synthetic reference matching inline assertions, not a live throttling captu
 
 Existing connection/topic/frame budgets and paced subscription sends remain active.
 [WS handshake status and scoped close-code distinctions](ws-lifecycle-failures.md)
-are now implemented. Distributed/shared-IP coordination and adaptive
-per-connection send quotas remain separate work. This
+are now implemented. Distributed/shared-IP coordination is explicitly deferred from current scope;
+adaptive per-connection send quotas remain open. This
 change does not certify sustained throughput or intentionally trigger a live ban.

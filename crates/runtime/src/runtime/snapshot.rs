@@ -701,6 +701,48 @@ mod scoped_budget_tests {
 }
 
 #[cfg(test)]
+mod public_frequency_audit {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn default_http_spacing_covers_mixed_public_venues_and_independent_scopes() {
+        let policy = crate::resources::ResourcePolicy::default();
+        let limiter = HttpRequests::new(policy.http_capacity(), policy.http_start_interval());
+        let first = crate::resources::Gate::new(4, Duration::from_secs(1));
+        let second = crate::resources::Gate::new(4, Duration::from_secs(1));
+        let start = Instant::now();
+        let venues = [
+            ExchangeId::Bitget,
+            ExchangeId::Bybit,
+            ExchangeId::Okx,
+            ExchangeId::Gateio,
+        ];
+        let calls = (0..40).map(|index| {
+            let limiter = &limiter;
+            let scope = if index % 2 == 0 { &first } else { &second };
+            let exchange = venues[index % venues.len()];
+            async move {
+                limiter
+                    .run_scoped(exchange, Some(scope), async { Instant::now() })
+                    .await
+            }
+        });
+        let mut starts = futures::future::join_all(calls).await;
+        starts.sort_unstable();
+        assert_eq!(starts[0], start);
+        assert_eq!(starts[39] - start, Duration::from_secs(39));
+        assert!(
+            starts
+                .windows(2)
+                .all(|pair| pair[1] - pair[0] >= Duration::from_secs(1))
+        );
+        assert_eq!(limiter.slots.available_permits(), policy.http_capacity());
+        assert_eq!(first.slots.available_permits(), 4);
+        assert_eq!(second.slots.available_permits(), 4);
+    }
+}
+
+#[cfg(test)]
 mod native_quota_tests {
     use super::*;
     use serde_json::json;

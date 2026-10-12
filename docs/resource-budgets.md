@@ -94,7 +94,8 @@ independently, but their limits do not aggregate across a shared egress IP.
 fixed SDK route/instrument constraints, with a separate work budget.
 
 [Native REST codes](native-rate-limits.md) now augment shared HTTP cooldown;
-other venue weights remain unfinished. No distributed quota service is planned
+[Other venue public count limits](public-http-frequency-audit.md) are audited
+against current HTTP pacing. No distributed quota service is planned
 for the current stage.
 
 [WS quota responses](ws-control-errors.md) now extend the process venue start

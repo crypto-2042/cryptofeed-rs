@@ -1029,3 +1029,20 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 - Gates passed: 800 all-feature workspace tests, strict Clippy/rustdoc, default/
   no-default and each isolated feature compile, minimal recording/ticker audit
   tests and fresh-resolution Rust 1.85 all-target check. No live load test.
+
+## Public HTTP count-limit audit — 2026-10-12
+
+- Audited all current non-Binance public directory/REST/history/L2-bootstrap
+  routes against official Bybit v5, Bitget v3, OKX v5 and Gate v4 rules. These
+  publish request-count budgets; no Binance-style endpoint weights are inferred.
+- Existing process-wide one-second HTTP admission is stricter than all audited
+  budgets. This closes the generic other-venue-weight investigation at current
+  pacing; new routes or relaxed pacing must reopen endpoint-window accounting.
+- Added a paused-clock regression with 40 concurrent mixed-venue requests and
+  independent resource groups, verifying shared admission spacing and release.
+  [Audit](docs/public-http-frequency-audit.md) lists routes, limits and sources.
+- Header usage feedback and adaptive WS send quotas remain open; distributed
+  quota coordination remains explicitly deferred. No live traffic was generated.
+- Validation: 801 all-feature workspace tests passed, plus strict Clippy/rustdoc,
+  no-default workspace compilation, formatting and diff checks. Production
+  behavior/dependencies are unchanged; no new live or fresh MSRV run is claimed.

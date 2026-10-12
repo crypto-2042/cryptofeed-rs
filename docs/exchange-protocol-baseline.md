@@ -809,3 +809,10 @@ response timestamp. The synthetic SDK replay test preserves None on the optional
 native timestamp and uses execution receipt time only for the compatibility model
 fallback. Existing OKX native-time assertions remain separate. No parser or wire
 shape changed; [the audit](replay-contract-audit.md) distinguishes clock domains.
+
+## Public HTTP frequency verification — 2026-10-12
+
+[Route audit](public-http-frequency-audit.md) records current official public
+request-count budgets for Bybit v5, Bitget v3, OKX v5 and Gate v4. Existing
+process-wide one-second HTTP admission is stricter; Binance endpoint weights
+remain a separate model. No protocol payload or parser change was needed.

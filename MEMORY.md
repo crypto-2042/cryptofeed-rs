@@ -950,3 +950,10 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   Keep process-local safeguards; independent processes do not aggregate quotas.
   Python backend subprocesses/Redis storage are not quota coordination. Revisit
   only when a concrete shared-egress collector deployment requires it.
+
+- Public HTTP frequency audit (2026-10-12) covers current Bybit/Bitget/OKX/Gate
+  directory, REST/history and bootstrap routes. Official rules are request
+  counts, already bounded by the process-wide one-second SDK admission interval.
+  Do not invent Binance weight tiers for these venues. Reopen endpoint-window
+  accounting when adding routes or relaxing pacing. Header feedback/adaptive WS
+  sends remain open; distributed coordination is explicitly deferred.
