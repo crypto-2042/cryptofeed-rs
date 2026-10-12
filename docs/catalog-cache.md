@@ -60,3 +60,8 @@ replacement/oversize behavior, TTL/clock rollback, reference lifetime, numeric
 precision and 10,000 independent namespaces. A scoped SDK integration forces one
 replay cache eviction and proves the next catalog is not consumed until refresh.
 No exchange protocol/fixture change or new live validation is claimed here.
+
+Directory request coalescing now uses distinct start/completion operation epochs,
+not comparisons of clock ticks. Retained completed gates cannot satisfy a later
+forced refresh. This does not change SystemTime TTL or rollback invalidation;
+see [replay clock/cohort evidence](replay-contract-audit.md).

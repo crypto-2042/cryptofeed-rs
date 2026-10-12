@@ -271,10 +271,12 @@ async fn existing_catalog_and_public_rest_apis_decode_offline_payloads_and_cache
     assert_eq!(again.symbols(), client.catalog().symbols());
     assert_eq!(replay.report().consumed, 1);
     let symbol = Symbol::spot("BTC", "USDT");
-    assert_eq!(
-        client.ticker(&symbol).await.unwrap().data.bid.to_string(),
-        "100.01"
-    );
+    let quote = client.ticker(&symbol).await.unwrap();
+    assert_eq!(quote.data.bid.to_string(), "100.01");
+    assert_eq!(quote.exchange_ts, Some(1.0));
+    assert_eq!(quote.data.exchange_ts, 1.0);
+    assert_eq!(quote.data.received_ts, quote.received_ts);
+    assert!(quote.received_ts > 100.0);
     assert_eq!(
         client.l2_book(&symbol, 5).await.unwrap().data.bids[0]
             .amount
@@ -520,4 +522,115 @@ async fn numeric_native_catalog_quota_error_is_not_cached_as_a_successful_respon
     );
     assert_eq!(replay.report().consumed, 4);
     assert!(replay.verify_complete().is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn replay_audit_concurrent_sdk_calls_consume_shared_cursor_once_without_admission() {
+    let mut records = Vec::new();
+    for id in 1..=32 {
+        records.push(request(id, URL));
+    }
+    for id in (1..=32).rev() {
+        records.push(finish(id, serde_json::json!({"counter":id})));
+    }
+    let replay = archive(records, RecordingEnd::Complete).await;
+    let budget = crate::ResourceBudget::new(
+        crate::ResourcePolicy::default()
+            .http(1, std::time::Duration::from_secs(86400))
+            .unwrap(),
+    );
+    let transport = TransportConfig::direct()
+        .with_resource_budget(budget.clone())
+        .with_http_replay(replay.clone());
+    let next = *budget.http().next.lock().await;
+    let first = crate::runtime::snapshot::fetch_json_with_limits(
+        URL,
+        &transport,
+        ExchangeId::Okx,
+        std::time::Duration::from_secs(1),
+        4096,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first["counter"], 1);
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(31));
+    let mut jobs = Vec::new();
+    for _ in 0..31 {
+        let barrier = barrier.clone();
+        let transport = transport.clone();
+        jobs.push(tokio::spawn(async move {
+            barrier.wait().await;
+            crate::runtime::snapshot::fetch_json_with_limits(
+                URL,
+                &transport,
+                ExchangeId::Okx,
+                std::time::Duration::from_secs(1),
+                4096,
+            )
+            .await
+            .unwrap()["counter"]
+                .as_u64()
+                .unwrap()
+        }));
+    }
+    let mut values = Vec::new();
+    for job in jobs {
+        values.push(job.await.unwrap());
+    }
+    values.sort_unstable();
+    assert_eq!(values, (2..=32).collect::<Vec<_>>());
+    assert_eq!(replay.verify_complete().unwrap().consumed, 32);
+    assert_eq!(*budget.http().next.lock().await, next);
+    assert_eq!(budget.http().slots.available_permits(), 1);
+    assert!(transport.http_client().is_err());
+}
+
+#[cfg(feature = "ticker")]
+#[tokio::test(start_paused = true)]
+async fn replay_audit_http_receipt_clock_is_execution_time_and_virtual_time_does_not_expire_catalog()
+ {
+    use crate::{MarketCatalog, PublicRestClient};
+    use cryptofeed_core::symbol::{InstrumentKind, Symbol};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    let catalog = "https://api.binance.com/api/v3/exchangeInfo";
+    let ticker = "https://data-api.binance.vision/api/v3/ticker/bookTicker?symbol=BTCUSDT";
+    let req = |id, url: &str| HttpObservationKind::Request {
+        request_id: id,
+        exchange: ExchangeId::Binance,
+        url: url.into(),
+    };
+    let replay=archive(vec![req(1,catalog),finish(1,serde_json::json!({"symbols":[{"symbol":"BTCUSDT","status":"TRADING","baseAsset":"BTC","quoteAsset":"USDT"}]})),req(2,ticker),finish(2,serde_json::json!({"symbol":"BTCUSDT","bidPrice":"100.01","bidQty":"2","askPrice":"100.02","askQty":"3"}))],RecordingEnd::Complete).await;
+    let transport = TransportConfig::direct().with_http_replay(replay.clone());
+    let client = PublicRestClient::load_with_transport(
+        ExchangeId::Binance,
+        InstrumentKind::Spot,
+        transport.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(replay.report().consumed, 1);
+    tokio::time::advance(Duration::from_secs(2 * 86400)).await;
+    assert_eq!(
+        MarketCatalog::load_with_transport(ExchangeId::Binance, InstrumentKind::Spot, &transport)
+            .await
+            .unwrap()
+            .symbols(),
+        client.catalog().symbols()
+    );
+    assert_eq!(replay.report().consumed, 1);
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let reply = client.ticker(&Symbol::spot("BTC", "USDT")).await.unwrap();
+    let after = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    assert!(reply.received_ts >= before.min(after) && reply.received_ts <= before.max(after));
+    assert_ne!(reply.received_ts, 100.0);
+    assert_eq!(reply.exchange_ts, None);
+    assert_eq!(reply.data.received_ts, reply.received_ts);
+    assert_eq!(reply.data.exchange_ts, reply.received_ts);
+    assert_eq!(replay.verify_complete().unwrap().consumed, 2);
 }

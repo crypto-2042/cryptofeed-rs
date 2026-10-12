@@ -1,0 +1,12 @@
+{
+  "kind": "synthetic-sdk-clock-contracts",
+  "normalized_model_time": "captured",
+  "raw_model_received_time": "captured_observed_or_consumed_http",
+  "http_model_received_time": "sdk_execution_system_time",
+  "http_native_time": "preserved_when_present",
+  "http_missing_native_time": "none_with_model_receipt_fallback",
+  "catalog_ttl": "system_time",
+  "catalog_request_cohorts": "operation_epochs",
+  "concurrent_http_payloads": 32,
+  "virtual_catalog_age_seconds": 172800
+}

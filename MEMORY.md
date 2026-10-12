@@ -934,3 +934,12 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Enabled async planning is offloaded with two process-wide permits and a Drop
   cancellation signal. A running job owns its permit until exit; failed planning
   must not stop an old managed feed. Synchronous helper callers own scheduling.
+
+- Catalog request coalescing uses distinct process operation epochs. Clock reads
+  can share a tick and cannot distinguish a completed request from a later forced
+  refresh. Keep the completion marker after cache publication and before result
+  cloning; permanent configuration/captured-cancellation errors are not shared.
+- Replay clock domains are explicit: normalized/raw retain captured model clocks,
+  HTTP REST receipts use current SystemTime, native optional timestamps remain
+  separate, and catalog TTL is real SystemTime rather than Tokio replay elapsed
+  time. docs/replay-contract-audit.md records finite executable contract evidence.

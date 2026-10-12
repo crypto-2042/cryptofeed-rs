@@ -415,7 +415,8 @@ replay without online fallback. [Public HTTP result recording](docs/http-recordi
 now captures directory/REST/bootstrap attempts, safe outcomes and cancellation.
 [HTTP payload replay](docs/http-replay.md) now drives existing directory/REST APIs
 offline, with exact request matching and no network fallback. Original cache/timer
-scheduling and broader ecosystem work remain pending. See [recording](docs/recording.md) for limits, file schema and the
+scheduling is not simulated. [Replay contract audit](docs/replay-contract-audit.md)
+now records verified clock/cache/concurrency behavior; broader ecosystem work remains pending. See [recording](docs/recording.md) for limits, file schema and the
 end-to-end example.
 
 [Public WS control failures](docs/ws-control-errors.md) now distinguish verified

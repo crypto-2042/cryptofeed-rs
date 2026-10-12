@@ -605,3 +605,10 @@ five budget families and a Bitget case where both contiguous and first-fit need
 three sockets but exact search proves two. `connection-planning.minimum.json` is
 synthetic SDK allocation evidence, not a wire capture. Worker cancellation/admission
 and rejected replacement preservation are exercised without live exchange load.
+
+`replay_audit` regressions test operation-cohort order, leader/waiter cancellation,
+32 concurrent HTTP SDK calls on a shared archive, and current REST receipt clocks
+versus virtual delivery time and SystemTime catalog retention. The reference
+`replay-clock-contracts.json` is synthetic policy evidence. Existing native/model
+clock, cache-eviction, no-network and partial-I/O/cancellation suites remain the
+authority for the [full contract table](replay-contract-audit.md).

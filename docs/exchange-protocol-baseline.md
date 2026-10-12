@@ -800,3 +800,12 @@ used by current SDK budget checks. Aliases retain their native deduplication.
 The proof is for fixed SDK routes and atomic instruments; it is not a new venue
 limit or an alternate subscription API. Synthetic references and native tests
 were updated together; no market parser or normalized payload changed.
+
+### 2026-10-12 replay receipt-clock audit
+
+Current [Binance Spot bookTicker response](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#symbol-order-book-ticker)
+was rechecked: it supplies public bid/ask prices/quantities without a native
+response timestamp. The synthetic SDK replay test preserves None on the optional
+native timestamp and uses execution receipt time only for the compatibility model
+fallback. Existing OKX native-time assertions remain separate. No parser or wire
+shape changed; [the audit](replay-contract-audit.md) distinguishes clock domains.

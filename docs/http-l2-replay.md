@@ -76,8 +76,8 @@ recovery store. Consumers still use source/session lifecycle and ending reason.
 
 Live coverage in this increment is Binance/Gate Spot full-depth. Existing
 product-qualified parsers/plans are used for derivative/dated or partial inputs,
-but those have no new live certification here. General replay timing/cache audits,
-broader replay edge audits, broader storage and
+but those have no new live certification here. The [replay contract audit](replay-contract-audit.md)
+now verifies published timing/cache/concurrency behavior. Broader storage and
 advanced resource policies remain under the full alignment objective.
 [JSONL sinks](sinks.md), [trade/custom aggregation](aggregation.md) and [NBBO](nbbo.md)
 are implemented separately, without extending this live replay evidence.
@@ -101,3 +101,7 @@ directory/REST APIs. It does not replace consumed-session L2 causality.
 [Independent capture replay](raw-merge.md) now composes raw files/series with
 explicit offsets, per-capture native/HTTP state, retained local identity and
 aggregate budgets. Rotation itself still represents one capture.
+
+[Clock/cache/concurrency audit](replay-contract-audit.md) now records executable
+evidence for the published replay behavior and keeps unsupported historical
+scheduling distinct from model timestamp preservation.

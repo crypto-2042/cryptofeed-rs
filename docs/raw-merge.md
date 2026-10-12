@@ -109,10 +109,15 @@ HTTP causality, reconnects/prefix ends, rotated-series certification, aggregate
 budgets, malformed input, overflow, shutdown and callback failures. The existing
 single-capture replay suite runs against the shared engine. The synthetic timeline
 reference is `sample_data/raw-merge.timeline.json`; no market wire shape or endpoint
-changed. Broader replay clock/cache/concurrency audits and distributed quotas
-remain separate work under the full alignment plan.
+changed. [The replay contract audit](replay-contract-audit.md) now verifies
+published clock/cache/concurrency guarantees. Distributed quotas remain separate
+work under the full alignment plan.
 
 The offline CLI smoke used the existing sanitized v2 Binance reference twice under
 IDs a/b with a five-second offset: 14 observations, 6 L2 models and 7052 logical
 bytes, both EOFs certified. This demonstrates namespaced duplicate local IDs and
 consumed HTTP replay; it is not evidence of two separate live captures.
+
+[Clock/cache/concurrency audit](replay-contract-audit.md) now records executable
+evidence for the published replay behavior and keeps unsupported historical
+scheduling distinct from model timestamp preservation.

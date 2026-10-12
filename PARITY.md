@@ -1009,3 +1009,23 @@ criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
   tests in minimal/recording combinations and fresh-resolution Rust 1.85
   all-target compilation. Offline example verified 3 -> 2 with args [49,49].
   No live exchange load or rate limit was triggered.
+
+## Replay clock/cache/concurrency contract audit — 2026-10-12
+
+- Replaced directory completed-time comparisons with distinct process operation
+  epochs, avoiding dependence on clock tick resolution for later refreshes.
+  Sharing, terminal-error exclusions and weak request-gate retention remain intact.
+- Five new regressions cover same-tick epoch ordering, retained completed cohorts,
+  leader/waiter cancellation, 32 concurrent SDK HTTP calls consuming one archive
+  exactly once without admission, and execution receipt time versus virtual time/
+  SystemTime catalog retention. Existing OKX native-time assertions were strengthened.
+- [Audit table](docs/replay-contract-audit.md) maps published normalized/raw/HTTP/
+  merged replay clocks, cache bounds, no-network rules, cursor/cancellation/EOF
+  and state isolation to current executable evidence. Original HTTP wire/cache/
+  admission scheduling remains an explicitly unsupported simulation, not inferred.
+- No exchange endpoint, market parser, normalized model or captured schema changed.
+  The new Binance no-native-time fixture was rechecked against official Spot docs.
+  Remaining resource coordination/other venue weight/adaptive quota work stays active.
+- Gates passed: 800 all-feature workspace tests, strict Clippy/rustdoc, default/
+  no-default and each isolated feature compile, minimal recording/ticker audit
+  tests and fresh-resolution Rust 1.85 all-target check. No live load test.

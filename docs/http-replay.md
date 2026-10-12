@@ -115,3 +115,7 @@ and raw v2 consumed snapshots for [causal WS L2 replay](http-l2-replay.md).
 The synthetic SDK fixtures were checked against the current
 [OKX v5 guide](https://app.okx.com/docs-v5/en/) for public instruments, ticker,
 books and trades. This increment changes no exchange endpoint or wire parser.
+
+[Clock/cache/concurrency audit](replay-contract-audit.md) now records executable
+evidence for the published replay behavior and keeps unsupported historical
+scheduling distinct from model timestamp preservation.

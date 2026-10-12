@@ -1422,17 +1422,21 @@ async fn fetch_json(
 }
 
 // Each waiter retains the gate; weak entries avoid retaining completed requests.
-type CatalogRequest =
-    tokio::sync::Mutex<Option<(std::time::Instant, std::result::Result<Value, Error>)>>;
+type CatalogRequest = tokio::sync::Mutex<Option<(u64, std::result::Result<Value, Error>)>>;
 type CatalogRequests = std::sync::Mutex<HashMap<String, std::sync::Weak<CatalogRequest>>>;
 static CATALOG_REQUESTS: std::sync::OnceLock<CatalogRequests> = std::sync::OnceLock::new();
+// Starts and completions have distinct epochs even within one clock tick.
+fn catalog_epoch() -> u64 {
+    static EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+}
 
 async fn fetch_catalog_with<F, Fut>(url: &str, refresh: bool, fetch: F) -> Result<Value>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<Value>>,
 {
-    let requested_at = std::time::Instant::now();
+    let requested_epoch = catalog_epoch();
     if !refresh {
         if let Some(value) = read_catalog_cache(url) {
             tracing::debug!(url, "serving exchange catalog from cache (24h TTL)");
@@ -1456,8 +1460,8 @@ where
     let mut completed = gate.lock().await;
     // Share only work completed since this call began. In particular, a new
     // refresh never reuses an earlier success or a failed request indefinitely.
-    if let Some((at, result)) = completed.as_ref() {
-        if *at >= requested_at {
+    if let Some((completed_epoch, result)) = completed.as_ref() {
+        if *completed_epoch > requested_epoch {
             return result.clone();
         }
     }
@@ -1473,7 +1477,7 @@ where
     // Configuration failures are not shareable completed HTTP work. A cancelled
     // replay call must let another waiter make its own next request.
     if !matches!(result, Err(Error::InvalidConfiguration(_))) {
-        *completed = Some((std::time::Instant::now(), result.clone()));
+        *completed = Some((catalog_epoch(), result.clone()));
     }
     result
 }
@@ -3074,4 +3078,97 @@ mod replay_waiter_tests {
 #[cfg(all(test, feature = "recording"))]
 pub(crate) fn evict_catalog_for_test(key: &str) {
     cache::evict_for_test(key);
+}
+
+#[cfg(test)]
+mod replay_audit_cohorts {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn replay_audit_catalog_epochs_distinguish_calls_inside_one_timer_tick() {
+        let clock = tokio::time::Instant::now();
+        let first = catalog_epoch();
+        let waiter = catalog_epoch();
+        let completed = catalog_epoch();
+        let later = catalog_epoch();
+        assert!(first < waiter && waiter < completed && completed < later);
+        assert_eq!(tokio::time::Instant::now(), clock);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn replay_audit_new_refresh_does_not_reuse_a_retained_completed_cohort() {
+        let key = "test://replay-audit-retained-cohort";
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let (release, waiting) = tokio::sync::oneshot::channel();
+        let first = tokio::spawn(fetch_catalog_with(key, true, || async move {
+            let _ = entered.send(());
+            waiting.await.unwrap();
+            Ok(serde_json::json!({"version":1}))
+        }));
+        started.await.unwrap();
+        let retained = CATALOG_REQUESTS
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get(key)
+            .unwrap()
+            .upgrade()
+            .unwrap();
+        let waiter = fetch_catalog_with(key, true, || async {
+            panic!("registered waiter must share the in-flight result")
+        });
+        tokio::pin!(waiter);
+        assert!(futures::poll!(waiter.as_mut()).is_pending());
+        release.send(()).unwrap();
+        assert_eq!(first.await.unwrap().unwrap()["version"], 1);
+        assert_eq!(waiter.await.unwrap()["version"], 1);
+        assert_eq!(
+            fetch_catalog_with(key, true, || async { Ok(serde_json::json!({"version":2})) })
+                .await
+                .unwrap()["version"],
+            2
+        );
+        assert_eq!(
+            retained.lock().await.as_ref().unwrap().1.as_ref().unwrap()["version"],
+            2
+        );
+    }
+    #[tokio::test]
+    async fn replay_audit_cancelled_leader_and_waiter_preserve_other_callers() {
+        for cancel_leader in [false, true] {
+            let key = if cancel_leader {
+                "test://replay-audit-cancel-leader"
+            } else {
+                "test://replay-audit-cancel-waiter"
+            };
+            let (entered, started) = tokio::sync::oneshot::channel();
+            let (release, waiting) = tokio::sync::oneshot::channel();
+            let first = tokio::spawn(fetch_catalog_with(key, true, || async move {
+                let _ = entered.send(());
+                let _ = waiting.await;
+                Ok(serde_json::json!({"version":1}))
+            }));
+            started.await.unwrap();
+            {
+                let cancelled = fetch_catalog_with(key, true, || async {
+                    panic!("cancelled waiter must not fetch")
+                });
+                tokio::pin!(cancelled);
+                assert!(futures::poll!(cancelled.as_mut()).is_pending());
+            }
+            let survivor =
+                fetch_catalog_with(key, true, || async { Ok(serde_json::json!({"version":2})) });
+            tokio::pin!(survivor);
+            assert!(futures::poll!(survivor.as_mut()).is_pending());
+            if cancel_leader {
+                first.abort();
+                assert!(first.await.unwrap_err().is_cancelled());
+                drop(release);
+                assert_eq!(survivor.await.unwrap()["version"], 2);
+            } else {
+                release.send(()).unwrap();
+                first.await.unwrap().unwrap();
+                assert_eq!(survivor.await.unwrap()["version"], 1);
+            }
+        }
+    }
 }

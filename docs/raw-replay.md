@@ -95,9 +95,9 @@ resume after consuming an undelivered input; reopen from the beginning. Generic
 callbacks may perform user-chosen actions, but the library replay path itself
 opens no network connection or HTTP client request.
 
-The larger objective still includes broader L2
-replay edge audits, broader storage
-and resource policy work. [Sinks](sinks.md), [trade/custom aggregation](aggregation.md)
+The [replay contract audit](replay-contract-audit.md) now verifies current clock,
+cache, cursor, cancellation and state-isolation contracts. Broader storage
+and resource policy work remains under the full objective. [Sinks](sinks.md), [trade/custom aggregation](aggregation.md)
 and [NBBO](nbbo.md) are implemented separately. Consumed Binance/Gate bootstrap replay is now implemented in v2. WS-native state replay does not certify those remaining paths.
 
 Offline tests: `cargo test -p cryptofeed-rs --features recording --lib recording::raw::replay`.
@@ -116,3 +116,7 @@ directory/REST APIs. It does not replace consumed-session L2 causality.
 [Independent capture replay](raw-merge.md) now composes raw files/series with
 explicit offsets, per-capture native/HTTP state, retained local identity and
 aggregate budgets. Rotation itself still represents one capture.
+
+[Clock/cache/concurrency audit](replay-contract-audit.md) now records executable
+evidence for the published replay behavior and keeps unsupported historical
+scheduling distinct from model timestamp preservation.
