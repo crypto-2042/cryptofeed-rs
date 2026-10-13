@@ -48,7 +48,8 @@ The current implementation is the baseline, with supported combinations in
   terminal failure. See [readiness](readiness.md) and [control](runtime-control.md).
 - Broadcast streams are bounded and may lag; delivery is not exactly-once,
   lossless or globally ordered across feeds. Consumers must handle lag, reconnects
-  and generation changes. L2 consumers use the documented recovery anchors.
+  and generation changes, including buffered events from an old/removed generation.
+  L2 consumers use the documented recovery anchors.
   Callback handlers run serially with a default five-second deadline.
 - Preserve full native L2 synchronization/checksum state, opt-in crossed-book
   checks (default off), and separate delivered top-N depth (default unlimited).

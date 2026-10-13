@@ -75,7 +75,7 @@ archive SHA-256 hashes and limitations in a dated sanitized report.
 | --- | --- | --- |
 | Preflight | Offline + 30 minutes live | All engineering/package gates; confirm each expected active subscription, data and L2 initialization. Reuse `release_smoke` only as a connectivity probe. |
 | Baseline | 24 hours | Observe all selected products without injected failures; capture memory, event freshness, readiness and resync trends. |
-| Lifecycle | 4 hours | At least 10 managed add/replace/remove cycles; verify IDs/generations and no events from removed workers after completed removal. Include valid and rejected replacements. |
+| Lifecycle | 4 hours | At least 10 managed add/replace/remove cycles; verify IDs/generations, completed worker shutdown and registry removal. Filter buffered old-generation events; include valid and rejected replacements. |
 | Recovery | 4 hours | At least 10 controlled 5–30 second disconnects using a local test proxy/isolated network path; confirm reconnect epoch changes, readiness withdrawal and fresh L2 initialization. No exchange-side flood. |
 | Soak | Extend total to 72 hours | Repeat a representative high-volume subset; verify stable resource use and no unrecovered stale books. |
 | Shutdown | End of every stage | Caller shutdown/Ctrl-C finishes and closes owned workers/sinks; retain timing and completion results. |
@@ -104,7 +104,9 @@ Freeze the configured matrix and thresholds before starting; report exceptions.
   and a rerun; never silently relax sequencing/checksum rules to pass.
 - For each managed operation, verify the documented acknowledged state and failure
   behavior. Successful replacement can have a collection gap; do not require an
-  impossible gap-free handover. No retained worker/socket growth after removals.
+  impossible gap-free handover. Already-buffered old-generation events may arrive
+  after acknowledgement: filter by ID/generation and verify worker termination
+  separately. No retained worker/socket growth after removals.
 - After two hours of warm-up, compare hourly RSS medians: last-six-hour median must
   stay within 20% or 50 MiB (whichever is larger) of the warm baseline, with no
   sustained monotonic growth over six hours. Investigate bounded caches separately.

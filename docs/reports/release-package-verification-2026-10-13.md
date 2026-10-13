@@ -59,6 +59,10 @@ runtime suite passed. No tests or sequence checks were weakened.
 Staging patches unused by smaller crates produced Cargo informational warnings;
 they do not represent missing dependencies or ignored compiler diagnostics.
 
+A second local dry-run without `--allow-dirty` passed on clean commit
+`59fc313e8138f883238e7c328c3954811c9166af`; all 11 staged archives
+reported that commit and clean VCS metadata. Subsequent documentation-only
+clarifications do not change Rust source, manifests, licenses or packaged README.
 The release CI uses the clean checkout command without `--allow-dirty`.
 Independent extracted-package tests validate archive content; staging patches do
 not test registry download or publishing authorization. No exchange traffic or
