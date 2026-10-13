@@ -469,3 +469,13 @@ semantic rule. The Bybit v5 frame shape was checked against current official
 [orderbook documentation](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook);
 its equal-price delta is intentionally constructed to test rejection. No market
 parser, official expected value or sequence rule was changed.
+
+## Delivered L2 depth — 2026-10-12
+
+`public-l2.delivery-depth.jsonl` contains synthetic runtime-policy/native-envelope
+references. `runtime/book_depth_tests.rs`, orderbook model and native-replay tests
+assert these transitions and an independent consumer-state oracle. Python sibling
+`3a6d3ca` `feed.py::max_depth` is the semantic reference; native subscription depth
+remains independent. Bybit snapshot/delta/delete fields follow its current
+[official orderbook contract](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook).
+No observed exchange behavior or native parser expectation was changed.

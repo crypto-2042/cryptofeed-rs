@@ -127,3 +127,10 @@ Raw feed metadata's optional boolean `l2_book_cross_check` defaults to false for
 older files. Native replay restores it and propagates the same pre-publication
 error as live L2 dispatch. Default-false captures omit the field; strict older
 SDK readers may reject captures containing true. See [policy](book-cross-check.md).
+
+## Recorded maximum delivered depth
+
+Optional positive `l2_book_max_depth` metadata restores the same consistent
+projection as live dispatch; missing/null is unlimited and explicit zero is
+invalid. Default captures omit it. See [depth policy](book-delivery-depth.md) for
+removals, promotions, old-reader compatibility and initialization guards.

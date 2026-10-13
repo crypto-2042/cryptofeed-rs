@@ -1,11 +1,12 @@
 # Python usage alignment
 
-Status: active improvement plan, updated 2026-10-12 against the sibling Python
+Status: necessary core alignment implemented and accepted, updated 2026-10-12 against the sibling Python
 checkout at commit `3a6d3ca`. Phase 1 and phase 2 catalog refresh/request sharing and per-channel subscriptions
 are implemented; conservative connection sizing and paced sends are now implemented.
 Phase 3 core runtime commands/identity, retained readiness and opt-in directory reconciliation are implemented.
-The [requirement audit](python-alignment-audit.md) now records opt-in crossed-book checks as implemented;
-maximum delivered depth remains missing. Phase 4 is incomplete;
+The [requirement audit](python-alignment-audit.md) records opt-in crossed-book checks and maximum delivered depth as implemented;
+the local engineering gates and the final implementation
+[remote CI run](https://github.com/crypto-2042/cryptofeed-rs/actions/runs/38241618238) passed.
 phase 5 implements the bounded core helpers while full backend adapters remain optional. Exchange count and instrument-type coverage are
 excluded. Authenticated feeds and trading remain outside the 0.1 scope.
 
@@ -162,7 +163,7 @@ concurrent shutdown, pending snapshots, stale generations, state reset, and
 healthy-feed isolation. In-place subscribe/unsubscribe can follow only where
 current exchange protocols and acknowledgement handling are verified.
 
-## Phase 4 — event and handler semantics (incomplete delivery depth)
+## Phase 4 — event and handler semantics (implemented bounded contracts)
 
 Implemented [closed-only candles and explicit unknown-completion policy](candle-delivery.md),
 with compatible all-update defaults and filtering before all delivery surfaces.
@@ -180,9 +181,9 @@ including standalone/periodic catalogs and REST bootstrap/resync. General Python
 config-file loading is not claimed.
 
 The [requirement audit](python-alignment-audit.md) records [optional crossed-book checking](book-cross-check.md)
-as implemented; maximum delivered depth semantics remain missing. Native subscription
-depth is not equivalent to output depth. Delivered depth remains a required implementation
-step; native sequence/checksum and recovery support does not close it.
+and [maximum delivered depth](book-delivery-depth.md) as implemented. Native
+subscription depth and full integrity state remain separate from the top-N output
+projection; removals and unchanged-level promotions are derived explicitly.
 
 Acceptance: tests cover unfinished/unknown candles, handler ordering and failure,
 lag-and-recovery continuity, and shutdown with slow consumers. Preserve existing

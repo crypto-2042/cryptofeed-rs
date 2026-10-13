@@ -991,3 +991,19 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Keep serde_json float_roundtrip alongside arbitrary_precision. Real Linux CI
   timestamp values reproduce one-bit f64 deserialization loss without it through
   HTTP/raw recording. Preserve exact equality/to_bits checks, never tolerances.
+
+- Maximum delivered L2 depth is now implemented separately from native depth:
+  zero/omission means unlimited, positive N projects sorted snapshots and true
+  previous/current top-N membership deltas. Include removal/displacement/promotion,
+  preserve quantity scale and empty deep-only deltas. Never trim native integrity
+  state or compare only a truncated delta. All delivery/recovery surfaces agree.
+- Resync, connection reset, crossed-book failure and fresh managed state clear
+  projection ownership. A delta without a valid delivery snapshot is recoverable
+  malformed data, never a fabricated snapshot. Raw replay restores optional
+  positive metadata; old/default records omit it and explicit zero is invalid.
+- Final core acceptance: 837 all-feature/732 default tests, strict lints/docs,
+  feature boundaries and fresh Rust 1.85 passed. Delivered-depth implementation
+  ad9f22a passed remote run 38241618238 with all five jobs green. Necessary core
+  alignment is accepted; optional ecosystem and explicitly deferred scopes remain
+  as recorded in the public requirement audit. Do not infer new missing core
+  requirements from older dated milestone pending lists.

@@ -42,6 +42,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Multiple handlers](handlers.md): registration order, per-callback deadlines,
   panic/error semantics, backpressure and shutdown.
 
+- [Maximum delivered L2 depth](book-delivery-depth.md): consistent top-N
+  snapshots/deltas, deletion/promotion and recovery/replay semantics.
+
 - [Optional crossed-L2 policy](book-cross-check.md): exact best-price checks
   before publication, recovery withdrawal and recorded replay configuration.
 

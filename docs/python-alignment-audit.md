@@ -1,10 +1,11 @@
 # Python alignment requirement audit — 2026-10-12
 
-**Result: incomplete.** This audit checks the existing [alignment plan](python-usage-alignment.md)
+**Result: necessary core alignment accepted within the agreed scope.** This audit checks the existing [alignment plan](python-usage-alignment.md)
 against implementation and executable evidence. It does not redefine completion
 around already implemented features. The inspected Python sibling is commit
-`3a6d3ca`; the last fully tested Rust implementation is `e65cc09` (817 all-feature
-workspace tests). Exchange count, instrument types and private channels retain
+`3a6d3ca`; the prior fully tested and remotely accepted Rust implementation is
+`14ec357` (827 all-feature workspace tests). Current delivered-depth results are
+recorded below and in PROGRESS/PARITY. Exchange count, instrument types and private channels retain
 their previously agreed exclusions. Cross-process/machine quota coordination
 was explicitly deferred by the maintainer on 2026-10-12.
 
@@ -36,7 +37,7 @@ protocol and delivery limitations remain in the linked public guides.
 | Candle completion policy on every output surface | `runtime.rs`; `candle_completion_policy_filters_every_delivery_surface_without_guessing` | Implemented; All remains Rust default |
 | Recoverable L2 snapshot/delta consumption and invalidation | `books.rs`; `lag_recovery_replaces_queue_and_resumes_after_full_snapshot`, `concurrent_recovery_has_no_snapshot_to_subscription_hole`; runtime resync/disconnect/stop hooks | Implemented; no lossless delivery guarantee |
 | Optional Python crossed-book check | Python `feed.py::book_callback/check_bid_ask_overlapping`; Rust `l2_book_cross_check`, `L2BookState::is_crossed`, `runtime/cross_check_tests.rs` and raw replay policy assertions | Implemented opt-in; [publication and recovery semantics](book-cross-check.md) |
-| Python maximum delivered depth | Python `feed.py` describes `max_depth` as maximum levels returned per side; active adapters pass it to OrderBook. Rust `l2_book_depth` selects native subscription depth, not a common output projection | **Missing; must implement separately from native depth** |
+| Python maximum delivered depth | Python `feed.py` describes `max_depth` as maximum levels returned per side; active adapters pass it to OrderBook. Rust `l2_book_max_depth` and `runtime/book_depth{,_tests}.rs` implement a separate consistent top-N projection; native subscription depth stays independent | Implemented; [delivery/recovery/replay contract](book-delivery-depth.md) |
 | Existing native sequence/checksum integrity | Five exchange `book_sync.rs` modules; bridge/gap/reset and available checksum tests | Implemented; disabling integrity checks to imitate Python defaults is not required |
 | Retry/deadline/idle/start-delay and explicit HTTP/WS proxy | `options.rs`, `runtime/supervisor.rs`, `transport.rs`; finite retry, sparse preservation, idle heartbeat/shutdown and CONNECT boundary tests | Implemented typed async configuration; no Python syntax/config-file compatibility claim |
 | Public REST ticker/books, recent trades, funding/candle/trade history | `rest/{adapter,history,candles,trades,trade_history}.rs`; page/cursor scope, same-time IDs, source-limit and official route tests | Implemented within documented native capabilities; Bybit/Bitget recent-only and Gate delivery range-only boundaries remain explicit |
@@ -44,9 +45,9 @@ protocol and delivery limitations remain in the linked public guides.
 | Sink boundary and bounded JSONL storage | `sink/tests.rs`; ordered owned envelopes, lag terminality, failed/panicking/deadline writes and finalization tests | Implemented core boundary; full Python backend adapter collection is optional phase 5, not promised for 0.1 |
 | OHLCV, throttle, Python-rule Renko and custom aggregation | `aggregate/`; clock/source scope, timer/partial-tail, Python reversal thresholds and poisoned reducer tests | Implemented bounded local helpers; exchange-native units preserved |
 | NBBO | `nbbo/tests.rs`; Python best-price/size rule, ties, freshness, suspended/stale data and lifecycle tests | Implemented with explicit unit and recovery responsibilities |
-| Documentation hygiene, coherent progress and GitHub delivery | README, plan, progress, memory, public index, feature report; CI workflow and actual remote run inspection | Audit continues; stale phase status corrected and invalid workflow YAML repaired; remote rerun still needs verification |
+| Documentation hygiene, coherent progress and GitHub delivery | README, plan, progress, memory, public index, feature report; CI workflow and actual remote run inspection | Current guides/phase status are synchronized; repaired CI and implementation acceptance use actual remote results |
 
-## Remaining implementation sequence
+## Book-policy implementation and acceptance sequence
 
 1. **Implemented:** opt-in crossed-L2-book policy, default disabled as in Python. Check
    reconstructed full sides after native sync and exact subscription filtering,
@@ -55,14 +56,14 @@ protocol and delivery limitations remain in the linked public guides.
    affected event explicitly, withdraw usable recovery/readiness and propagate
    a recoverable session failure. Verify snapshots, deltas, deletion/empty sides,
    default compatibility, precision, healthy-feed isolation and fresh reconnects.
-2. Add a separate opt-in maximum **delivered** L2 depth. Keep native subscription
+2. **Implemented:** separate opt-in maximum **delivered** L2 depth. Keep native subscription
    selection and full internal sequence/checksum state intact. Derive correct
    top-N snapshot/delta membership, including removals and promotion of levels
    after a better level disappears; do not merely truncate delta arrays. Define
    one coherent contract for handlers, ordinary/identified broadcast and retained
    recovery. Verify replacements/reconnects, sparse subscriptions, scale-preserving
    Decimals, empty sides and promotion across the cutoff.
-3. Re-run the full requirement audit after delivered depth is implemented. Compile isolated
+3. **Verified:** the full requirement audit and engineering gates passed after delivered depth was implemented. Compile isolated
    features, run focused/default/all-feature gates, fresh-resolution MSRV and
    inspect actual remote CI. Keep the goal active if a named requirement lacks
    implementation or evidence. The two gaps are not silently deferred.
@@ -106,8 +107,8 @@ protocol and delivery limitations remain in the linked public guides.
 ## Crossed-book and remote CI follow-up — 2026-10-12
 
 Crossed-L2 checking now has nine focused model/runtime/native-replay regressions
-and the common error propagation path. Maximum delivered depth remains missing;
-overall completion is still unproven. The workflow syntax repair did create five
+and the common error propagation path. At that crossed-book milestone delivered depth was still missing; the following
+section records its implementation and final acceptance criteria. The workflow syntax repair did create five
 real jobs in run 38211639919. Package/security/MSRV passed; quality/features exposed
 exact f64 timestamp roundtrip differences in HTTP/raw recording. Fixed values
 reproduce a one-bit mismatch locally. Enabling serde_json/float_roundtrip repairs
@@ -115,3 +116,36 @@ parsing while retaining arbitrary_precision and strict equality; the new fixed
 HTTP codec regression and the existing raw-series equality assertions remain
 strict. The next remote run must verify the repair; syntax success alone is not
 CI success.
+
+## Delivered depth and final acceptance — 2026-10-12
+
+The delivered-depth policy now implements the second book requirement with ten
+focused model/runtime/native-replay tests and an independent consumer-state
+oracle. Full native state and checks stay intact; all publication/recovery
+surfaces share one projected event. Resync/reconnect/managed fresh state clears
+views and cannot promote a delta into a new snapshot. Source and test evidence
+now cover both named book gaps. The prior implementation (14ec357) passed all
+five remote CI jobs, including Linux quality/features after the timestamp fix.
+Current local gate results are recorded in PROGRESS/PARITY. Implementation
+`ad9f22a` passed its own [five-job CI run](https://github.com/crypto-2042/cryptofeed-rs/actions/runs/38241618238).
+No optional ecosystem exclusion or supported product/channel scope changed.
+
+Final local acceptance for delivered depth: 837 all-feature / 732 default tests,
+strict Clippy/rustdoc, every isolated feature compile/boundary suite, minimal
+orderbook/recording policy tests, no-default test compilation and fresh-resolution
+Rust 1.85 all-target compilation passed with the tested dependency set unchanged.
+AGENTS/CLAUDE remain identical; public guide statuses now match implemented
+contracts. Final implementation acceptance is proven by remote run 38241618238 for
+`ad9f22a53ac12bb2e0b63aaf69493b62de2cf3d1`: quality, features, MSRV, package and
+security all completed successfully.
+
+## Acceptance conclusion
+
+Every required core workflow in the original five-phase plan now has inspected
+implementation and focused executable evidence, with default/all-feature tests,
+isolated features, fresh MSRV and actual Linux CI acceptance. The two book-policy
+gaps found during audit are implemented rather than deferred. No additional
+required implementation item remains under this agreed scope. This conclusion
+does not claim every Python backend, all venues/products/private APIs, remote
+durability or the explicitly deferred distributed quota service. Those boundaries
+remain unchanged and visible above.

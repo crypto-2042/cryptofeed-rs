@@ -61,6 +61,7 @@ impl RawParserSession {
         #[cfg(feature = "orderbook")]
         {
             feed.l2_book_cross_check = info.l2_book_cross_check;
+            feed.l2_book_max_depth = info.l2_book_max_depth;
         }
         feed.l2_book_interval = info.l2_book_interval.clone();
         #[cfg(feature = "candles")]
@@ -492,5 +493,77 @@ mod cross_check_replay_tests {
                 assert_eq!(result.unwrap().len(), 1);
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "orderbook"))]
+mod delivery_depth_replay_tests {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn l2_delivery_depth_raw_metadata_and_native_replay_preserve_promoted_levels() {
+        use crate::{
+            exchange::bybit::Bybit,
+            recording::raw::{RawFeedInfo, RawPayload},
+        };
+        use cryptofeed_orderbook::{L2Book, L2BookState};
+        let feed = Bybit::new()
+            .l2_book()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .l2_book_depth(50)
+            .l2_book_max_depth(1)
+            .build();
+        let info = RawFeedInfo::from_feed(&feed);
+        let mut value = serde_json::to_value(&info).unwrap();
+        assert_eq!(value["l2_book_max_depth"], 1);
+        value["l2_book_max_depth"] = serde_json::json!(0);
+        assert!(serde_json::from_value::<RawFeedInfo>(value.clone()).is_err());
+        value.as_object_mut().unwrap().remove("l2_book_max_depth");
+        assert!(
+            serde_json::from_value::<RawFeedInfo>(value)
+                .unwrap()
+                .l2_book_max_depth
+                .is_none()
+        );
+        let info: RawFeedInfo =
+            serde_json::from_slice(&serde_json::to_vec(&info).unwrap()).unwrap();
+        let mut replay = RawParserSession::new(&info, 100, false).unwrap();
+        let mut consumer = L2BookState::new(cryptofeed_core::symbol::Symbol::spot("BTC", "USDT"));
+        let messages = [
+            serde_json::json!({"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1000,
+            "data":{"s":"BTCUSDT","b":[["100","1"],["99","2"]],"a":[["101","1"],["102","2"]],"u":1,"seq":1}}),
+            serde_json::json!({"topic":"orderbook.50.BTCUSDT","type":"delta","ts":1001,
+            "data":{"s":"BTCUSDT","b":[["100","0"]],"a":[],"u":2,"seq":2}}),
+        ];
+        for (index, message) in messages.into_iter().enumerate() {
+            let outputs = replay
+                .process(
+                    &RawPayload::Json {
+                        value: message,
+                        redacted: false,
+                    },
+                    index as f64 + 1.0,
+                    100,
+                )
+                .await
+                .unwrap();
+            assert_eq!(outputs.len(), 1);
+            let crate::feed::FeedEvent::L2Book(book) = outputs.into_iter().next().unwrap() else {
+                panic!("L2 event")
+            };
+            if index == 0 {
+                assert!(matches!(&book,L2Book::Snapshot(value) if value.bids.len()==1));
+            }
+            consumer.apply(book);
+        }
+        assert_eq!(consumer.bids()[0].price.to_string(), "99");
+        assert_eq!(consumer.bids().len(), 1);
+        assert_eq!(consumer.asks().len(), 1);
+        assert_eq!(
+            replay.feed.orderbook_states.lock().unwrap()["BTC-USDT"]
+                .asks()
+                .len(),
+            2
+        );
     }
 }

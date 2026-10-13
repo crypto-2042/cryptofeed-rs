@@ -36,6 +36,8 @@ pub struct RawFeedInfo {
     pub l2_book_depth: Option<u16>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub l2_book_cross_check: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub l2_book_max_depth: Option<std::num::NonZeroUsize>,
     pub l2_book_interval: Option<String>,
 }
 impl RawFeedInfo {
@@ -68,6 +70,16 @@ impl RawFeedInfo {
                 #[cfg(not(feature = "orderbook"))]
                 {
                     false
+                }
+            },
+            l2_book_max_depth: {
+                #[cfg(feature = "orderbook")]
+                {
+                    feed.l2_book_max_depth
+                }
+                #[cfg(not(feature = "orderbook"))]
+                {
+                    None
                 }
             },
             l2_book_interval: feed.l2_book_interval.clone(),

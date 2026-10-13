@@ -1,3 +1,7 @@
+#[cfg(feature = "orderbook")]
+mod book_depth;
+#[cfg(all(test, feature = "orderbook"))]
+mod book_depth_tests;
 mod budget;
 #[cfg(all(test, feature = "recording", feature = "orderbook"))]
 mod http_replay_tests;
@@ -1266,7 +1270,10 @@ fn binance_instrument_for_message<'a>(
 }
 
 #[cfg(feature = "orderbook")]
-fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Book) -> Result<()> {
+fn apply_orderbook_state(
+    feed: &ExchangeFeed,
+    book: &cryptofeed_orderbook::L2Book,
+) -> Result<L2Book> {
     use cryptofeed_orderbook::L2Book;
 
     let symbol = match book {
@@ -1282,16 +1289,36 @@ fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Boo
         })
     });
     state.apply(book.clone());
-    let crossed = feed.l2_book_cross_check && state.is_crossed();
-    drop(states);
-    if crossed {
-        feed.clear_connection_books(std::slice::from_ref(book.symbol()));
-        return Err(Error::MalformedData(format!(
+    let result = if feed.l2_book_cross_check && state.is_crossed() {
+        Err(Error::MalformedData(format!(
             "crossed L2 book: {}",
             book.symbol().as_str()
-        )));
+        )))
+    } else if let Some(maximum) = feed.l2_book_max_depth {
+        let exchange = match book {
+            L2Book::Snapshot(value) => value.exchange,
+            L2Book::Delta(value) => value.exchange,
+        };
+        let current = state.to_snapshot_with_depth(
+            exchange,
+            book.exchange_ts(),
+            book.received_ts(),
+            maximum.get(),
+        );
+        let mut projections = feed.book_projections.lock().expect("book projection lock");
+        let result = book_depth::project(book, &current, projections.get(&symbol));
+        if result.is_ok() {
+            projections.insert(symbol, current);
+        }
+        result
+    } else {
+        Ok(book.clone())
+    };
+    drop(states);
+    if result.is_err() {
+        feed.clear_connection_books(std::slice::from_ref(book.symbol()));
     }
-    Ok(())
+    result
 }
 
 #[cfg(feature = "orderbook")]
@@ -1471,7 +1498,7 @@ async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
     if !subscribed_to(feed, Channel::L2Book, book.symbol()) {
         return Ok(());
     }
-    apply_orderbook_state(feed, &book)?;
+    let book = apply_orderbook_state(feed, &book)?;
     if let (Some(monitor), Some(tracker), Some(epoch)) = (
         &feed.monitor,
         &feed.connection_tracker,

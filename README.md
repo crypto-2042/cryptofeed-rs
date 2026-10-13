@@ -161,7 +161,8 @@ Key API surface:
   retained for fixtures and future work but rejected in the 0.1 runtime),
   `exchange_symbol(...)` (explicit native mapping), `candles_interval(...)`,
   `l2_book_depth(...)`, `l2_book_interval(...)` (Binance only),
-  optional `l2_book_cross_check(true)` before publication ([policy](docs/book-cross-check.md)), one
+  optional `l2_book_cross_check(true)` before publication ([policy](docs/book-cross-check.md)),
+  `l2_book_max_depth(N)` for a consistent delivered top-N view ([depth policy](docs/book-delivery-depth.md)), one
   `*_handler(...)` per data category and `add_*_handler(...)` for additional
   serial callbacks. Each callback defaults to a five-second timeout; catchable panic or
   timeout continues to the next callback. See [handler semantics](docs/handlers.md).
@@ -183,34 +184,47 @@ Key API surface:
 
 ## Supported Exchanges and Instruments
 
-Capability matrix by instrument type (✓ = verified public channel; ✗ = not
-supported). The 0.1 release supports spot, perpetuals/swaps, and dated futures.
-Options and MARGIN remain implementation references and fail preflight.
+Capability matrix by instrument type (✓ = verified public channel; ✗ = an
+applicable channel not supported by this SDK). Each table lists only data types
+applicable to that market. The 0.1 release supports spot, perpetuals/swaps, and
+dated futures. Options and MARGIN remain implementation references and fail preflight.
 
 ### 现货 (Spot)
 
-| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Funding | Liquidations | Open Interest | Index | Mark price |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Binance | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Bitget v3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Bybit v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| OKX v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (explicit index symbol) | ✗ |
-| Gate.io v4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Index |
+| --- | --- | --- | --- | --- | --- | --- |
+| Binance | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Bitget v3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Bybit v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| OKX v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (explicit index symbol) |
+| Gate.io v4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 
-### 合约 (Perpetual / Dated Futures)
+The OKX Index entry is the SDK's explicit spot-index-symbol entrypoint. Spot
+feeds do not expose funding, liquidations, open interest, or derivative mark price.
+
+### 永续合约 (Perpetual / Swap)
 
 | Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Funding | Liquidations | Open Interest | Index | Mark price |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Binance USD-M / coin-M perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
-| Binance USD-M / coin-M dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ | ✓ |
 | Bitget v3 perpetual (USDT/USDC/coin) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Bitget v3 dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
 | Bybit v5 linear / inverse perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Bybit v5 linear / inverse dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
 | OKX v5 SWAP | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| OKX v5 FUTURES | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
 | Gate.io v4 (USDT/BTC perpetual) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Gate.io v4 (USDT delivery) | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | ✓ |
+
+### 交割合约 (Dated Futures)
+
+| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Liquidations | Open Interest | Index | Mark price |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Binance USD-M / coin-M dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
+| Bitget v3 dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Bybit v5 linear / inverse dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| OKX v5 FUTURES | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Gate.io v4 (USDT delivery) | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+
+Funding applies only to perpetual/swap contracts, so it is omitted from the
+dated-futures table. A ✗ here indicates an SDK capability gap, not that the data
+type is inapplicable to dated futures.
 
 ### 期权 (Options)
 
@@ -509,8 +523,8 @@ repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
 Managed add/remove/replace is available through a retained control handle.
 Readiness is available through the managed state API; remaining policy work is tracked in the
 [Python usage alignment plan](docs/python-usage-alignment.md).
-The [requirement audit](docs/python-alignment-audit.md) now records optional crossed-book checking as implemented;
-maximum delivered book depth remains an implementation gap.
+The [requirement audit](docs/python-alignment-audit.md) records implemented crossed-book and delivered-depth policies,
+with explicit native capability and delivery boundaries.
 
 ## Development
 

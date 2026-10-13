@@ -105,3 +105,14 @@ status/Retry-After for upgrade and CONNECT failures while omitting untrusted
 response reasons/headers/bodies. Proxy 407 still fails as invalid configuration.
 The status alone does not identify the rejecting hop; transient route failures
 conservatively delay requested-venue WS starts, separately from HTTP budgets.
+
+## Reqwest 0.13 migration — 2026-10-13
+
+The HTTP dependency uses `rustls-no-provider` and an explicit preconfigured
+rustls client. Both direct and proxy clients retain the existing static WebPKI
+roots, ring provider and normal hostname/certificate verification. Client
+construction does not install or change the embedding application's global
+crypto provider, nor add platform roots implicitly. Implicit HTTP retries are
+disabled; SDK admission, error classification and retry ownership remain intact.
+The removed reqwest `rustls-tls` feature is not used. No exchange endpoint,
+normalized model or proxy/cache identity changed.

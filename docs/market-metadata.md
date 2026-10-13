@@ -97,7 +97,9 @@ changes. A metadata-only refresh does not restart an otherwise unchanged healthy
 subscription; callers needing updated metadata obtain a new catalog snapshot.
 The current Rust WS capability list is available even in metadata-only builds,
 where supported_channels can be empty. [PublicRestClient](public-rest.md) separately reports its implemented REST methods;
-history/pagination remain unfinished.
+[history/pagination](trade-history.md), [funding settlements](funding-history.md)
+and [candle history](candle-history.md) now have explicit bounded capability and
+continuation contracts.
 
 ## Verification and references
 

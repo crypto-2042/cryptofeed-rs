@@ -76,6 +76,11 @@ jobs:
           cargo test -p cryptofeed-orderbook l2_cross_check
           cargo test -p cryptofeed-rs --lib l2_cross_check --no-default-features --features orderbook
           cargo test -p cryptofeed-rs --lib l2_cross_check --no-default-features --features recording,orderbook
+      - name: Check delivered book depth independently
+        run: |
+          cargo test -p cryptofeed-orderbook l2_delivery_depth
+          cargo test -p cryptofeed-rs --lib l2_delivery_depth --no-default-features --features orderbook
+          cargo test -p cryptofeed-rs --lib l2_delivery_depth --no-default-features --features recording,orderbook
       - name: Check shared resource scopes independently
         run: |
           cargo test -p cryptofeed-rs --lib resources:: --no-default-features

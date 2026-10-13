@@ -638,7 +638,8 @@ reverse-ordered by start time, with native symbol/category in result. Both omit
 an explicit completion flag. Bybit inverse volume is quote currency and Binance
 COIN-M volume is contracts. CM start/end ranges cannot exceed 200 days. Rust uses
 bounded backward windows and a common 100-row cap, not a copied Python API path.
-Other venues' candle-history APIs are still pending implementation.
+At this earlier milestone the other venues were pending; their implemented
+contracts are recorded in the following dated section and [candle guide](candle-history.md).
 
 ## Remaining candle-history APIs — 2026-10-10
 
@@ -842,3 +843,10 @@ check from native sequence/checksum rules. The new Bybit synthetic replay case
 uses the currently verified official snapshot/delta fields and zero-size delete
 contract; equality is a deliberate SDK-policy test, not live exchange evidence.
 No native parser, endpoint or bridge rule changed.
+
+## Delivered L2 depth policy — 2026-10-12
+
+[Delivered depth](book-delivery-depth.md) is a local semantic policy after native
+sync/crossed-book checks, not a native channel/depth change. Full book state is
+retained; synthetic snapshot/delete/promote examples and Bybit replay assertions
+were added together. No official payload, parser or sequence expectation changed.

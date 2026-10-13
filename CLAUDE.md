@@ -86,8 +86,10 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
    combinations fail before connecting; the runtime never guesses quote
    currencies. Explicit native pairs are caller-asserted and bypass catalog
    existence checks. Per-channel subscriptions resolve their normalized union
-   once, then compile channels with identical symbol sets into concrete feeds;
-   explicit native mapping ambiguity is validated before this partition.
+   once, then compile exact channel/symbol pairs into native-route connection feeds;
+   unequal sets may share sockets. Explicit mapping ambiguity is validated before
+   route-first topic/byte budget sharding; opt-in minimum packing proves the
+   fewest connections under fixed SDK routes and atomic instruments.
    Native subscription budgets then split the concrete groups into bounded
    connection feeds.
 2. **Per-feed task fan-out** — `run_feeds_until_shutdown` spawns one task per
@@ -117,6 +119,10 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
    dispatches to handler traits (`dispatch_*_event`). Bybit derivative tickers
    reconstruct per-connection snapshot/delta state before pure normalization;
    snapshots and reconnects must clear stale fields.
+   Optional crossed-L2 checks run before publication on full reconstructed state.
+   Delivered-depth projections keep native sync/checksum state full and send one
+   consistent top-N snapshot/delta to callbacks, broadcasts and recovery. Clear
+   projections on resync/reconnect/fresh generations; raw replay restores policies.
 
 ### Per-exchange module pattern (`crates/runtime/src/exchange/<name>/`)
 
