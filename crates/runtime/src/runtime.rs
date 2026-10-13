@@ -5707,13 +5707,14 @@ mod tests {
         server
             .send(Message::Text(
                 serde_json::json!({"op":"subscribe","success":true,"req_id":request["req_id"]})
-                    .to_string(),
+                    .to_string()
+                    .into(),
             ))
             .await
             .unwrap();
         wait_for_seen(|| monitor.snapshot().state == FeedState::Subscribed).await;
         assert_eq!(monitor.snapshot().books_synchronized, 0);
-        server.send(Message::Text(serde_json::json!({"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1710000000123u64,"data":{"s":"BTCUSDT","b":[["100","1"]],"a":[["101","2"]],"u":1,"seq":1}}).to_string())).await.unwrap();
+        server.send(Message::Text(serde_json::json!({"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1710000000123u64,"data":{"s":"BTCUSDT","b":[["100","1"]],"a":[["101","2"]],"u":1,"seq":1}}).to_string().into())).await.unwrap();
         wait_for_seen(|| monitor.snapshot().is_ready()).await;
         assert_eq!(monitor.snapshot().books_synchronized, 1);
         assert_eq!(monitor.snapshot().observed_pairs, 1);
@@ -5794,7 +5795,7 @@ mod tests {
             "a": [["65000.20", "1.00"]]
         });
         server
-            .send(Message::Text(depth_update.to_string()))
+            .send(Message::Text(depth_update.to_string().into()))
             .await
             .expect("send depth update");
         // The snapshot result lands; the next loop poll bootstraps the book.
@@ -5834,11 +5835,11 @@ mod tests {
             "m": false
         });
         server
-            .send(Message::Text(ticker.to_string()))
+            .send(Message::Text(ticker.to_string().into()))
             .await
             .expect("send ticker");
         server
-            .send(Message::Text(trade.to_string()))
+            .send(Message::Text(trade.to_string().into()))
             .await
             .expect("send trade");
 
@@ -5986,7 +5987,7 @@ mod tests {
             }]
         });
         server
-            .send(Message::Text(trade.to_string()))
+            .send(Message::Text(trade.to_string().into()))
             .await
             .expect("send trade");
 
@@ -6038,7 +6039,7 @@ mod tests {
             "data": [{ "tradeId": "1", "px": "65000.50", "sz": "0.0100", "side": "buy", "ts": "1710000000123" }]
         });
         server
-            .send(Message::Text(trade.to_string()))
+            .send(Message::Text(trade.to_string().into()))
             .await
             .expect("send trade");
 
@@ -6108,7 +6109,7 @@ mod tests {
             "result": [{ "id": "1", "currency_pair": "BTC_USDT", "price": "65000.50", "amount": "0.0100", "side": "buy", "create_time_ms": "1710000000123" }]
         });
         server
-            .send(Message::Text(trade.to_string()))
+            .send(Message::Text(trade.to_string().into()))
             .await
             .expect("send trade");
 
