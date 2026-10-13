@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 ## Current State
 
@@ -1523,3 +1523,18 @@ feature boundaries.
 - Final implementation ad9f22a passed all five remote CI jobs (run 38241618238):
   quality, features, MSRV, package and security. Necessary core alignment is
   accepted within the original agreed scope; no live exchange traffic was generated.
+
+## Dependency PR compatibility maintenance — 2026-10-13
+
+- PR #1's reqwest 0.13 migration replaces its removed TLS feature with explicit
+  ring/static WebPKI configuration for direct and proxy clients; SDK admission
+  owns retries and embedding-global crypto configuration remains untouched.
+  Its local gates and all remote CI checks passed before merge.
+- PR #2 adapts WebSocketConfig builders, Utf8Bytes/Bytes message payloads and
+  boxed handshake errors for 0.30. Existing limits, control/error semantics,
+  subscription pacing and automatic-Pong safeguards remain asserted.
+- Both candidates passed 837 all-feature tests, strict Clippy/rustdoc, minimal
+  compilation and fresh Rust 1.85 all-target checks without a committed lock.
+  [Bounded public observations](docs/reports/dependency-transport-smoke-2026-10-13.md)
+  confirm actual HTTPS catalog and WSS data/clean shutdown; they do not claim
+  broad live coverage or throughput. PR #2 remote acceptance remains on its PR.

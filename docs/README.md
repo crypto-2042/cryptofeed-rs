@@ -3,6 +3,9 @@
 Start with the [project README](../README.md) for installation and examples,
 and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
+- [Dependency transport validation](reports/dependency-transport-smoke-2026-10-13.md):
+  bounded HTTPS/WSS observations and compatibility checks for the HTTP/WS upgrades.
+
 ## Reference and contribution guides
 
 - [Exchange protocol baseline](exchange-protocol-baseline.md): official wire
