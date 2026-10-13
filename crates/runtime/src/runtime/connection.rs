@@ -203,12 +203,10 @@ impl WsConnection {
             .resource_budget()
             .map(|budget| budget.websocket(self.exchange));
         let slot = super::budget::acquire(self.exchange, scoped).await?;
-        let config = WebSocketConfig {
-            max_write_buffer_size: 1024 * 1024,
-            max_message_size: Some(Self::MAX_MESSAGE_BYTES),
-            max_frame_size: Some(Self::MAX_FRAME_BYTES),
-            ..WebSocketConfig::default()
-        };
+        let config = WebSocketConfig::default()
+            .max_write_buffer_size(1024 * 1024)
+            .max_message_size(Some(Self::MAX_MESSAGE_BYTES))
+            .max_frame_size(Some(Self::MAX_FRAME_BYTES));
         let stream = match self
             .handshake(self.transport.websocket(&self.url, config))
             .await
@@ -362,7 +360,7 @@ where
         self.sends.text_started(Instant::now(), control);
         let result = tokio::time::timeout(
             Self::SEND_TIMEOUT,
-            self.stream.send(Message::Text(text.to_owned())),
+            self.stream.send(Message::Text(text.to_owned().into())),
         )
         .await
         .map_err(|_| Error::Transport("websocket send timed out".to_owned()))?
@@ -884,7 +882,10 @@ mod tests {
             ));
         }
         session.queue_subscriptions(["fifth".to_owned()]);
-        server.send(Message::Ping(vec![1, 2, 3])).await.unwrap();
+        server
+            .send(Message::Ping(vec![1, 2, 3].into()))
+            .await
+            .unwrap();
         server.send(Message::Text("market".into())).await.unwrap();
         let (stop, mut shutdown) = watch::channel(false);
         assert_eq!(
@@ -990,7 +991,10 @@ mod tests {
             HeartbeatPolicy::for_exchange(ExchangeId::Binance, &url),
         );
         for index in 0..6 {
-            server.send(Message::Ping(vec![index])).await.unwrap();
+            server
+                .send(Message::Ping(vec![index].into()))
+                .await
+                .unwrap();
         }
         let (_stop, mut shutdown) = watch::channel(false);
         let error = session

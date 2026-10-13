@@ -116,3 +116,13 @@ crypto provider, nor add platform roots implicitly. Implicit HTTP retries are
 disabled; SDK admission, error classification and retry ownership remain intact.
 The removed reqwest `rustls-tls` feature is not used. No exchange endpoint,
 normalized model or proxy/cache identity changed.
+
+## WebSocket 0.30 migration — 2026-10-13
+
+The transport uses the non-exhaustive WebSocketConfig builder, Utf8Bytes text,
+Bytes control payloads and boxed HTTP handshake responses. Existing message,
+frame and write-buffer limits remain explicit. Wire JSON, subscription/heartbeat
+pacing, payload-preserving manual Pong handling, close classification and proxy
+routing retain their existing contracts. Full-session and duplex tests continue
+to assert automatic-Pong replacement and overload cancellation rather than
+assuming those behaviors survive a dependency upgrade.

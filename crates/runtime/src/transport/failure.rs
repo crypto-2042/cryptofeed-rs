@@ -64,7 +64,7 @@ mod ws_lifecycle_tests {
                 .body(Some(b"private body".to_vec()))
                 .unwrap();
             let error = handshake(
-                tokio_tungstenite::tungstenite::Error::Http(response),
+                tokio_tungstenite::tungstenite::Error::Http(Box::new(response)),
                 proxied,
             );
             assert!(
