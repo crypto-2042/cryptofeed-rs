@@ -1,4 +1,9 @@
+pub mod control;
 use crate::exchange::ExchangeFeed;
+pub use control::{
+    ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot, FeedState,
+    RuntimeControl,
+};
 #[cfg(feature = "candles")]
 use cryptofeed_candles::Candle;
 use cryptofeed_core::exchange::{Channel, ExchangeId};
@@ -30,6 +35,8 @@ use tokio::sync::broadcast;
 /// consumer that never drains its receiver will lag (the broadcast channel
 /// drops the oldest events once the bounded buffer is full).
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "recording", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "recording", serde(rename_all = "snake_case"))]
 #[non_exhaustive]
 pub enum FeedEvent {
     #[cfg(feature = "ticker")]
@@ -54,12 +61,22 @@ pub enum FeedEvent {
     MarkPrice(MarkPrice),
 }
 
-/// Programmatic lifecycle notifications for terminal feed failures.
+/// Terminal failures and generation-scoped lifecycle notifications.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FeedStatus {
-    Terminated { exchange: ExchangeId, error: String },
-    TaskPanicked { error: String },
+    Terminated {
+        exchange: ExchangeId,
+        error: String,
+    },
+    TaskPanicked {
+        error: String,
+    },
+    Lifecycle {
+        identity: FeedIdentity,
+        exchange: ExchangeId,
+        state: FeedState,
+    },
 }
 
 impl FeedEvent {
@@ -203,10 +220,15 @@ impl EventCounters {
 }
 
 pub struct FeedHandler {
+    #[cfg(feature = "orderbook")]
+    book_store: Option<Arc<crate::books::BookStore>>,
     feeds: Vec<ExchangeFeed>,
     event_sender: Option<broadcast::Sender<FeedEvent>>,
     status_sender: Option<broadcast::Sender<FeedStatus>>,
     counters: Arc<EventCounters>,
+    envelope_sender: Option<broadcast::Sender<FeedEnvelope>>,
+    control_sender: Option<tokio::sync::mpsc::Sender<control::Command>>,
+    control_receiver: Option<tokio::sync::mpsc::Receiver<control::Command>>,
 }
 
 impl Default for FeedHandler {
@@ -218,21 +240,28 @@ impl Default for FeedHandler {
 impl FeedHandler {
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "orderbook")]
+            book_store: None,
             feeds: Vec::new(),
             event_sender: None,
             status_sender: None,
             counters: Arc::new(EventCounters::default()),
+            envelope_sender: None,
+            control_sender: None,
+            control_receiver: None,
         }
     }
 
-    /// Subscribes to the normalized event stream. Call before `add_feed` so
-    /// the feeds deliver into the stream; returns a bounded broadcast
-    /// receiver (capacity 1024 per subscriber). Calling `subscribe` again
+    /// Subscribes to the normalized event stream, including feeds already
+    /// registered. Returns a bounded broadcast receiver (capacity 1024 per subscriber). Calling `subscribe` again
     /// returns an additional receiver on the same stream — the first
     /// receiver keeps working and feeds added in between are not orphaned.
     pub fn subscribe(&mut self) -> broadcast::Receiver<FeedEvent> {
         if self.event_sender.is_none() {
             let (sender, _) = broadcast::channel(1024);
+            for feed in &mut self.feeds {
+                feed.event_sender = Some(sender.clone());
+            }
             self.event_sender = Some(sender);
         }
         self.event_sender
@@ -242,10 +271,14 @@ impl FeedHandler {
     }
 
     /// Subscribes to terminal feed/task failures without requiring a tracing
-    /// subscriber. Call before `add_feed`, like [`FeedHandler::subscribe`].
+    /// subscriber. Also includes managed lifecycle transitions; subscribing
+    /// after initial feed registration is supported.
     pub fn subscribe_status(&mut self) -> broadcast::Receiver<FeedStatus> {
         if self.status_sender.is_none() {
             let (sender, _) = broadcast::channel(64);
+            for feed in &mut self.feeds {
+                feed.status_sender = Some(sender.clone());
+            }
             self.status_sender = Some(sender);
         }
         self.status_sender
@@ -254,11 +287,84 @@ impl FeedHandler {
             .subscribe()
     }
 
-    pub fn add_feed(&mut self, mut feed: ExchangeFeed) {
-        feed.event_sender = self.event_sender.clone();
-        feed.status_sender = self.status_sender.clone();
-        feed.event_counts = Some(self.counters.clone());
+    pub fn add_feed(&mut self, feed: ExchangeFeed) {
+        self.add_feed_with_id(feed);
+    }
+
+    /// Registers an initial feed and returns its stable process-local ID.
+    pub fn add_feed_with_id(&mut self, mut feed: ExchangeFeed) -> FeedId {
+        let identity = FeedIdentity {
+            id: FeedId::allocate(),
+            generation: 1,
+        };
+        self.control_context().attach(&mut feed, identity);
         self.feeds.push(feed);
+        identity.id
+    }
+
+    /// Enables managed runtime control. Retain the handle before `run`.
+    /// Initial feeds start independently in this opt-in mode.
+    pub fn control_handle(&mut self) -> RuntimeControl {
+        if self.control_sender.is_none() {
+            let (sender, receiver) = tokio::sync::mpsc::channel(32);
+            self.control_sender = Some(sender);
+            self.control_receiver = Some(receiver);
+        }
+        RuntimeControl {
+            sender: self
+                .control_sender
+                .as_ref()
+                .expect("control sender")
+                .clone(),
+        }
+    }
+
+    /// Enables managed runtime and retains revision-anchored L2 recovery state.
+    /// Call before run; cloned handles remain usable while the runtime runs.
+    #[cfg(feature = "orderbook")]
+    pub fn l2_book_handle(&mut self) -> crate::books::L2BookHandle {
+        self.control_handle();
+        crate::books::L2BookHandle(self.book_store.get_or_insert_with(Default::default).clone())
+    }
+
+    /// Tagged broadcast stream with the same bounded/lossy delivery as subscribe.
+    pub fn subscribe_identified(&mut self) -> broadcast::Receiver<FeedEnvelope> {
+        let sender = self
+            .envelope_sender
+            .get_or_insert_with(|| broadcast::channel(1024).0);
+        for feed in &mut self.feeds {
+            feed.envelope_sender = Some(sender.clone());
+        }
+        sender.subscribe()
+    }
+
+    fn control_context(&self) -> control::ControlContext {
+        control::ControlContext {
+            #[cfg(feature = "orderbook")]
+            books: self.book_store.clone(),
+            event_sender: self.event_sender.clone(),
+            envelope_sender: self.envelope_sender.clone(),
+            status_sender: self.status_sender.clone(),
+            counters: self.counters.clone(),
+        }
+    }
+
+    pub(crate) fn has_control(&self) -> bool {
+        self.control_receiver.is_some()
+    }
+    pub(crate) fn into_control_parts(
+        mut self,
+    ) -> (
+        Vec<ExchangeFeed>,
+        control::ControlContext,
+        tokio::sync::mpsc::Receiver<control::Command>,
+    ) {
+        let context = self.control_context();
+        let receiver = self
+            .control_receiver
+            .take()
+            .expect("controlled runtime initialized");
+        (self.feeds, context, receiver)
     }
 
     pub fn feed_count(&self) -> usize {
@@ -285,6 +391,15 @@ impl FeedHandler {
 
     pub(crate) fn into_feeds(self) -> Vec<ExchangeFeed> {
         self.feeds
+    }
+
+    /// Runs without installing a Ctrl-C handler. Setting the watch value to
+    /// true or dropping every sender requests shutdown, including hydration.
+    pub async fn run_with_shutdown(
+        self,
+        shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> cryptofeed_core::error::Result<()> {
+        crate::runtime::run_with_shutdown(self, shutdown).await
     }
 
     pub async fn run(self) -> cryptofeed_core::error::Result<()> {

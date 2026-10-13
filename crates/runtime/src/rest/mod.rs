@@ -1,0 +1,351 @@
+//! Public, normalized REST market-data queries.
+#[cfg(any(
+    feature = "ticker",
+    feature = "orderbook",
+    feature = "funding",
+    feature = "candles",
+    feature = "trade"
+))]
+mod adapter;
+#[cfg(feature = "candles")]
+mod candles;
+#[cfg(feature = "funding")]
+mod history;
+#[cfg(feature = "trade")]
+mod trade_history;
+#[cfg(feature = "trade")]
+mod trades;
+use crate::{catalog::MarketCatalog, transport::TransportConfig};
+#[cfg(feature = "candles")]
+pub use candles::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, CandleHistoryStop};
+#[cfg(any(
+    feature = "ticker",
+    feature = "orderbook",
+    feature = "funding",
+    feature = "candles",
+    feature = "trade"
+))]
+use cryptofeed_core::symbol::Symbol;
+use cryptofeed_core::{
+    error::Result,
+    exchange::{Channel, ExchangeId},
+    symbol::InstrumentKind,
+};
+#[cfg(feature = "funding")]
+pub use history::{FundingHistory, FundingHistoryCursor, FundingHistoryQuery, HistoryStop};
+use std::sync::Arc;
+#[cfg(feature = "trade")]
+pub use trade_history::{
+    TradeHistory, TradeHistoryCursor, TradeHistoryKind, TradeHistoryQuery, TradeHistoryStop,
+};
+
+/// A standalone query result, not a WS synchronization/recovery anchor.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct RestSnapshot<T> {
+    pub data: T,
+    /// Native payload/response time where supplied. Model exchange_ts uses
+    /// received_ts as a compatibility fallback only when this is None.
+    pub exchange_ts: Option<f64>,
+    pub received_ts: f64,
+    pub sequence: Option<u64>,
+}
+#[derive(Clone)]
+pub struct PublicRestClient {
+    catalog: Arc<MarketCatalog>,
+    #[cfg(any(
+        feature = "ticker",
+        feature = "orderbook",
+        feature = "funding",
+        feature = "candles",
+        feature = "trade"
+    ))]
+    transport: TransportConfig,
+}
+impl PublicRestClient {
+    pub async fn load(exchange: ExchangeId, product: InstrumentKind) -> Result<Self> {
+        Self::load_with_transport(exchange, product, TransportConfig::direct()).await
+    }
+    pub async fn load_with_transport(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        transport: TransportConfig,
+    ) -> Result<Self> {
+        let catalog = MarketCatalog::load_with_transport(exchange, product, &transport).await?;
+        Ok(Self::from_catalog(catalog, transport))
+    }
+    pub fn from_catalog(catalog: MarketCatalog, transport: TransportConfig) -> Self {
+        #[cfg(not(any(
+            feature = "ticker",
+            feature = "orderbook",
+            feature = "funding",
+            feature = "candles",
+            feature = "trade"
+        )))]
+        let _ = transport;
+        Self {
+            catalog: Arc::new(catalog),
+            #[cfg(any(
+                feature = "ticker",
+                feature = "orderbook",
+                feature = "funding",
+                feature = "candles",
+                feature = "trade"
+            ))]
+            transport,
+        }
+    }
+    pub fn catalog(&self) -> &MarketCatalog {
+        &self.catalog
+    }
+    /// Implemented public REST methods for this build, distinct from WS channels.
+    pub fn supported_channels(&self) -> Vec<Channel> {
+        [
+            Channel::Ticker,
+            Channel::L2Book,
+            Channel::Funding,
+            Channel::Candles,
+            Channel::Trade,
+        ]
+        .into_iter()
+        .filter(|channel| self.catalog.supported_channels().contains(channel))
+        .collect()
+    }
+    /// Declared history granularities; native profiles may stop without continuation.
+    #[cfg(feature = "trade")]
+    pub fn supported_trade_history_kinds(&self) -> Vec<TradeHistoryKind> {
+        if !self.catalog.supported_channels().contains(&Channel::Trade) {
+            return Vec::new();
+        }
+        match self.catalog.exchange() {
+            ExchangeId::Binance => vec![TradeHistoryKind::Aggregate],
+            ExchangeId::Okx => vec![TradeHistoryKind::Individual],
+            ExchangeId::Gateio => vec![TradeHistoryKind::Individual],
+            _ => Vec::new(),
+        }
+    }
+    #[cfg(feature = "trade")]
+    pub async fn trade_history(
+        &self,
+        symbol: &Symbol,
+        query: TradeHistoryQuery,
+    ) -> Result<TradeHistory> {
+        let info = self.catalog.market(symbol)?;
+        trade_history::collect(info, query, |url| async move {
+            crate::runtime::snapshot::fetch_json(url.as_str(), &self.transport, info.exchange).await
+        })
+        .await
+    }
+    /// A single bounded recent batch, not a complete historical range.
+    #[cfg(feature = "trade")]
+    pub async fn recent_trades(
+        &self,
+        symbol: &Symbol,
+        limit: u16,
+    ) -> Result<Vec<cryptofeed_trade::Trade>> {
+        let info = self.catalog.market(symbol)?;
+        let plan = trades::plan(info, limit)?;
+        let payload =
+            crate::runtime::snapshot::fetch_json(plan.url.as_str(), &self.transport, info.exchange)
+                .await?;
+        trades::decode(info, &plan, &payload, limit, received_time())
+    }
+    #[cfg(feature = "candles")]
+    pub async fn candle_history(
+        &self,
+        symbol: &Symbol,
+        query: CandleHistoryQuery,
+    ) -> Result<CandleHistory> {
+        let info = self.catalog.market(symbol)?;
+        candles::collect(info, query, |url| async move {
+            crate::runtime::snapshot::fetch_json(url.as_str(), &self.transport, info.exchange).await
+        })
+        .await
+    }
+    #[cfg(feature = "funding")]
+    pub async fn funding_history(
+        &self,
+        symbol: &Symbol,
+        query: FundingHistoryQuery,
+    ) -> Result<FundingHistory> {
+        let info = self.catalog.market(symbol)?;
+        history::collect(info, query, |url| async move {
+            crate::runtime::snapshot::fetch_json(url.as_str(), &self.transport, info.exchange).await
+        })
+        .await
+    }
+
+    #[cfg(feature = "ticker")]
+    pub async fn ticker(&self, symbol: &Symbol) -> Result<RestSnapshot<cryptofeed_ticker::Ticker>> {
+        let info = self.catalog.market(symbol)?;
+        let plan = adapter::plan(info, None)?;
+        let payload =
+            crate::runtime::snapshot::fetch_json(plan.url.as_str(), &self.transport, info.exchange)
+                .await?;
+        adapter::ticker(info, &plan, &payload, received_time())
+    }
+    #[cfg(feature = "orderbook")]
+    pub async fn l2_book(
+        &self,
+        symbol: &Symbol,
+        depth: u16,
+    ) -> Result<RestSnapshot<cryptofeed_orderbook::L2BookSnapshot>> {
+        let info = self.catalog.market(symbol)?;
+        let plan = adapter::plan(info, Some(depth))?;
+        let payload =
+            crate::runtime::snapshot::fetch_json(plan.url.as_str(), &self.transport, info.exchange)
+                .await?;
+        adapter::book(info, &plan, &payload, depth, received_time())
+    }
+}
+#[cfg(any(
+    feature = "ticker",
+    feature = "orderbook",
+    feature = "funding",
+    feature = "candles",
+    feature = "trade"
+))]
+fn received_time() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |time| time.as_secs_f64())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cryptofeed_core::symbol::Symbol;
+    fn client() -> PublicRestClient {
+        let mut registry = crate::markets::SymbolRegistry::default();
+        registry
+            .insert(Symbol::spot("BTC", "USDT"), "BTCUSDT")
+            .unwrap();
+        PublicRestClient::from_catalog(
+            MarketCatalog::from_registry(ExchangeId::Binance, InstrumentKind::Spot, registry),
+            TransportConfig::direct(),
+        )
+    }
+    #[test]
+    fn rest_capabilities_are_an_implemented_build_specific_subset() {
+        let channels = client().supported_channels();
+        assert_eq!(
+            channels.contains(&Channel::Ticker),
+            cfg!(feature = "ticker")
+        );
+        assert_eq!(
+            channels.contains(&Channel::L2Book),
+            cfg!(feature = "orderbook")
+        );
+        assert_eq!(channels.contains(&Channel::Trade), cfg!(feature = "trade"));
+        assert_eq!(
+            channels.contains(&Channel::Candles),
+            cfg!(feature = "candles")
+        );
+    }
+    #[test]
+    fn candle_rest_capabilities_include_documented_gate_delivery() {
+        for exchange in [
+            ExchangeId::Binance,
+            ExchangeId::Bitget,
+            ExchangeId::Bybit,
+            ExchangeId::Okx,
+            ExchangeId::Gateio,
+        ] {
+            let catalog = MarketCatalog::from_registry(
+                exchange,
+                InstrumentKind::Spot,
+                crate::markets::SymbolRegistry::default(),
+            );
+            let client = PublicRestClient::from_catalog(catalog, TransportConfig::direct());
+            assert_eq!(
+                client.supported_channels().contains(&Channel::Candles),
+                cfg!(feature = "candles")
+            );
+        }
+        let catalog = MarketCatalog::from_registry(
+            ExchangeId::Gateio,
+            InstrumentKind::Futures,
+            crate::markets::SymbolRegistry::default(),
+        );
+        let client = PublicRestClient::from_catalog(catalog, TransportConfig::direct());
+        assert_eq!(
+            client.supported_channels().contains(&Channel::Candles),
+            cfg!(feature = "candles")
+        );
+    }
+    #[cfg(feature = "trade")]
+    #[test]
+    fn history_capabilities_report_granularity_separately_from_recent_trades() {
+        assert_eq!(
+            client().supported_trade_history_kinds(),
+            vec![TradeHistoryKind::Aggregate]
+        );
+        for (exchange, product, expected) in [
+            (
+                ExchangeId::Okx,
+                InstrumentKind::Spot,
+                vec![TradeHistoryKind::Individual],
+            ),
+            (
+                ExchangeId::Gateio,
+                InstrumentKind::Perpetual,
+                vec![TradeHistoryKind::Individual],
+            ),
+            (
+                ExchangeId::Gateio,
+                InstrumentKind::Futures,
+                vec![TradeHistoryKind::Individual],
+            ),
+            (ExchangeId::Bybit, InstrumentKind::Spot, vec![]),
+            (ExchangeId::Bitget, InstrumentKind::Spot, vec![]),
+        ] {
+            let client = PublicRestClient::from_catalog(
+                MarketCatalog::from_registry(
+                    exchange,
+                    product,
+                    crate::markets::SymbolRegistry::default(),
+                ),
+                TransportConfig::direct(),
+            );
+            assert_eq!(client.supported_trade_history_kinds(), expected);
+        }
+    }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn recent_trade_validation_precedes_http() {
+        assert!(
+            client()
+                .recent_trades(&Symbol::spot("MISSING", "USDT"), 1)
+                .await
+                .is_err()
+        );
+        assert!(
+            client()
+                .recent_trades(&Symbol::spot("BTC", "USDT"), 0)
+                .await
+                .is_err()
+        );
+        assert!(
+            client()
+                .recent_trades(&Symbol::spot("BTC", "USDT"), 1001)
+                .await
+                .is_err()
+        );
+    }
+    #[cfg(all(feature = "ticker", feature = "orderbook"))]
+    #[tokio::test]
+    async fn unknown_symbols_and_invalid_depth_fail_before_http() {
+        assert!(
+            client()
+                .ticker(&Symbol::spot("MISSING", "USDT"))
+                .await
+                .is_err()
+        );
+        assert!(
+            client()
+                .l2_book(&Symbol::spot("BTC", "USDT"), 0)
+                .await
+                .is_err()
+        );
+    }
+}

@@ -22,3 +22,18 @@ send: {"time":1710000003,"channel":"futures.tickers","event":"subscribe","payloa
 1541486601.200000: {"channel":"futures.public_liquidates","event":"update","time_ms":1541505434123,"result":[{"price":215.1,"size":"-124.5","time_ms":1541486601123,"contract":"BTC_USD"},{"price":"3000.12345678","size":"0.01234567","time_ms":1541486601124,"contract":"ETH_USDT"}]}
 1791444122.760000: {"time":1791444122,"time_ms":1791444122760,"channel":"futures.public_liquidates","event":"subscribe","payload":["BTC_USDT"],"result":{"status":"success"}}
 1736371332.200000: {"channel":"futures.public_liquidates","event":"update","result":[{"contract":"BTC_USDT","price":65000.12345678901234567890,"size":-0.12345678901234567890,"time_ms":1736371332162}]}
+1791567058.010000: {"channel":"spot.order_book_update","event":"update","result":{"t":1710000000123,"s":"BTC_USDT","U":101,"u":101,"b":[["100","1"]],"a":[]}}
+1791567058.020000: {"channel":"spot.order_book_update","event":"update","result":{"t":1710000000123,"s":"BTC_USDT","U":102,"u":102,"b":[["100","1"]],"a":[]}}
+send: {"time":1791570000,"id":1,"channel":"spot.trades","event":"subscribe","payload":["BTC_USDT"]}
+1791570000.010000: {"id":1,"channel":"spot.trades","event":"subscribe","error":null,"result":{"status":"success"}}
+
+configuration: {"trades":["BTC-USDT","ETH-USDT"],"l2_book":["BTC-USDT"]}
+send: {"time":1791580000,"channel":"spot.trades","event":"subscribe","payload":["BTC_USDT"]}
+send: {"time":1791580000,"channel":"spot.order_book_update","event":"subscribe","payload":["BTC_USDT","100ms"]}
+send: {"time":1791580000,"channel":"spot.trades","event":"subscribe","payload":["ETH_USDT"]}
+
+configuration: {"trades":["BTC-USD-PERP"],"l2_book":["ETH-USDT-PERP"]}
+send: {"time":1791580000,"channel":"futures.trades","event":"subscribe","payload":["BTC_USD"]}
+send: {"time":1791580000,"channel":"futures.order_book_update","event":"subscribe","payload":["ETH_USDT","100ms","100"]}
+
+2.000000: {"channel":"spot.trades","event":"update","result":{"id":1,"currency_pair":"BTC_USDT","side":"buy","price":"100.01","amount":"0.25","create_time_ms":"1000"}}

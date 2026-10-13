@@ -29,16 +29,97 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --workspace --no-default-features
+      - run: 'cargo test -p cryptofeed-rs --lib markets::cache:: --no-default-features'
+      - run: 'cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features'
+      - name: Check replay clock and concurrency contracts
+        run: |
+          cargo test -p cryptofeed-rs --lib replay_audit --no-default-features
+          cargo test -p cryptofeed-rs --lib replay_audit --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib replay_audit --no-default-features --features recording,ticker
+      - name: Check exact packing boundaries
+        run: |
+          cargo test -p cryptofeed-rs --lib minimum_packing --no-default-features
+          cargo test -p cryptofeed-rs --lib minimum_packing --no-default-features --features trade,orderbook
+          cargo test -p cryptofeed-rs --lib minimum_packing --no-default-features --features recording,trade,orderbook
+      - name: Check route-first planning independently
+        run: |
+          cargo test -p cryptofeed-rs --lib route_first --no-default-features --features trade
+          cargo test -p cryptofeed-rs --lib route_first --no-default-features --features trade,candles,orderbook
+      - name: Check independent raw composition boundaries
+        run: |
+          cargo test -p cryptofeed-rs --lib independent_merge --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib independent_merge --no-default-features --features recording,trade
+          cargo test -p cryptofeed-rs --lib independent_merge --no-default-features --features recording,trade,orderbook
+      - name: Check WebSocket lifecycle failures independently
+        run: |
+          cargo test -p cryptofeed-rs --lib ws_lifecycle --no-default-features
+          cargo test -p cryptofeed-rs --lib ws_lifecycle --no-default-features --features recording
+      - name: Check public WS cooldowns independently
+        run: |
+          cargo test -p cryptofeed-rs --lib ws_quota --no-default-features
+          cargo test -p cryptofeed-rs --lib runtime::quota:: --no-default-features
+          cargo test -p cryptofeed-rs --lib ws_quota --no-default-features --features recording,trade
+      - name: Check weighted admission independently
+        run: |
+          cargo test -p cryptofeed-rs --lib runtime::weights:: --no-default-features
+          cargo test -p cryptofeed-rs --lib used_weight_feedback_tests --no-default-features
+          cargo test -p cryptofeed-rs --lib weighted_ --no-default-features
+          cargo test -p cryptofeed-rs --lib weighted_ --no-default-features --features recording
+      - name: Check session send budgets independently
+        run: |
+          cargo test -p cryptofeed-rs --lib runtime::send_budget:: --no-default-features
+          cargo test -p cryptofeed-rs --lib runtime::connection::tests --no-default-features
+          cargo test -p cryptofeed-rs --lib runtime::send_budget:: --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib runtime::connection::tests --no-default-features --features recording
+      - name: Check crossed book policy independently
+        run: |
+          cargo test -p cryptofeed-orderbook l2_cross_check
+          cargo test -p cryptofeed-rs --lib l2_cross_check --no-default-features --features orderbook
+          cargo test -p cryptofeed-rs --lib l2_cross_check --no-default-features --features recording,orderbook
+      - name: Check delivered book depth independently
+        run: |
+          cargo test -p cryptofeed-orderbook l2_delivery_depth
+          cargo test -p cryptofeed-rs --lib l2_delivery_depth --no-default-features --features orderbook
+          cargo test -p cryptofeed-rs --lib l2_delivery_depth --no-default-features --features recording,orderbook
+      - name: Check shared resource scopes independently
+        run: |
+          cargo test -p cryptofeed-rs --lib resources:: --no-default-features
+          cargo test -p cryptofeed-rs --lib scoped_ --no-default-features
+          cargo test -p cryptofeed-rs --lib resources:: --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib scoped_actor_tests --no-default-features --features trade
       - name: Check every runtime feature independently
         run: |
-          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
+          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest recording; do
             cargo check -p cryptofeed-rs --lib --no-default-features --features "$feature"
           done
       - name: Test every runtime feature independently
         run: |
-          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
+          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest recording; do
             cargo test -p cryptofeed-rs --test feature_boundaries --no-default-features --features "$feature"
           done
+      - name: Check normalized recording boundaries
+        run: |
+          cargo test -p cryptofeed-rs --lib recording:: --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib replay_waiter_tests --no-default-features --features recording
+          cargo test -p cryptofeed-rs --lib recording:: --no-default-features --features recording,trade
+          cargo test -p cryptofeed-rs --lib recording::raw::file::series:: --no-default-features --features recording,orderbook
+          cargo test -p cryptofeed-rs --lib recording::http:: --no-default-features --features recording,orderbook
+          for feature in ticker trade orderbook candles funding index liquidations markprice openinterest; do
+            cargo check -p cryptofeed-rs --lib --no-default-features --features "recording,$feature"
+          done
+      - name: Test sink delivery with minimal data features
+        run: |
+          cargo test -p cryptofeed-rs --lib sink:: --no-default-features --features trade
+          cargo test -p cryptofeed-rs --lib sink:: --no-default-features --features recording,trade
+      - name: Test aggregation with minimal data features
+        run: |
+          cargo test -p cryptofeed-rs --lib aggregate:: --no-default-features
+          cargo test -p cryptofeed-rs --lib aggregate:: --no-default-features --features trade
+          cargo test -p cryptofeed-rs --lib aggregate:: --no-default-features --features recording,trade
+      - name: Test NBBO with minimal data features
+        run: |
+          cargo test -p cryptofeed-rs --lib nbbo:: --no-default-features --features orderbook
+          cargo test -p cryptofeed-rs --lib nbbo:: --no-default-features --features recording,orderbook
       - run: cargo test -p cryptofeed-rs --no-default-features --no-run
 
   msrv:

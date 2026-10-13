@@ -11,7 +11,7 @@ documented wire shape and precision relevant to normalization.
 | `binance.http.v3` | [Binance Spot REST](https://developers.binance.com/docs/binance-spot-api-docs/rest-api/general-endpoints), [USD-M REST](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information), [COIN-M REST](https://developers.binance.com/docs/derivatives/coin-margined-futures/market-data/rest-api/Exchange-Information) | Spot, USD-M, and COIN-M product identity plus REST book bootstrap. |
 | `binance.ws.v3` | [Binance Spot streams](https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams), [USD-M public streams](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/public), [USD-M market streams](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/market), [current COIN-M streams](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-coin-m-futures/api/ws-streams) | Spot book ticker without event metadata; USD-M public/market endpoint split; non-USDT spot and dated/coin-margined identifiers; European-options ticker and trade references. |
 | `bitget.http.v3` | [Bitget v3 instruments](https://www.bitget.com/api-doc/uta/public/Instruments), [Bitget v3 order book](https://www.bitget.com/api-doc/uta/public/OrderBook) | Unified v3 discovery categories and REST book shape. |
-| `bitget.ws.v3` | [Bitget v3 guide](https://www.bitget.com/api-doc/uta/guide), [candlesticks](https://www.bitget.com/api-doc/uta/websocket/public/Candlesticks-Channel), [public trades](https://www.bitget.com/api-doc/uta/websocket/public/New-Trades-Channel), [depth](https://www.bitget.com/api-doc/uta/websocket/public/Order-Book-Channel), [liquidation](https://www.bitgetapp.com/api-doc/uta/websocket/public/Liquidation-Channel) | Successful control acknowledgement without `data`; text heartbeat; `topic: kline` with separate interval; batched trades; full-depth snapshot/update linkage. |
+| `bitget.ws.v3` | [Bitget v3 guide](https://www.bitget.com/api-doc/uta/guide), [candlesticks](https://www.bitget.com/api-doc/uta/websocket/public/Candlesticks-Channel), [UTA publicTrade mapping](https://www.bitget.com/docs/classic/uta-api-upgrade-guide), [depth](https://www.bitget.com/api-doc/uta/websocket/public/Order-Book-Channel), [liquidation](https://www.bitgetapp.com/api-doc/uta/websocket/public/Liquidation-Channel) | Successful control acknowledgement without `data`; text heartbeat; `topic: kline` with separate interval; batched trades; full-depth snapshot/update linkage. |
 | `bitget.ws.v3.liq` | [Bitget v3 liquidation channel](https://www.bitgetapp.com/api-doc/uta/websocket/public/Liquidation-Channel) | One instType-scoped `liquidation` update (`side`/`price`/`amount`/`ts` row shape). |
 | `bybit.http.v5` | [Bybit v5 instruments](https://bybit-exchange.github.io/docs/v5/market/instrument) | Spot, linear, inverse perpetual, and dated-futures identity. |
 | `bybit.ws.v5` | [Bybit ticker](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker), [public trades](https://bybit-exchange.github.io/docs/v5/websocket/public/trade), [order book](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook), [funding](https://bybit-exchange.github.io/docs/v5/websocket/public/funding), [all liquidation](https://bybit-exchange.github.io/docs/v5/websocket/public/all-liquidation), [tickers](https://bybit-exchange.github.io/docs/v5/market/tickers), [options instruments](https://bybit-exchange.github.io/docs/v5/market/instrument) | Spot ticker without BBO, level-1 BBO source, batched trades, replacement snapshot/delta semantics, derivative funding/liquidation references, open interest inside the derivative ticker stream, and an option ticker reference. |
@@ -71,3 +71,411 @@ Additional pre-push regressions cover:
   from the appended mark-price payload, also tested with substituted native
   COIN-M perpetual and dated identifiers. Legacy standalone index references
   are not the active subscription source.
+
+## 2026-10-09 OKX endpoint and catalog refresh
+
+- [OKX port discontinuation announcement](https://www.okx.com/en-us/help/okx-websocket-port-8443-discontinuation-announcement)
+  and [Global API changelog](https://www.okx.com/docs-v5/log_en/) are the sources
+  for default WS port 443 and the recommended `openapi.okx.com` REST domain.
+- `okx.ws.v5` endpoint labels use default TLS and separate the candle business
+  subscription from public channels. Existing synthetic timestamps/payloads
+  were retained; endpoint-label updates are not new live recordings.
+- `okx.http.v5` includes a minimal regression reference derived from the public
+  SPOT directory observed on 2026-10-09: a preopen row with empty base/quote,
+  alongside a valid live BTC-USDT row. Its timestamp is substituted. The
+  corresponding markets unit test verifies non-live filtering and rejects an
+  additional synthetic malformed-live row rather than guessing its identity.
+
+## 2026-10-10 subscription batching
+
+The appended two Bybit spot subscribe frames are synthetic request references
+from [the current connection guide](https://bybit-exchange.github.io/docs/v5/ws/connect):
+ten args in the first request, one in the second. S0..S10 are substituted native
+names, not listed-instrument or live-connect claims. The public parity test
+asserts both request sizes and the complete ordered topic union. Connection
+capacity sources and conservative SDK budgets are recorded in
+[the planning guide](../docs/connection-planning.md).
+
+The appended two Gate spot depth references use the official v4 delta shape
+with substituted IDs/prices/timestamps. The runtime regression buffers IDs
+101 and 102, starts one deferred REST job after the first, and preserves both.
+It does not claim a newly recorded live bootstrap failure or relax bridging.
+
+## 2026-10-10 readiness confirmation references
+
+Appended request/response pairs use current official confirmation contracts:
+[Binance Spot](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md),
+[USD-M](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Live-Subscribing-Unsubscribing-to-streams),
+[COIN-M](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/websocket-market-streams/Live-Subscribing-Unsubscribing-to-streams),
+[Bybit](https://bybit-exchange.github.io/docs/v5/ws/connect),
+[Gate](https://www.gate.com/docs/developers/apiv4/ws/) and
+[OKX](https://app.okx.com/docs-v5/en/#overview-websocket-subscribe).
+These are synthetic field-table references with substituted timestamps and
+sanitized connection IDs, not recordings from the manual smoke. Existing
+Bitget v3 arg-based acknowledgement references remain applicable.
+
+The Binance public parity test asserts explicit endpoint/topic/id planning;
+readiness unit tests assert correlated confirmations and stale/duplicate guards.
+The Bybit full-session double asserts acknowledgement before L2 initialization
+using the appended snapshot shape. Readiness never treats handshake, arbitrary
+market data, or a wrong request ID as complete subscription evidence. Manual
+service results are recorded separately in the dated readiness report.
+
+## 2026-10-10 catalog eligibility
+
+Appended HTTP references exercise active/inactive statuses in inline markets
+unit tests, using substituted symbols and timestamps. They are not live listings:
+
+- Binance [Spot exchangeInfo](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md),
+  [USD-M market data](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data),
+  and [COIN-M exchange information](https://developers.binance.com/docs/derivatives/coin-margined-futures/market-data/rest-api/Exchange-Information):
+  `TRADING` versus inactive statuses. The COIN-M reference intentionally adds a
+  contradictory legacy `status` field to test that `contractStatus` takes precedence;
+  this extra field is a synthetic compatibility guard, not an official response claim.
+- [Bitget v3 instruments](https://www.bitget.com/docs/catalog/market-market-data/market-instruments):
+  `online`, `limit_open`, `limit_close`, `offline`, and `restrictedAPI`.
+- [Bybit instruments](https://bybit-exchange.github.io/docs/v5/market/instrument):
+  `Trading` versus `PendingOpen`, with cursor retention. Requests explicitly
+  select Trading; mixed-response references are defensive filtering tests.
+- [Gate spot pairs](https://www.gate.com/docs/developers/apiv4/en/spot/):
+  `tradable` versus `untradable`; buyable/sellable remain public-data eligible.
+
+The discovery engine uses scripted MarketCatalog snapshots to exercise additions,
+removals and native aliases. These scripts are SDK policy tests, not exchange
+wire fixtures. Existing OKX live/preopen and Gate derivative delisting references
+remain applicable.
+
+## 2026-10-10 sparse subscription packing
+
+Appended per-channel configurations and send references select Trade BTC/ETH and
+L2 BTC on one Spot endpoint. They are sanitized request-shape references, not live
+traffic. The `sparse_subscriptions_pack_only_requested_native_topics` public parity
+case asserts every selected topic/arg plus L2-only snapshot URLs on all five
+exchanges. Wire shapes remain those of the official sources already listed above;
+selection/capacity is SDK policy. Native confirmation IDs/timestamps retain the
+separate readiness/send policies.
+
+The appended Binance USD-M public/market URLs, Gate USDT/BTC derivative requests
+and OKX public/business topic sets also back
+`sparse_packing_preserves_required_product_and_endpoint_separation`. Current
+sources were rechecked: [Binance Spot](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md),
+[USD-M public](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/public),
+[USD-M market](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/market),
+[Bitget v3 depth](https://www.bitget.com/docs/uta/websocket/public/Order-Book-Channel),
+[Bybit connect](https://bybit-exchange.github.io/docs/v5/ws/connect),
+[OKX subscriptions](https://app.okx.com/docs-v5/en/#overview-websocket-subscribe),
+[Gate Spot](https://www.gate.com/docs/developers/apiv4/ws/) and
+[Gate futures](https://www.gate.com/docs/developers/futures/).
+No market-data parser expectation was changed. Scripted unsolicited ETH depth
+messages verify absence of unrequested sync/bootstrap/cache work; they are not
+claims that a correctly subscribed venue sends those unsolicited messages.
+
+## 2026-10-10 typed market metadata
+
+Appended Spot/Perpetual HTTP rows contain sanitized field-table metadata, with
+substituted symbols/numbers/timestamps, not live constraints. The inline
+`catalog_helpers_populate_verified_metadata_for_all_five_exchanges` regression
+asserts price increments/precision, product identity and native names after actual
+catalog helpers. `market_info::tests` covers the additional fields, applicability,
+filter order, zero/scientific/exact-number conversion and malformed/conflicting
+records. Existing dated-futures identity fixtures remain applicable.
+
+Sources are the current Binance Spot/USD-M/COIN-M directory pages, Bitget v3
+instruments, Bybit v5 instruments, OKX v5 instruments, and Gate v4 Spot/futures
+field tables linked in [the metadata guide](../docs/market-metadata.md). Derivative
+precision is never a tick/step substitute; Bitget multipliers are separate from
+counts; deprecated Bybit Spot minOrderQty is not an active minimum. Contract
+values/multipliers are retained without guessed currency conversions.
+
+The extra Bitget JSON-number minimum-amount row is a synthetic numeric precision
+stress reference (9007199254740993.123456789012), not a real BTC minimum. Its pure
+metadata assertion reads literal JSON with arbitrary_precision before exact
+Decimal conversion. Adversarial unit-only malformed/duplicate/inapplicable fields
+are SDK validation probes, not claims that official endpoints emit those values.
+
+## 2026-10-10 public REST snapshots
+
+Appended ticker/book payloads match the new inline `rest::adapter::tests`
+normalization cases for all five Spot surfaces, plus numeric-precision and Gate
+derivative row-shape references. Values, IDs and timestamps are substituted;
+these are not recordings of actual BTC quotes. Existing product identity
+fixtures and the new request-plan tests cover futures routing independently.
+Sources are the current public REST pages linked in [the guide](../docs/public-rest.md).
+
+Gate Spot `current`/`update` are milliseconds, while derivative book fields are
+seconds. The older Spot bootstrap reference's second-valued `current` was
+corrected to millisecond input alongside its narrow public parity timestamp
+assertion, without changing the normalized timestamp or sequence rule. A new
+near-epoch product test prevents magnitude-based unit guessing in the REST API.
+
+The long JSON-number Bitget book price/size and IDs above 2^53 are explicit
+precision stress references, not real quotes. HTTP Retry-After/status/body-limit
+checks use in-process HTTP-response doubles rather than inventing exchange
+market-data fixture rows. Final real-service observations are recorded separately
+in the dated REST report.
+
+## 2026-10-10 funding history
+
+Appended funding request/payload references mirror `rest::history::tests`' five
+normalization families: Binance ascending millisecond bounds, Bitget v3 numeric
+cursor/data.resultList/fundingRateTimestamp, Bybit end-time paging, OKX after and
+actual realizedRate, and Gate second-valued t/r. These are sanitized field-table
+references with substituted small epochs/rates, not actual crypto settlements
+at the Unix epoch. Current primary sources are linked in
+[funding history](../docs/funding-history.md).
+
+The long negative JSON-number Binance rate is a synthetic exact-precision probe,
+not a real market rate. The OKX forecast 0.009 versus actual -0.0001 deliberately
+asserts actual-rate selection. SDK-only JSON cursor mutation/empty/duplicate/
+conflicting/oversized/cancelled-page tests are not claims of venue behavior.
+The dated live report separately records first/resume success; it does not label
+budget-limited records as complete history.
+
+## 2026-10-10 Binance/Bybit candle history
+
+Appended candle arrays mirror `rest::candles::tests` normalization assertions,
+using substituted OHLCV, counts and epochs from current official field tables
+linked in [the guide](../docs/candle-history.md). The long Decimal price is a
+synthetic precision probe. Neither response includes a close/finality flag.
+Cursor corruption, duplicate/out-of-range pages and cancellation are unit-only
+SDK probes. Captures are references, not automatically loaded test fixtures.
+
+## 2026-10-10 remaining candle-history venues
+
+Appended Bitget v3 seven-field, OKX nine-field confirm and Gate Spot eight-field /
+perpetual object examples mirror `rest::candles::tests::new_venues_normalize_and_resume_exact_bar_windows`.
+Small epochs and prices/volumes are substituted references, not real quotes.
+Current primary sources are linked in [the guide](../docs/candle-history.md).
+Request tests separately assert Bitget end rounding/90-day cap, Gate no-limit
+second bounds and REST 1d mapping. The documented one-earlier Bitget overlap,
+Gate range rounding and old seven-field Spot example are bounded regression
+probes; actual first-failure/follow-up observations remain in the dated report.
+
+## 2026-10-10 recent public trades
+
+Appended five-venue recent-trade payloads mirror
+`rest::trades::tests::five_venues_keep_taker_side_quantity_ids_and_native_times`.
+Epochs/prices/quantities/IDs are substituted, not actual market executions.
+The ID above 2^53 and execId-versus-execLinkId choice are deliberate identity
+assertions. Gate Spot and derivative examples separately assert side/quantity
+and explicit product-qualified clocks (Spot fractional milliseconds; contracts fractional seconds). Current primary sources are linked
+in [recent trades](../docs/recent-trades.md). Same-time ID sorting, signed long
+JSON-number precision, malformed/duplicate/oversized data and unknown-symbol
+checks are SDK probes, not claims that official endpoints emit invalid records.
+
+## 2026-10-10 native trade-history paging and clock correction
+
+Appended Binance aggregate, OKX history and Gate range/offset payloads mirror
+`rest::trade_history::tests::native_id_cursors_preserve_multiple_pages_at_identical_milliseconds`.
+Two different IDs above 2^53 deliberately share the same millisecond; these
+substituted prices/times/IDs are protocol references, not actual matching-engine
+records. Granularity/rate-unit/current endpoint sources are in
+[trade history](../docs/trade-history.md). Cursor mutation, non-progress/ceiling
+and cancellation checks are SDK-only probes. Captures are not auto-loaded tests.
+
+The earlier Gate recent-contract create_time_ms reference was corrected from
+1001.123 to 1.001123 together with its normalization assertion: contract input is
+seconds, unlike Spot's millisecond count. A new same-input near-epoch product test
+prevents unit inference from magnitude. The dated recent report retains the
+original insufficient clock check and stronger corrected live evidence.
+
+The delivery-candle reference now mirrors the replaced Gate delivery regression:
+the current official delivery guide explicitly documents candlesticks, missed by
+the earlier incomplete inspection. Contract name/epoch/OHLCV are substituted;
+this is not a delivery live certification. Historical delivery full-page range
+SourceLimit is separately tested without adding unsupported paging parameters.
+The delivery-trade range reference mirrors the focused SourceLimit test with
+native integer signed size and fractional-second numeric time, using substituted
+contract identity/OHLC values. It contains no invented page/offset parameter.
+
+## 2026-10-11 normalized recording format
+
+recording.normalized.v1.jsonl is synthetic SDK-normalized Trade data, not an
+exchange wire capture. Price/amount precision, source ID/generation, event sequence
+and elapsed timing match executable inline `recording::tests` data. The reference
+is not automatically loaded by tests, keeping packaged/offline tests self-contained.
+All-model roundtrip and malformed/truncated/limit/cancellation probes are SDK
+format tests, not supposed native exchange payloads. Public live capture evidence
+is kept separately and no raw frames/configuration/headers are recorded here.
+
+## 2026-10-11 public WS observation schema
+
+recording.raw-observation.v1.json mirrors the synthetic sanitizer/context probe
+in recording::raw::tests, with substituted session/sequence/clock labels. It is
+one serialized SDK observation, not a completed raw recording file or actual
+exchange packet. The long numeric price is a precision probe. All credential and
+diagnostic placeholders are [REDACTED]; rejected private/auth/text cases exist
+only as explicit synthetic unit probes. Native headers/URLs/configuration were
+not captured. Connection raw_tests assert observation before pong filtering and
+the shared runtime/model receipt timestamp; no exchange parser expectation changed.
+
+## 2026-10-11 raw-ws segment reference
+
+recording.raw-ws.v1.jsonl is a synthetic SDK file-format reference with matching
+inline raw::file tests, separate from the single-observation JSON and normalized
+codec. Context/session labels and clocks are substituted. The long numeric price
+is preserved from the sanitizer reference; credential/diagnostic fields are
+[REDACTED]. No actual exchange frames or private credentials are added. Tests
+validate cross-codec rejection, lifecycle/footer and precision; reading this file
+alone does not exercise an exchange parser or HTTP/L2 bootstrap replay.
+
+## 2026-10-11 native raw parser/state replay
+
+Appended five trade payloads mirror executable native raw replay cases on current
+public shapes, with substituted small epochs/IDs/prices, not actual epoch trades.
+Existing Rust adapters/dispatch are unchanged. The old Bitget New-Trades docs link
+redirects to ticker; current UTA upgrade mapping still names publicTrade, and live
+v3 capture replay exactly matched 56 normalized models. Primary references and
+all-venue evidence are linked in [replay](../docs/raw-replay.md).
+
+WS book tests reuse current Bybit/OKX/Bitget fields. Nonzero OKX CRC probes come
+from interleaved strings 100:2:101:1 and 100:3:101:1 (1996849324 / signed -781022440),
+not observed server checksums. Wrong CRC/disjoint bridge/reconnect-delta/overflow/
+disabled-feature/callback failures remain unit-only probes. No native rule or
+parser expected value was relaxed; missing HTTP responses were not fetched online.
+
+## 2026-10-11 consumed HTTP replay v2
+
+recording.raw-ws.v2.jsonl mirrors an executable inline SDK replay reference, not
+actual epoch market data. Native Binance Spot depth/depthUpdate field families
+are retained with substituted prices, IDs and clocks. A consumed snapshot lies
+between the second raw receive and its Processing marker; replay must emit base
+snapshot quantity2, buffered delta3, then strict live-next delta4 with original
+HTTP/WS receipt clocks. V1 references remain unchanged and readable.
+
+Additional native-vs-replay controlled receiver tests cover id-less Gate time
+anchoring, source HTTP429 without error text, stale/strict-overlap resnapshot and
+causal/version/scope failures. Snapshot body/error capture uses no URL/headers.
+Public live evidence separately compared all resulting L2 fields/clocks on both
+Spot venues; no real HTTP response body was committed.
+
+
+## 2026-10-11 public HTTP replay format reference
+
+`recording.public-http.v1.jsonl` is a **synthetic SDK-format example**, not an
+exchange capture. Its four request/result pairs match the executable inline OKX
+catalog/ticker/book/trade fixtures in
+`crates/runtime/src/recording/http/replay/tests.rs`. Prices, quantities, IDs and
+times are substituted test values. The current official
+[OKX v5 guide](https://app.okx.com/docs-v5/en/) was rechecked for instrument
+identity/tick/lot fields, ticker prices/timestamps, four-item book levels/seqId,
+and public trade identity/price/quantity/side/time. No parser normalization or
+native endpoint changed. The example is not automatically loaded by tests;
+inline assertions and the offline CLI verify its documented values separately.
+
+
+## 2026-10-12 native REST quota policy references
+
+`public-rest.native-quota.jsonl` is a synthetic code-classification reference,
+not a live capture and not an HTTP recording. It matches executable inline
+`runtime/quota.rs` tests. The Gate row is an excluded-scope negative case.
+Official references were checked before implementing the policy:
+[Binance Spot errors](https://github.com/binance/binance-spot-api-docs/blob/master/errors.md),
+[USD-M errors](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/error-code),
+[COIN-M errors](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/error-code),
+[Bybit rate limits](https://bybit-exchange.github.io/docs/v5/rate-limit),
+[OKX limits](https://app.okx.com/docs-v5/en/#overview-rate-limits),
+[Bitget v3 codes](https://www.bitget.com/docs/uta/error-code/restapi) and
+[string envelope](https://www.bitget.com/docs/catalog/market-market-data/market-instruments),
+[Gate labels](https://www.gate.com/docs/developers/apiv4/en/).
+Mock HTTP-200 tests are deliberate SDK edge scenarios, not assertions that every
+venue normally returns those quota codes with HTTP 200. No keys/private payloads
+or intentionally induced live throttles are included.
+
+## 2026-10-12 Binance weighted admission references
+
+`public-rest.weights.jsonl` is a synthetic public request/cost reference, not
+a network capture. Representative rows match inline `runtime/weights.rs` tests.
+[Verified official sources and fee table](../docs/http-weights.md) cover current
+Spot, USD-M and COIN-M; no keys, headers or private data are present. Rolling
+windows and conservative shared futures usage are SDK policy choices.
+
+## 2026-10-12 public WS control references
+
+`public-ws.control-errors.jsonl` is synthetic and matches inline classification
+tests in runtime/quota.rs. The Bybit row is a scope exclusion, not a supported
+public error. [Verified sources and runtime behavior](../docs/ws-control-errors.md)
+cover OKX/Bitget frequency and service codes plus Gate service code 3. Sixty
+seconds is SDK retry policy; no real quota was triggered and no private data
+or credentials are present.
+
+## 2026-10-12 WS lifecycle policy references
+
+`public-ws.lifecycle.jsonl` is synthetic, matching inline status/close tests.
+[Protocol sources and SDK policy](../docs/ws-lifecycle-failures.md) distinguish
+RFC close meanings, OKX-specific codes and retry choices. Only public delay/code
+fields are included; no credentials, cookies, real private data or live ban
+evidence. Loopback upgrade/CONNECT tests verify transport behavior independently.
+
+## 2026-10-12 independent raw merge timeline
+
+`raw-merge.timeline.json` is a synthetic scheduling reference matching inline
+independent_merge alignment tests. It contains only offsets/lifecycle labels and
+counts, not an exchange capture. Native payloads in merge tests reuse already
+asserted raw replay/consumed HTTP fixtures; no parser expectation or wire shape
+changed. See [identity, bounds and clocks](../docs/raw-merge.md).
+
+## 2026-10-12 route-first allocation reference
+
+`connection-planning.routes.json` is synthetic SDK allocation evidence matching
+inline route_first tests. Generated symbols and oversized native strings are
+caller assertions used to exercise budgets; they are not exchange directory
+captures. Existing adapter routes/limits are unchanged. See the [planning
+guide](../docs/connection-planning.md#route-first-capacity-planning--2026-10-12).
+
+## 2026-10-12 minimum packing proof reference
+
+`connection-planning.minimum.json` is synthetic SDK planning evidence matching
+minimum_packing_native_exact_search_resolves_greedy_residue_failure. Native
+subscriptions are generated by existing adapters; topic capacity 49 is the
+existing conservative Bitget SDK budget, not its hard native maximum. Generated
+names are caller assertions. [Proof/model scope](../docs/minimum-connections.md)
+is distinct from exchange directory/throughput evidence; no private data is present.
+
+## 2026-10-12 replay clock contract reference
+
+`replay-clock-contracts.json` is synthetic policy metadata matching replay_audit
+assertions, not a capture. The new Binance payload reuses existing public REST
+field semantics, verified against the current [Spot specification](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#symbol-order-book-ticker).
+Counter payloads test shared-cursor behavior only and are not exchange catalog
+shapes. No native payload/normalization expectation was changed merely for a
+passing test. See [clock domains and evidence](../docs/replay-contract-audit.md).
+
+## Binance used-weight response headers — 2026-10-12
+
+`binance.http.used-weight.jsonl` is a synthetic header/admission reference, not a
+live capture. Values and effects are asserted in `runtime/weights/tests.rs` and
+`runtime/snapshot.rs::used_weight_feedback_tests`. Official sources:
+[Spot IP limits](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#ip-limits),
+[USD-M IP limits](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info),
+[COIN-M IP limits](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/general-info),
+and the [USD-M bookTicker exception](https://developers.binance.info/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data).
+No credentials or private response data are included.
+
+## Per-session WS send budgets — 2026-10-12
+
+`public-ws.send-budgets.jsonl` is a synthetic admission reference, not live traffic.
+`runtime/send_budget.rs::tests` and `runtime/connection.rs::tests` assert its
+windows/starts and actual duplex Pong behavior. [Send budget guide](../docs/ws-send-budgets.md)
+links current official Spot/futures, Bitget v3 and OKX source rules, separating
+native limits from conservative SDK pacing. No market-data schema was changed.
+
+## Crossed L2 policy — 2026-10-12
+
+`public-l2.cross-check.jsonl` is a synthetic policy reference, not live exchange
+traffic. Exact assertions reside in orderbook model tests, runtime cross-check
+and raw-replay tests. Python commit `3a6d3ca` supplies the best-bid >= best-ask
+semantic rule. The Bybit v5 frame shape was checked against current official
+[orderbook documentation](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook);
+its equal-price delta is intentionally constructed to test rejection. No market
+parser, official expected value or sequence rule was changed.
+
+## Delivered L2 depth — 2026-10-12
+
+`public-l2.delivery-depth.jsonl` contains synthetic runtime-policy/native-envelope
+references. `runtime/book_depth_tests.rs`, orderbook model and native-replay tests
+assert these transitions and an independent consumer-state oracle. Python sibling
+`3a6d3ca` `feed.py::max_depth` is the semantic reference; native subscription depth
+remains independent. Bybit snapshot/delta/delete fields follow its current
+[official orderbook contract](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook).
+No observed exchange behavior or native parser expectation was changed.

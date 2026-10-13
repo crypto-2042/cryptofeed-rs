@@ -6,20 +6,12 @@ pub mod gateio;
 pub mod kraken;
 pub mod okx;
 
-#[cfg(any(
-    feature = "ticker",
-    feature = "trade",
-    feature = "orderbook",
-    feature = "candles",
-    feature = "funding",
-    feature = "liquidations",
-    feature = "markprice",
-    feature = "openinterest",
-    feature = "index"
-))]
+#[cfg(feature = "orderbook")]
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 #[cfg(feature = "orderbook")]
-use std::{collections::HashMap, sync::Mutex};
+use std::sync::Mutex;
 
 #[cfg(feature = "orderbook")]
 use crate::exchange::binance::book_sync::BinanceBookSync;
@@ -55,41 +47,93 @@ use cryptofeed_ticker::TickerHandler;
 #[cfg(feature = "trade")]
 use cryptofeed_trade::TradeHandler;
 
+/// Candle delivery policy. Completion comes only from the normalized wire flag;
+/// elapsed wall-clock time does not make a candle final.
+#[cfg(feature = "candles")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CandlePolicy {
+    /// Deliver all updates, preserving the existing Rust default.
+    #[default]
+    All,
+    /// Deliver only candles explicitly marked closed; omit unknown completion.
+    ClosedOnly,
+    /// Omit explicitly unfinished candles, retaining unknown completion as None.
+    ClosedOrUnknown,
+}
+
 #[derive(Clone)]
 pub struct ExchangeFeed {
+    pub transport: crate::transport::TransportConfig,
+    #[cfg(feature = "recording")]
+    pub(crate) raw_capture: Option<crate::recording::raw::RawCaptureHandle>,
+    #[cfg(feature = "recording")]
+    pub(crate) raw_session: Option<crate::recording::raw::RawSessionLink>,
+    #[cfg(feature = "recording")]
+    pub(crate) replay_offline: bool,
+    pub runtime_options: crate::options::RuntimeOptions,
     pub exchange: ExchangeId,
     pub channels: Vec<Channel>,
     pub symbols: Vec<Symbol>,
     pub exchange_symbols: Vec<String>,
+    pub(crate) channel_subscriptions: Vec<(Channel, Vec<Symbol>)>,
+    pub(crate) subscription_mode_conflict: bool,
     /// Normalized candle interval (default `"1m"`); each adapter maps it to
     /// its own wire form. `Channel::Candles` uses a single interval per feed.
     pub candle_interval: String,
+    #[cfg(feature = "candles")]
+    pub candle_policy: CandlePolicy,
     /// Requested L2 depth level; `None` means the exchange default (Bybit 50,
     /// OKX/Bitget full book, Binance full depth).
     pub l2_book_depth: Option<u16>,
+    /// Reject crossed reconstructed L2 books before publication; default false.
+    #[cfg(feature = "orderbook")]
+    pub l2_book_cross_check: bool,
+    /// Maximum delivered levels per side, independent of native subscription depth.
+    #[cfg(feature = "orderbook")]
+    pub l2_book_max_depth: Option<std::num::NonZeroUsize>,
     /// Requested L2 book update interval (Binance only; other exchanges use
     /// the exchange default). `None` means the fastest `100ms` stream.
     pub l2_book_interval: Option<String>,
     #[cfg(feature = "ticker")]
     pub ticker_handler: Option<Arc<dyn TickerHandler>>,
+    #[cfg(feature = "ticker")]
+    pub(crate) additional_ticker_handlers: Vec<Arc<dyn TickerHandler>>,
     #[cfg(feature = "candles")]
     pub candle_handler: Option<Arc<dyn CandleHandler>>,
+    #[cfg(feature = "candles")]
+    pub(crate) additional_candle_handlers: Vec<Arc<dyn CandleHandler>>,
     #[cfg(feature = "funding")]
     pub funding_handler: Option<Arc<dyn FundingHandler>>,
+    #[cfg(feature = "funding")]
+    pub(crate) additional_funding_handlers: Vec<Arc<dyn FundingHandler>>,
     #[cfg(feature = "liquidations")]
     pub liquidation_handler: Option<Arc<dyn LiquidationHandler>>,
+    #[cfg(feature = "liquidations")]
+    pub(crate) additional_liquidation_handlers: Vec<Arc<dyn LiquidationHandler>>,
     #[cfg(feature = "markprice")]
     pub mark_price_handler: Option<Arc<dyn MarkPriceHandler>>,
+    #[cfg(feature = "markprice")]
+    pub(crate) additional_mark_price_handlers: Vec<Arc<dyn MarkPriceHandler>>,
     #[cfg(feature = "trade")]
     pub trade_handler: Option<Arc<dyn TradeHandler>>,
+    #[cfg(feature = "trade")]
+    pub(crate) additional_trade_handlers: Vec<Arc<dyn TradeHandler>>,
     #[cfg(feature = "openinterest")]
     pub open_interest_handler: Option<Arc<dyn OpenInterestHandler>>,
+    #[cfg(feature = "openinterest")]
+    pub(crate) additional_open_interest_handlers: Vec<Arc<dyn OpenInterestHandler>>,
     #[cfg(feature = "index")]
     pub index_price_handler: Option<Arc<dyn IndexPriceHandler>>,
+    #[cfg(feature = "index")]
+    pub(crate) additional_index_price_handlers: Vec<Arc<dyn IndexPriceHandler>>,
     #[cfg(feature = "orderbook")]
     pub orderbook_handler: Option<Arc<dyn OrderBookHandler>>,
     #[cfg(feature = "orderbook")]
+    pub(crate) additional_orderbook_handlers: Vec<Arc<dyn OrderBookHandler>>,
+    #[cfg(feature = "orderbook")]
     pub(crate) orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
+    #[cfg(feature = "orderbook")]
+    pub(crate) book_projections: Arc<Mutex<HashMap<String, cryptofeed_orderbook::L2BookSnapshot>>>,
     #[cfg(feature = "orderbook")]
     pub(crate) binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
     #[cfg(feature = "orderbook")]
@@ -107,19 +151,241 @@ pub struct ExchangeFeed {
     pub(crate) status_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedStatus>>,
     /// Per-channel counters injected by `FeedHandler::add_feed`.
     pub(crate) event_counts: Option<std::sync::Arc<crate::feed::EventCounters>>,
+    pub(crate) identity: Option<crate::feed::FeedIdentity>,
+    pub(crate) managed: bool,
+    pub(crate) retry_progress: Option<Arc<crate::runtime::supervisor::RetryProgress>>,
+    pub(crate) monitor: Option<Arc<crate::runtime::readiness::FeedMonitor>>,
+    pub(crate) connection_tracker: Option<crate::runtime::readiness::ConnectionTracker>,
+    pub(crate) connection_epoch: Option<u64>,
+    pub(crate) envelope_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedEnvelope>>,
 }
 
 impl ExchangeFeed {
+    #[cfg(feature = "orderbook")]
+    pub(crate) fn snapshot_mode(&self) -> crate::runtime::snapshot::SnapshotMode {
+        #[cfg(feature = "recording")]
+        {
+            if self.replay_offline {
+                return crate::runtime::snapshot::SnapshotMode::Replay;
+            }
+            crate::runtime::snapshot::SnapshotMode::Live(self.raw_session.is_some())
+        }
+        #[cfg(not(feature = "recording"))]
+        crate::runtime::snapshot::SnapshotMode::Live(false)
+    }
+
+    pub fn identity(&self) -> Option<crate::feed::FeedIdentity> {
+        self.identity
+    }
+
+    pub(crate) fn clear_connection_books(&self, symbols: &[Symbol]) {
+        #[cfg(feature = "orderbook")]
+        for symbol in symbols {
+            let key = symbol.as_str();
+            self.orderbook_states
+                .lock()
+                .expect("book state lock")
+                .remove(key);
+            self.binance_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.bitget_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.bybit_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.gateio_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.okx_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.invalidate_book_readiness(key);
+        }
+    }
+
+    pub(crate) fn invalidate_book_readiness(&self, symbol: &str) {
+        #[cfg(feature = "orderbook")]
+        self.book_projections
+            .lock()
+            .expect("book projection lock")
+            .remove(symbol);
+        if let (Some(monitor), Some(tracker), Some(epoch)) = (
+            &self.monitor,
+            &self.connection_tracker,
+            self.connection_epoch,
+        ) {
+            monitor.invalidate_book(tracker.id, epoch, symbol);
+        }
+    }
+
+    pub(crate) fn book_synchronized(&self, symbol: &str) {
+        if let (Some(monitor), Some(tracker), Some(epoch)) = (
+            &self.monitor,
+            &self.connection_tracker,
+            self.connection_epoch,
+        ) {
+            monitor.book_synced(tracker.id, epoch, symbol);
+        }
+    }
+
+    pub(crate) fn fresh_runtime_state(&mut self) {
+        self.retry_progress = None;
+        #[cfg(feature = "orderbook")]
+        {
+            self.orderbook_states = Default::default();
+            self.book_projections = Default::default();
+            self.binance_book_syncs = Default::default();
+            self.bitget_book_syncs = Default::default();
+            self.bybit_book_syncs = Default::default();
+            self.gateio_book_syncs = Default::default();
+            self.okx_book_syncs = Default::default();
+        }
+    }
+
+    /// Whether this feed requests the exact normalized channel/symbol pair.
+    pub fn subscribes(&self, channel: Channel, symbol: &Symbol) -> bool {
+        self.channels.contains(&channel)
+            && self.symbols.contains(symbol)
+            && (self.channel_subscriptions.is_empty()
+                || self
+                    .channel_subscriptions
+                    .iter()
+                    .any(|(entry, symbols)| *entry == channel && symbols.contains(symbol)))
+    }
+
+    pub(crate) fn validate_subscription_configuration(&self) -> Result<()> {
+        if self.subscription_mode_conflict {
+            return Err(Error::InvalidConfiguration(
+                "use per-channel subscriptions or shared channels/symbols, not both".to_owned(),
+            ));
+        }
+        if self
+            .channel_subscriptions
+            .iter()
+            .any(|(_, symbols)| symbols.is_empty())
+        {
+            return Err(Error::InvalidConfiguration(
+                "each channel subscription must contain at least one symbol".to_owned(),
+            ));
+        }
+        if self
+            .channel_subscriptions
+            .iter()
+            .any(|(_, symbols)| symbols.iter().any(|symbol| !self.symbols.contains(symbol)))
+        {
+            return Err(Error::InvalidConfiguration(
+                "channel subscription is absent from the feed symbol union".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Reconcile a physical route's retained channels/symbols with its exact pairs.
+    /// The public logical configuration is cloned before applying this projection.
+    pub(crate) fn prune_connection_scope(&mut self) {
+        if self.channel_subscriptions.is_empty() {
+            return;
+        }
+        self.channel_subscriptions
+            .retain(|(channel, _)| self.channels.contains(channel));
+        for (_, symbols) in &mut self.channel_subscriptions {
+            symbols.retain(|symbol| self.symbols.contains(symbol));
+        }
+        self.channel_subscriptions
+            .retain(|(_, symbols)| !symbols.is_empty());
+        self.channels.retain(|channel| {
+            self.channel_subscriptions
+                .iter()
+                .any(|(entry, _)| entry == channel)
+        });
+        let keep: Vec<_> = self
+            .symbols
+            .iter()
+            .map(|symbol| {
+                self.channel_subscriptions
+                    .iter()
+                    .any(|(_, symbols)| symbols.contains(symbol))
+            })
+            .collect();
+        self.symbols = std::mem::take(&mut self.symbols)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, symbol)| keep[index].then_some(symbol))
+            .collect();
+        if !self.exchange_symbols.is_empty() {
+            self.exchange_symbols = std::mem::take(&mut self.exchange_symbols)
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, native)| {
+                    keep.get(index).copied().unwrap_or(false).then_some(native)
+                })
+                .collect();
+        }
+    }
+
+    /// Compiles per-channel subscriptions into concrete feeds for adapter
+    /// planning. Exact channel/symbol pairs share native connections where their
+    /// routes allow, then split by native subscription budgets while retaining
+    /// normalized/native symbol alignment. Oversized multi-route feeds project
+    /// native routes before capacity slicing; each logical feed must use one product kind.
+    /// Explicit native names map to the first-seen union in `self.symbols`.
+    pub fn connection_feeds(&self) -> Result<Vec<Self>> {
+        self.connection_feeds_cancelable(None)
+    }
+    pub(crate) fn connection_feeds_cancelable(
+        &self,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<Vec<Self>> {
+        self.validate_subscription_configuration()?;
+        self.product_kind()?;
+        if !self.exchange_symbols.is_empty() {
+            self.ensure_symbol_mapping_is_complete()?;
+        }
+        crate::runtime::planning::shard_cancelable(self, cancelled)
+    }
+
     /// Publishes a normalized event to the `FeedHandler` event stream (when
     /// subscribed) and bumps the per-channel counter. Drop failures are
     /// expected: the broadcast channel is bounded and lagging subscribers
     /// lose the oldest events by design.
     pub(crate) fn publish_event(&self, event: crate::feed::FeedEvent) {
+        let channel = event.channel();
+        #[cfg(any(
+            feature = "ticker",
+            feature = "trade",
+            feature = "orderbook",
+            feature = "candles",
+            feature = "funding",
+            feature = "liquidations",
+            feature = "markprice",
+            feature = "openinterest",
+            feature = "index"
+        ))]
+        if let Some(monitor) = &self.monitor {
+            monitor.observe(
+                channel,
+                event.symbol(),
+                self.connection_tracker
+                    .as_ref()
+                    .zip(self.connection_epoch)
+                    .map(|(tracker, epoch)| (tracker.id, epoch)),
+            );
+        }
         if let Some(sender) = &self.event_sender {
             let _ = sender.send(event.clone());
         }
+        if let (Some(sender), Some(identity)) = (&self.envelope_sender, self.identity) {
+            let _ = sender.send(crate::feed::FeedEnvelope { identity, event });
+        }
         if let Some(counts) = &self.event_counts {
-            counts.bump(event.channel());
+            counts.bump(channel);
         }
     }
 
@@ -216,43 +482,66 @@ impl ExchangeFeedBuilder {
     pub(crate) fn has_handler_for(&self, channel: Channel) -> bool {
         match channel {
             #[cfg(feature = "ticker")]
-            Channel::Ticker => self.ticker_handler.is_some(),
+            Channel::Ticker => {
+                self.ticker_handler.is_some() || !self.additional_ticker_handlers.is_empty()
+            }
             #[cfg(not(feature = "ticker"))]
             Channel::Ticker => false,
             #[cfg(feature = "candles")]
-            Channel::Candles => self.candle_handler.is_some(),
+            Channel::Candles => {
+                self.candle_handler.is_some() || !self.additional_candle_handlers.is_empty()
+            }
             #[cfg(not(feature = "candles"))]
             Channel::Candles => false,
             #[cfg(feature = "funding")]
-            Channel::Funding => self.funding_handler.is_some(),
+            Channel::Funding => {
+                self.funding_handler.is_some() || !self.additional_funding_handlers.is_empty()
+            }
             #[cfg(not(feature = "funding"))]
             Channel::Funding => false,
             #[cfg(feature = "liquidations")]
-            Channel::Liquidations => self.liquidation_handler.is_some(),
+            Channel::Liquidations => {
+                self.liquidation_handler.is_some()
+                    || !self.additional_liquidation_handlers.is_empty()
+            }
             #[cfg(not(feature = "liquidations"))]
             Channel::Liquidations => false,
             #[cfg(feature = "markprice")]
-            Channel::MarkPrice => self.mark_price_handler.is_some(),
+            Channel::MarkPrice => {
+                self.mark_price_handler.is_some() || !self.additional_mark_price_handlers.is_empty()
+            }
             #[cfg(not(feature = "markprice"))]
             Channel::MarkPrice => false,
             #[cfg(feature = "trade")]
-            Channel::Trade => self.trade_handler.is_some(),
+            Channel::Trade => {
+                self.trade_handler.is_some() || !self.additional_trade_handlers.is_empty()
+            }
             #[cfg(not(feature = "trade"))]
             Channel::Trade => false,
             #[cfg(feature = "orderbook")]
-            Channel::L2Book => self.orderbook_handler.is_some(),
+            Channel::L2Book => {
+                self.orderbook_handler.is_some() || !self.additional_orderbook_handlers.is_empty()
+            }
             #[cfg(not(feature = "orderbook"))]
             Channel::L2Book => false,
             #[cfg(feature = "orderbook")]
-            Channel::L1Book => self.orderbook_handler.is_some(),
+            Channel::L1Book => {
+                self.orderbook_handler.is_some() || !self.additional_orderbook_handlers.is_empty()
+            }
             #[cfg(not(feature = "orderbook"))]
             Channel::L1Book => false,
             #[cfg(feature = "openinterest")]
-            Channel::OpenInterest => self.open_interest_handler.is_some(),
+            Channel::OpenInterest => {
+                self.open_interest_handler.is_some()
+                    || !self.additional_open_interest_handlers.is_empty()
+            }
             #[cfg(not(feature = "openinterest"))]
             Channel::OpenInterest => false,
             #[cfg(feature = "index")]
-            Channel::Index => self.index_price_handler.is_some(),
+            Channel::Index => {
+                self.index_price_handler.is_some()
+                    || !self.additional_index_price_handlers.is_empty()
+            }
             #[cfg(not(feature = "index"))]
             Channel::Index => false,
             // A future channel without a handler must not silently suppress
@@ -279,33 +568,64 @@ fn channel_name_for_warning(channel: Channel) -> &'static str {
 }
 
 pub struct ExchangeFeedBuilder {
+    transport: crate::transport::TransportConfig,
+    #[cfg(feature = "recording")]
+    raw_capture: Option<crate::recording::raw::RawCaptureHandle>,
+    runtime_options: crate::options::RuntimeOptions,
     exchange: ExchangeId,
     channels: Vec<Channel>,
     symbols: Vec<Symbol>,
     exchange_symbols: Vec<String>,
+    channel_subscriptions: Vec<(Channel, Vec<Symbol>)>,
     candle_interval: String,
+    #[cfg(feature = "candles")]
+    candle_policy: CandlePolicy,
     l2_book_depth: Option<u16>,
+    #[cfg(feature = "orderbook")]
+    l2_book_cross_check: bool,
+    #[cfg(feature = "orderbook")]
+    l2_book_max_depth: Option<std::num::NonZeroUsize>,
     l2_book_interval: Option<String>,
     #[cfg(feature = "ticker")]
     ticker_handler: Option<Arc<dyn TickerHandler>>,
+    #[cfg(feature = "ticker")]
+    additional_ticker_handlers: Vec<Arc<dyn TickerHandler>>,
     #[cfg(feature = "candles")]
     candle_handler: Option<Arc<dyn CandleHandler>>,
+    #[cfg(feature = "candles")]
+    additional_candle_handlers: Vec<Arc<dyn CandleHandler>>,
     #[cfg(feature = "funding")]
     funding_handler: Option<Arc<dyn FundingHandler>>,
+    #[cfg(feature = "funding")]
+    additional_funding_handlers: Vec<Arc<dyn FundingHandler>>,
     #[cfg(feature = "liquidations")]
     liquidation_handler: Option<Arc<dyn LiquidationHandler>>,
+    #[cfg(feature = "liquidations")]
+    additional_liquidation_handlers: Vec<Arc<dyn LiquidationHandler>>,
     #[cfg(feature = "markprice")]
     mark_price_handler: Option<Arc<dyn MarkPriceHandler>>,
+    #[cfg(feature = "markprice")]
+    additional_mark_price_handlers: Vec<Arc<dyn MarkPriceHandler>>,
     #[cfg(feature = "trade")]
     trade_handler: Option<Arc<dyn TradeHandler>>,
+    #[cfg(feature = "trade")]
+    additional_trade_handlers: Vec<Arc<dyn TradeHandler>>,
     #[cfg(feature = "openinterest")]
     open_interest_handler: Option<Arc<dyn OpenInterestHandler>>,
+    #[cfg(feature = "openinterest")]
+    additional_open_interest_handlers: Vec<Arc<dyn OpenInterestHandler>>,
     #[cfg(feature = "index")]
     index_price_handler: Option<Arc<dyn IndexPriceHandler>>,
+    #[cfg(feature = "index")]
+    additional_index_price_handlers: Vec<Arc<dyn IndexPriceHandler>>,
     #[cfg(feature = "orderbook")]
     orderbook_handler: Option<Arc<dyn OrderBookHandler>>,
     #[cfg(feature = "orderbook")]
+    additional_orderbook_handlers: Vec<Arc<dyn OrderBookHandler>>,
+    #[cfg(feature = "orderbook")]
     orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
+    #[cfg(feature = "orderbook")]
+    book_projections: Arc<Mutex<HashMap<String, cryptofeed_orderbook::L2BookSnapshot>>>,
     #[cfg(feature = "orderbook")]
     binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
     #[cfg(feature = "orderbook")]
@@ -321,33 +641,64 @@ pub struct ExchangeFeedBuilder {
 impl ExchangeFeedBuilder {
     pub fn new(exchange: ExchangeId) -> Self {
         Self {
+            transport: Default::default(),
+            #[cfg(feature = "recording")]
+            raw_capture: None,
+            runtime_options: Default::default(),
             exchange,
             channels: Vec::new(),
             symbols: Vec::new(),
             exchange_symbols: Vec::new(),
+            channel_subscriptions: Vec::new(),
             candle_interval: "1m".to_owned(),
+            #[cfg(feature = "candles")]
+            candle_policy: CandlePolicy::All,
             l2_book_depth: None,
+            #[cfg(feature = "orderbook")]
+            l2_book_cross_check: false,
+            #[cfg(feature = "orderbook")]
+            l2_book_max_depth: None,
             l2_book_interval: None,
             #[cfg(feature = "ticker")]
             ticker_handler: None,
+            #[cfg(feature = "ticker")]
+            additional_ticker_handlers: Vec::new(),
             #[cfg(feature = "candles")]
             candle_handler: None,
+            #[cfg(feature = "candles")]
+            additional_candle_handlers: Vec::new(),
             #[cfg(feature = "funding")]
             funding_handler: None,
+            #[cfg(feature = "funding")]
+            additional_funding_handlers: Vec::new(),
             #[cfg(feature = "liquidations")]
             liquidation_handler: None,
+            #[cfg(feature = "liquidations")]
+            additional_liquidation_handlers: Vec::new(),
             #[cfg(feature = "markprice")]
             mark_price_handler: None,
+            #[cfg(feature = "markprice")]
+            additional_mark_price_handlers: Vec::new(),
             #[cfg(feature = "trade")]
             trade_handler: None,
+            #[cfg(feature = "trade")]
+            additional_trade_handlers: Vec::new(),
             #[cfg(feature = "openinterest")]
             open_interest_handler: None,
+            #[cfg(feature = "openinterest")]
+            additional_open_interest_handlers: Vec::new(),
             #[cfg(feature = "index")]
             index_price_handler: None,
+            #[cfg(feature = "index")]
+            additional_index_price_handlers: Vec::new(),
             #[cfg(feature = "orderbook")]
             orderbook_handler: None,
             #[cfg(feature = "orderbook")]
+            additional_orderbook_handlers: Vec::new(),
+            #[cfg(feature = "orderbook")]
             orderbook_states: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            book_projections: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             binance_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
@@ -404,10 +755,54 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Filters candle delivery to handlers, streams, counters and observations.
+    /// This does not alter subscriptions or infer completion for unknown flags.
+    #[cfg(feature = "candles")]
+    pub fn candle_policy(mut self, policy: CandlePolicy) -> Self {
+        self.candle_policy = policy;
+        self
+    }
+
+    /// Observes sanitized public WS text before heartbeat/control/parser handling.
+    #[cfg(feature = "recording")]
+    pub fn raw_capture(mut self, capture: crate::recording::raw::RawCaptureHandle) -> Self {
+        self.raw_capture = Some(capture);
+        self
+    }
+
+    /// Shares explicit HTTP and WebSocket routing, including catalog/bootstrap.
+    pub fn transport(mut self, transport: crate::transport::TransportConfig) -> Self {
+        self.transport = transport;
+        self
+    }
+
+    /// Sets per-connection retry/establishment and per-callback deadlines.
+    /// Protocol heartbeat, shared admission and shutdown budgets remain intact.
+    pub fn runtime_options(mut self, options: crate::options::RuntimeOptions) -> Self {
+        self.runtime_options = options;
+        self
+    }
+
     /// Requests a specific L2 depth level. `None` (the default) keeps the
     /// exchange default (Bybit 50, OKX/Bitget full book, Binance full depth).
     pub fn l2_book_depth(mut self, level: u16) -> Self {
         self.l2_book_depth = Some(level);
+        self
+    }
+
+    /// Opt into rejecting reconstructed L2 books whose best bid >= best ask.
+    /// Native sync/checksum checks remain active; this check defaults to false.
+    #[cfg(feature = "orderbook")]
+    pub fn l2_book_cross_check(mut self, enabled: bool) -> Self {
+        self.l2_book_cross_check = enabled;
+        self
+    }
+
+    /// Limit delivered L2 state to this many best levels per side. Zero disables
+    /// trimming. Native subscription depth and full sync/checksum state are unchanged.
+    #[cfg(feature = "orderbook")]
+    pub fn l2_book_max_depth(mut self, maximum: usize) -> Self {
+        self.l2_book_max_depth = std::num::NonZeroUsize::new(maximum);
         self
     }
 
@@ -435,9 +830,25 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "candles")]
+    pub fn add_candle_handler(mut self, handler: Arc<dyn CandleHandler>) -> Self {
+        self.additional_candle_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "candles")]
     pub fn candle_handler(mut self, handler: Arc<dyn CandleHandler>) -> Self {
         self.candle_handler = Some(handler);
+        self
+    }
+
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "funding")]
+    pub fn add_funding_handler(mut self, handler: Arc<dyn FundingHandler>) -> Self {
+        self.additional_funding_handlers.push(handler);
         self
     }
 
@@ -447,9 +858,25 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "liquidations")]
+    pub fn add_liquidation_handler(mut self, handler: Arc<dyn LiquidationHandler>) -> Self {
+        self.additional_liquidation_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "liquidations")]
     pub fn liquidation_handler(mut self, handler: Arc<dyn LiquidationHandler>) -> Self {
         self.liquidation_handler = Some(handler);
+        self
+    }
+
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "markprice")]
+    pub fn add_mark_price_handler(mut self, handler: Arc<dyn MarkPriceHandler>) -> Self {
+        self.additional_mark_price_handlers.push(handler);
         self
     }
 
@@ -459,9 +886,25 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "ticker")]
+    pub fn add_ticker_handler(mut self, handler: Arc<dyn TickerHandler>) -> Self {
+        self.additional_ticker_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "ticker")]
     pub fn ticker_handler(mut self, handler: Arc<dyn TickerHandler>) -> Self {
         self.ticker_handler = Some(handler);
+        self
+    }
+
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "trade")]
+    pub fn add_trade_handler(mut self, handler: Arc<dyn TradeHandler>) -> Self {
+        self.additional_trade_handlers.push(handler);
         self
     }
 
@@ -471,9 +914,25 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "orderbook")]
+    pub fn add_orderbook_handler(mut self, handler: Arc<dyn OrderBookHandler>) -> Self {
+        self.additional_orderbook_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "orderbook")]
     pub fn orderbook_handler(mut self, handler: Arc<dyn OrderBookHandler>) -> Self {
         self.orderbook_handler = Some(handler);
+        self
+    }
+
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "openinterest")]
+    pub fn add_open_interest_handler(mut self, handler: Arc<dyn OpenInterestHandler>) -> Self {
+        self.additional_open_interest_handlers.push(handler);
         self
     }
 
@@ -483,14 +942,76 @@ impl ExchangeFeedBuilder {
         self
     }
 
+    /// Appends a handler after the optional primary handler, in registration order.
+    /// Each callback has its own timeout; panic/timeout does not skip later handlers.
+    #[cfg(feature = "index")]
+    pub fn add_index_price_handler(mut self, handler: Arc<dyn IndexPriceHandler>) -> Self {
+        self.additional_index_price_handlers.push(handler);
+        self
+    }
+
     #[cfg(feature = "index")]
     pub fn index_price_handler(mut self, handler: Arc<dyn IndexPriceHandler>) -> Self {
         self.index_price_handler = Some(handler);
         self
     }
 
+    /// Adds normalized symbols for one channel. Repeated entries merge.
+    /// Cannot be mixed with the channel shortcuts or shared symbol methods.
+    pub fn subscription<I, S>(self, channel: Channel, symbols: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.subscription_instruments(
+            channel,
+            symbols
+                .into_iter()
+                .map(|symbol| Symbol::from_input(symbol.as_ref())),
+        )
+    }
+
+    /// Adds typed instruments for one channel, preserving product identity.
+    pub fn subscription_instruments(
+        mut self,
+        channel: Channel,
+        symbols: impl IntoIterator<Item = Symbol>,
+    ) -> Self {
+        if let Some((_, existing)) = self
+            .channel_subscriptions
+            .iter_mut()
+            .find(|(entry, _)| *entry == channel)
+        {
+            existing.extend(symbols);
+        } else {
+            self.channel_subscriptions
+                .push((channel, symbols.into_iter().collect()));
+        }
+        self
+    }
+
     pub fn symbol(mut self, symbol: &str) -> Self {
         self.symbols.push(Symbol::from_input(symbol));
+        self
+    }
+
+    /// Appends normalized symbol names, just like repeated `symbol` calls.
+    pub fn symbols<I, S>(mut self, symbols: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.symbols.extend(
+            symbols
+                .into_iter()
+                .map(|symbol| Symbol::from_input(symbol.as_ref())),
+        );
+        self
+    }
+
+    /// Appends typed instruments, preserving product identity from a catalog.
+    pub fn instruments(mut self, symbols: impl IntoIterator<Item = Symbol>) -> Self {
+        self.symbols.extend(symbols);
         self
     }
 
@@ -505,7 +1026,24 @@ impl ExchangeFeedBuilder {
         self
     }
 
-    pub fn build(self) -> ExchangeFeed {
+    pub fn build(mut self) -> ExchangeFeed {
+        let subscription_mode_conflict = !self.channel_subscriptions.is_empty()
+            && (!self.channels.is_empty() || !self.symbols.is_empty());
+        if !self.channel_subscriptions.is_empty() {
+            let mut all_symbols: HashSet<Symbol> = self.symbols.iter().cloned().collect();
+            for (channel, symbols) in &mut self.channel_subscriptions {
+                let mut seen = HashSet::new();
+                symbols.retain(|symbol| seen.insert(symbol.clone()));
+                if !self.channels.contains(channel) {
+                    self.channels.push(*channel);
+                }
+                for symbol in symbols {
+                    if all_symbols.insert(symbol.clone()) {
+                        self.symbols.push(symbol.clone());
+                    }
+                }
+            }
+        }
         let channels = &self.channels;
         let handler_names: Vec<&'static str> = channels
             .iter()
@@ -519,33 +1057,69 @@ impl ExchangeFeedBuilder {
             );
         }
         ExchangeFeed {
+            transport: self.transport,
+            #[cfg(feature = "recording")]
+            raw_capture: self.raw_capture,
+            #[cfg(feature = "recording")]
+            raw_session: None,
+            #[cfg(feature = "recording")]
+            replay_offline: false,
+            runtime_options: self.runtime_options,
             exchange: self.exchange,
             channels: self.channels,
             symbols: self.symbols,
             exchange_symbols: self.exchange_symbols,
+            channel_subscriptions: self.channel_subscriptions,
+            subscription_mode_conflict,
             candle_interval: self.candle_interval,
+            #[cfg(feature = "candles")]
+            candle_policy: self.candle_policy,
             l2_book_depth: self.l2_book_depth,
+            #[cfg(feature = "orderbook")]
+            l2_book_cross_check: self.l2_book_cross_check,
+            #[cfg(feature = "orderbook")]
+            l2_book_max_depth: self.l2_book_max_depth,
             l2_book_interval: self.l2_book_interval,
             #[cfg(feature = "ticker")]
             ticker_handler: self.ticker_handler,
+            #[cfg(feature = "ticker")]
+            additional_ticker_handlers: self.additional_ticker_handlers,
             #[cfg(feature = "candles")]
             candle_handler: self.candle_handler,
+            #[cfg(feature = "candles")]
+            additional_candle_handlers: self.additional_candle_handlers,
             #[cfg(feature = "funding")]
             funding_handler: self.funding_handler,
+            #[cfg(feature = "funding")]
+            additional_funding_handlers: self.additional_funding_handlers,
             #[cfg(feature = "liquidations")]
             liquidation_handler: self.liquidation_handler,
+            #[cfg(feature = "liquidations")]
+            additional_liquidation_handlers: self.additional_liquidation_handlers,
             #[cfg(feature = "markprice")]
             mark_price_handler: self.mark_price_handler,
+            #[cfg(feature = "markprice")]
+            additional_mark_price_handlers: self.additional_mark_price_handlers,
             #[cfg(feature = "trade")]
             trade_handler: self.trade_handler,
+            #[cfg(feature = "trade")]
+            additional_trade_handlers: self.additional_trade_handlers,
             #[cfg(feature = "orderbook")]
             orderbook_handler: self.orderbook_handler,
+            #[cfg(feature = "orderbook")]
+            additional_orderbook_handlers: self.additional_orderbook_handlers,
             #[cfg(feature = "openinterest")]
             open_interest_handler: self.open_interest_handler,
+            #[cfg(feature = "openinterest")]
+            additional_open_interest_handlers: self.additional_open_interest_handlers,
             #[cfg(feature = "index")]
             index_price_handler: self.index_price_handler,
+            #[cfg(feature = "index")]
+            additional_index_price_handlers: self.additional_index_price_handlers,
             #[cfg(feature = "orderbook")]
             orderbook_states: self.orderbook_states,
+            #[cfg(feature = "orderbook")]
+            book_projections: self.book_projections,
             #[cfg(feature = "orderbook")]
             binance_book_syncs: self.binance_book_syncs,
             #[cfg(feature = "orderbook")]
@@ -559,6 +1133,13 @@ impl ExchangeFeedBuilder {
             event_sender: None,
             status_sender: None,
             event_counts: None,
+            identity: None,
+            managed: false,
+            retry_progress: None,
+            monitor: None,
+            connection_tracker: None,
+            connection_epoch: None,
+            envelope_sender: None,
         }
     }
 }

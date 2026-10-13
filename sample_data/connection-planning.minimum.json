@@ -1,0 +1,26 @@
+{
+  "kind": "synthetic-sdk-minimum-proof",
+  "exchange": "Bitget",
+  "instruments": 48,
+  "weights": [
+    {
+      "cost": 3,
+      "count": 2
+    },
+    {
+      "cost": 2,
+      "count": 46
+    }
+  ],
+  "native_arg_capacity": 49,
+  "total_args": 98,
+  "contiguous_connections": 3,
+  "first_fit_decreasing_connections": 3,
+  "minimum_connections": 2,
+  "lower_bound": 2,
+  "output_args": [
+    49,
+    49
+  ],
+  "maximum_evaluations": 1000
+}

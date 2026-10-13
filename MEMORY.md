@@ -99,7 +99,7 @@ Project-specific memory for `rust/cryptofeed-rs`.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-features --all-targets -- -D warnings`
   - `cargo test --workspace`
-- Manual live-smoke outcomes belong in dated `docs/live-smoke-*.md` reports and
+- Manual live-smoke outcomes belong in dated `docs/reports/live-smoke-*.md` reports and
   remain outside CI.
 - Model contract tests (including serde roundtrip checks) should live in the category crates first, with runtime tests focused on exchange parsing/routing behavior.
 - Full-session doubles drive the generic `consume_*_session_with` helpers over
@@ -235,3 +235,775 @@ Project-specific memory for `rust/cryptofeed-rs`.
   exhaust the shared IP budget, so do not add a polling fallback or guessed
   WS topic. Options OI WS is separate. Reopening requires an explicit
   user-approved plan; see `docs/binance-open-interest-decision.md`.
+
+## Python usage alignment
+
+- The sibling Python checkout does not provide general automatic glob expansion
+  in its feed constructor. Its catalog refresh and runtime `add_feed` are
+  distinct from in-place subscription updates and auto-following listings.
+- `runtime::run_with_shutdown` already existed; the FeedHandler facade now
+  exposes it. Do not claim service-controlled shutdown was previously absent.
+- Public `MarketCatalog` uses current catalog fetchers/cache. Selection is an
+  explicit, product-qualified snapshot; unmatched initial patterns fail. Native
+  capacity sharding and opt-in listing reconciliation are implemented; see
+  `docs/connection-planning.md` and `docs/discovery.md`.
+
+## API currency review — 2026-10-09
+
+- OKX announced port 8443 retirement for 2026-10-31; public/business WS use
+  default TLS port 443. Global REST now uses recommended openapi.okx.com;
+  www.okx.com remains a supported alias, not a deprecated protocol.
+- Current OKX SPOT discovery can include preopen rows with empty currencies.
+  Filter non-live rows; malformed remaining identity must return an error,
+  never reach Symbol constructors with empty components or guess currencies.
+- Binance API version numbers differ by product; fapi/dapi v1 are not old
+  solely because Spot REST uses v3. Official product documentation wins over
+  numeric-version comparisons or Python implementation assumptions.
+
+## Catalog refresh semantics
+
+- `MarketCatalog::load` retains the 24-hour cache default; `refresh` bypasses
+  cached pages and returns a new snapshot. Neither changes running feeds.
+- Requests coalesce by exact URL and transport scope while overlapping, including
+  failed results; later calls retry after failure/cancellation. Distinct routes
+  and URLs are independent.
+- Preserve prior cache entries after HTTP/JSON/envelope failure. Cache commits
+  are per response, not transactional across pages or parsed registry validation.
+- Catalog/snapshot clients are reused by transport scope. Snapshot concurrency,
+  start pacing and native subscription sizing are implemented; they are SDK
+  resource policies, not a distributed/shared-IP rate guarantee.
+
+## Per-channel subscriptions
+
+- `.subscription` / `.subscription_instruments` are exclusive with legacy
+  shared channel/symbol configuration; handler and interval/depth settings can
+  be reused. Repeated channels merge; symbols deduplicate in first-seen order.
+- Hydrate the logical union before partitioning so native mapping ambiguity
+  cannot escape across channel groups. Explicit native lists follow that union.
+- Exact unequal channel/symbol sets share native connections, with capacity
+  shards and required endpoint/product separation. Low-level callers still
+  compile `connection_feeds` before endpoint planning; FeedHandler does so.
+- Managed state exposes logical identity and physical connection evidence.
+  Contiguous packing does not prove globally minimal connection allocation.
+
+## Connection and snapshot budgets
+
+- Connection feed compilation now also shards concrete sets using adapter-
+  generated native topics/messages. Deduplicated shared price topics count once.
+- Bybit spot's ten-arg constraint is per request, not per connection. Its
+  connection character budget is separate; do not replace one with the other.
+- Session-owned subscription queues retain reads and heartbeat during pacing.
+  Gate time is generated at actual send, not once for an entire long queue.
+- Handshake and snapshot budgets are process-local SDK policies, not a promise
+  to account for other clients' IP usage. Keep official limits distinct from
+  SDK ceilings and recommendations in `docs/connection-planning.md`.
+- Snapshot limits do not relax sequence bridges. Cancellation must release
+  queued/active slots; HTTP timeout begins after snapshot admission.
+- With paced Gate subscription queues, initial REST bootstrap must wait until
+  that symbol's first depth delta is buffered. Do not prefetch all Gate books
+  at connection start; full pushes need no REST bootstrap.
+
+## Managed runtime control
+
+- Enabling control_handle opts into independent initial startup and a retained
+  controller. Existing add_feed returns (), add_feed_with_id retains initial
+  identity, and raw event/callback APIs remain compatible.
+- Configuration generations distinguish replacement attempts (including failed
+  or cancelled attempts); reconnect retains the same configuration generation.
+  Use FeedEnvelope identity to reject stale queued events; models are unchanged.
+- Validate/hydrate/admit before stopping old tasks. Once committed, replacement
+  completes even if its reply receiver disappears. Preparing cancellation must
+  leave the old generation running. Remove acknowledges async child termination.
+- Fresh SDK book/ticker state must not mutate an older clone. Caller-owned
+  handler state is not reset. Per-handler admission reserves max(old,new) for
+  same-exchange replacement and both exchanges during a provider change.
+- Started means task launch, not remote-ready. Registry entries are not health
+  snapshots. Runtime/shutdown aggregate historical terminal failures; command
+  validation errors alone do not poison a healthy runtime's final result.
+- Readiness and opt-in periodic catalog reconciliation are implemented; see
+  docs/runtime-control.md, docs/readiness.md and docs/discovery.md. Optional
+  ecosystem/resource-policy alignment remains active.
+
+## Readiness evidence
+
+- FeedInfo remains Copy registry metadata. FeedSnapshot from control.state is
+  authoritative even after lifecycle lag. Started is launch; Subscribed requires
+  all native confirmations; Ready also requires requested SDK L2 initialization.
+- Managed Binance uses explicit SUBSCRIBE/id/result-null, while legacy URL-based
+  sessions remain available. Bybit/Gate correlate request IDs; Bitget/OKX match
+  requested argument identity. Do not count arbitrary data or handshake as ack.
+- Connection IDs are scoped to configuration generation; retries increment epochs
+  and withdraw confirmations/books. Stale acknowledgements, snapshots and drops
+  cannot update current epochs. Reconnect clears only owned book caches.
+- Publish readiness transitions under the state lock to preserve stop ordering;
+  logging stays outside that lock. Metrics query is not a durable notification log.
+- Snapshot times are local diagnostic receipt/publication times, not replacements
+  for model exchange_ts/received_ts. Counts are per configuration generation.
+- Initial invalid configured IDs stay available for repair/query in managed mode;
+  rejected dynamic adds are not committed. Listing reconciliation, multiple
+  handlers and L2 recovery are implemented; ecosystem/resource work remains.
+
+
+## Automatic directory reconciliation
+
+- DiscoveryFeed is opt-in and owns one managed feed identity. Use a symbol-free
+  channel template and product-qualified per-channel patterns; default five
+  minutes, SDK minimum one minute. Force refresh each sequential cycle.
+- Initial patterns are strict; later disappeared patterns/channels may be omitted.
+  Total empty selection and fetch/validation failures preserve the last nonempty
+  feed and back off. Native mappings must come from the exact catalog snapshot.
+- Replace only through compare-and-replace inside the feed worker. Manual
+  replacement/removal terminates discovery ownership; state-query-then-replace
+  alone races. Unchanged healthy selections avoid restarts.
+- Stop/drop cancels future polling; accepted replacements settle. Explicit stop
+  returns the final owned identity and leaves the feed registered. Current means
+  directory success; query runtime readiness independently. No OI polling fallback.
+- Catalog eligibility is public-data policy, not order permission. Preserve
+  Bitget limit_open/limit_close and Gate buyable/sellable; exclude explicit
+  unavailable statuses. Typed directory metadata and core consumer policies
+  are implemented; optional ecosystem/resource-policy work remains pending.
+
+
+## Candle completion policy
+
+- CandlePolicy filters at the common runtime dispatcher before handlers, both
+  broadcasts, counters and normalized observations. Default All stays compatible;
+  ClosedOnly requires Some(true); ClosedOrUnknown keeps None unchanged.
+- Never infer completion from receive time, candle end, next bars or reconnect.
+  Bitget currently has no finality flag, so strict mode emits no candles there.
+- Python's inspected default is closed-only, but Rust preserves its existing
+  behavior with explicit opt-in. Multiple handlers and recoverable L2 are
+  implemented with separate documented delivery contracts.
+
+
+## Multiple callback registrations
+
+- Preserve primary *_handler setter replacement; add_*_handler appends after
+  the primary in registration order. Add-only works; duplicates intentionally run.
+- Every callback gets an independent model clone. Update books and publish/count
+  once before fan-out, after channel/symbol/candle filters.
+- Each callback owns a five-second timeout; drop on timeout and continue. Catch
+  unwind around construction/polling and continue after panic; abort panics and
+  non-yielding/blocking code are not cancellable guarantees. Traits return (),
+  so application errors remain caller-owned. Trace callback failures separately.
+- Serial callbacks block session reads; cross-session shared Arcs can run
+  concurrently. Bounded shutdown may cancel before remaining callbacks; no
+  transactional/exactly-once delivery or detached-task cleanup is implied.
+
+
+## L2 recovery continuity
+
+- FeedHandler.l2_book_handle opts into managed startup and a shared optional
+  cache. recover(identity,symbol) must acquire full snapshot and new receiver
+  atomically under the same lock as all publication/invalidation.
+- Anchors are local identity/physical connection/epoch/revision, never native
+  sequence guarantees. Require contiguous same-owner deltas after a snapshot;
+  on Lagged replace queue/state, never splice old buffered deltas into recovery.
+- Cache normalized dispatch order separately from internal bootstrap caches,
+  which may already include buffered future events. Assemble full arrays only on
+  recovery, preserving latest applied timestamps/units/precision.
+- Resync withdraws one book; disconnect/drop withdraws only that owner and blocks
+  its late publications. New epochs require new snapshots. Stop/failure/removal
+  retires cache; cancelling a candidate must not touch older active identities.
+- One bounded 1024-update ring includes unrelated symbols, which can cause lag.
+  Retained handles keep its sender alive after shutdown; use lifecycle/shutdown
+  signals, not stream closure alone. No cache is allocated by default.
+
+
+## Runtime budgets and retry reset
+
+- RuntimeOptions defaults: None transient retry limit, 20-second handshake and
+  five-second per-callback deadlines. Positive duration setters validate before
+  building; options propagate with feed planning/replacement configuration.
+- Runtime retry budgets are per physical connection. Successful completion of
+  initial subscribe writes resets retries and backoff; partial queues/data before
+  their completion do not. Legacy implicit Binance URL initialization is marked
+  by the first non-control text. This is initialization, not remote readiness.
+- Permanent errors still fail immediately; Some(0) is one attempt. Finite limits
+  do not cap lifetime reconnect count when sessions successfully reinitialize.
+- Handshake budget excludes admission/catalog/bootstrap/ack/idle time. Shared
+  pacing, heartbeat/idle/ack policies and bounded shutdown remain intact. Callback
+  budgets do not enlarge shutdown grace or preempt non-yielding caller code.
+- Explicit HTTP/WS proxy, idle policy and start delay are implemented separately;
+  Python idle timeout must not be mistaken for a handshake deadline.
+
+
+## Startup and idle policy
+
+- Startup delay defaults zero, runs once per physical supervisor after hydration
+  and before shared admission, and does not repeat on retries. Replacement starts
+  new supervisors and delays again. Shutdown/removal cancels the waiting future;
+  false watch notifications must not restart the timer.
+- IdlePolicy ExchangeDefault preserves verified policies; After(positive Duration)
+  overrides transport receipt idle deadline; Disabled removes only that watchdog.
+  Incoming controls/Ping/Pong/data count; outgoing heartbeat does not.
+- Heartbeats/Ping-Pong handling and subscription acknowledgement deadlines remain
+  active when idle is disabled. Short overrides may reconnect healthy quiet feeds;
+  this is caller-owned policy. Startup is separate from connect/idle/ack deadlines.
+- Explicit HTTP/WS proxy, idle and startup policies are implemented; keep idle
+  receipt detection distinct from establishment/acknowledgement deadlines.
+
+
+## Explicit transport routing
+
+- TransportConfig is shared by feed catalog hydration, standalone/periodic
+  catalogs, Binance/Gate bootstrap/resnapshot and every physical WS. Clone one
+  configuration to reuse HTTP pool/cache identity; never lose it in pagination
+  or resync jobs. HTTP snapshots still share one process-wide admission budget.
+- Default HTTP and WS are explicitly direct; no hidden environment/system proxy
+  inference. Existing HTTP-only inference was inconsistent; migration is explicit.
+- HTTP proxy endpoints only, Basic auth via separate method, no userinfo/query/
+  fragment/non-root path. Debug hides credentials/endpoint; headers are sensitive;
+  CONNECT errors omit reason/body content and 407 is configuration failure.
+- CONNECT is bounded, preserves following TLS bytes and original destination
+  TLS/SNI verification. No fallback direct on proxy failure. Connection timeout
+  covers proxy TCP/CONNECT/TLS/WS; cancellation owns and drops the socket future.
+- Proxy configurations have process-local opaque cache IDs, never credential keys.
+  Clones share results; separate/direct/auth configurations never coalesce caches.
+- HTTPS/SOCKS/PAC/custom CA/mTLS are not claimed. Typed market metadata is
+  implemented; optional ecosystem work remains active and feed scope unchanged.
+
+
+## Exact sparse connection packing
+
+- Preserve exact mapped pairs in adapters and capacity shards; never subscribe
+  to the channel/symbol Cartesian product. Shards trim rules and remove empty
+  channels while preserving first-seen normalized/native alignment.
+- Native deduplication and mandatory product/public/business routes stay intact.
+  Packing uses largest contiguous union slices under existing native budgets;
+  it does not prove a global minimum across endpoints.
+- L2 URLs, initial REST jobs, readiness totals/connection book sets and recovery
+  owners must use the L2 subset. Gate resnapshot URL indexes use the filtered
+  instrument order, not the full trade/book union. Trade-only depth cannot
+  create sync/cache/HTTP bootstrap work.
+- Changed send selections are captured alongside exact inline parity assertions.
+  Five-exchange Spot unequal-set smoke reached Ready with one socket, three
+  confirmations and one book each; ETH trades produced no ETH recovery book.
+- Typed market metadata is implemented. Global allocation/resource policies
+  and optional ecosystem work remain unfinished under the active alignment goal.
+
+
+## Typed directory metadata
+
+- MarketCatalog market/markets retains MarketInfo beside native identity, sorted
+  consistently. Exchange/product and feature-filtered WS capabilities describe
+  the catalog/build, not per-symbol permission or REST-history availability.
+- Use explicit increments and separate decimal-place counts. Binance filters are
+  keyed by filterType, never array position or pricePrecision. Bitget future
+  multipliers/minQty are not Spot constraints; Bybit Spot minQty is deprecated.
+- Preserve null/empty/inapplicable as None, zero as zero, and exact JSON/string
+  Decimal/scientific values without float rounding. Fail applicable malformed,
+  inexact, duplicate-filter or conflicting duplicate metadata rather than guess.
+- Keep contract face value, currency, multiplier and settlement independent;
+  do not infer absent currency or convert public trade/book units. Native limit
+  metadata is not a complete order validator or market-order applicability rule.
+- Metadata uses existing directory HTTP/cache/transport scope, adds no per-symbol
+  request, and is snapshot-only. Metadata-only discovery refresh does not restart
+  sessions. Explicit native mappings still bypass catalog hydration as assertions.
+- Ten live Spot/Perpetual catalogs passed after an earlier COIN-M request/TLS
+  failure; retain both observations. Optional ecosystem/resource-policy work
+  remains active; no private/trading or new product capability was enabled.
+
+
+## Public REST snapshots and shared HTTP
+
+- PublicRestClient uses catalog-native identity and transport for ticker/L2
+  snapshots, with data-category feature gates and separate REST capabilities.
+  No subscription, polling, feed-counter or recovery-state mutation occurs.
+- RestSnapshot carries optional native time/ID; models preserve the received-time
+  fallback when native time is absent. Response-generation time is not quote
+  event time. Native IDs are not local recovery revisions or cross-venue order.
+- Gate Spot REST book time is milliseconds; derivative time is seconds. Select
+  by schema/product, never magnitude; preserve the corrected reference/assertion.
+- Directory/REST/bootstrap now share four active HTTP slots/one-second starts.
+  Pacing/cooldown waiters release slots and recheck before starting. HTTP 418/429
+  or unsuccessful responses with Retry-After defer that venue; missing 418/429
+  header uses 60s SDK fallback. Other venues do not inherit cooldown.
+- HTTP errors keep status/optional parsed header, omit bodies and clone through
+  catalog coalescing. No automatic REST query retry; catalog HTTP errors return
+  immediately. Network/JSON/envelope retry remains one, and queued work cancels.
+- Fixed admission is not weight/native-code/distributed/shared-IP quota accounting.
+  Trade/candle history remains pending; funding continuation is implemented.
+  Recording/replay, sinks,
+  aggregation, NBBO and advanced resource policy remain unfinished.
+
+
+## Bounded funding history
+
+- FundingHistoryQuery uses half-open integer-ms UTC ranges, page_size/max_pages
+  1..100, and <=10,000 raw scanned rows/call. Budget includes out-of-range rows;
+  oversized pages fail. Errors/cancellation do not return hidden partial success.
+- Binance pages forward observed max+1ms; Bybit/OKX/Gate backward observed min;
+  Gate seconds convert explicitly. Bitget v3 uses numeric cursor 1..100 and
+  resultList, not legacy pageNo. Its moving offset pages are not atomic history.
+- Version-1 JSON cursor binds exchange, normalized/native identity, original
+  range, page size and position; validate before HTTP. Batch page budget may
+  change on resume, page size may not. Treat cursor as public state, not a secret.
+- Return ascending records within a batch, dedup exact settlements and fail
+  conflicting rates/mark prices or repeated full pages. Backward resumed chunks
+  need merge/sort across batches. No interval/next rate is invented.
+- OKX actual realizedRate is mandatory in the target segment; fundingRate is
+  prediction. Binance non-Regular types are unsupported. All next/predicted
+  model fields stay None; native signed rates stay exact ratios.
+- Stop reason distinguishes range, source exhaustion, budget and native limit;
+  never claim full retention/settlement coverage. Live five-venue first/resume
+  observed 10+10 records each, all budget-limited with further cursors, exit 0.
+- Trade/candle history, recording/replay, sinks/aggregation, NBBO and advanced
+  resource policy remain active; dated funding/private/trading/OI scope unchanged.
+
+## Bounded candle history
+
+- Binance and Bybit are the first candle-history venues; test availability with
+  REST supported_channels(), distinct from WebSocket catalog capabilities.
+- Advance bounded backward windows even for empty pages, cap requests at 200 days
+  and 100 rows/pages. Monthly calculations are calendar-based. Scoped JSON cursors
+  continue older ranges; RangeBoundary is no retention guarantee.
+- REST scheduled candle end is not finality: both venues retain closed=None.
+  Native volume units and Binance count/inclusive end are preserved. Bybit end
+  is next UTC interval/calendar boundary minus 1ms; exchange_ts is open time.
+
+## Remaining candle-history venues
+
+- Bitget/OKX/Gate now join Binance/Bybit. Gate delivery candles use the current
+  documented /delivery/usdt/candlesticks path; earlier rejection came from an
+  incomplete document inspection and has been corrected.
+- Bitget v3 history has 90-day ranges and aligned end bounds. Exactly one earlier
+  overlap is allowed/counts against scan budget, then filtered for next window;
+  never relax all-venue boundary/duplicate rules.
+- Gate from rounds down to a candle open; send first legal open, omit limit with
+  from/to, use seconds. Spot eight-field rows use base volume plus close flag;
+  perpetual v uses contracts, no completion flag. 30d is calendar, not fixed days.
+- OKX unsuffixed monthly/quarterly boundaries use UTC+8 and native confirm.
+
+Gate weekly boundary verification: current Spot `7d` bars open Monday (epoch
+remainder four days), while perpetual `7d` bars are epoch-aligned, as documented
+for futures. Request rounding uses the product-specific anchor. Public September
+2026 probes confirmed both grids and UTC-midnight daily opens. Monthly Spot and
+perpetual `30d` probes each returned the September 1 UTC open. These observations
+are separate from the ten-product 1m smoke; offline tests assert both week grids.
+
+## Public recent trades
+
+- PublicRestClient recent_trades is one bounded trade-feature batch on five current
+  public surfaces. Keep native limits (Bybit Spot 60, Bitget 100, OKX 500) and the
+  SDK Gate derivative cap distinct from documented exchange maxima.
+- Native units, exact Decimal prices/amounts and string IDs are preserved. Binance
+  isBuyerMaker=true means taker Sell. Gate signed contract size determines side;
+  normalize amount to abs. Bitget execId is the execution ID, not execLinkId.
+- Stable exact timestamp sorting precedes f64 model conversion; never coalesce
+  distinct same-time IDs. Gate Spot create_time_ms counts milliseconds; contract create_time_ms is
+  fractional seconds despite its name. create_time is seconds for both.
+- Binance recent /trades uses individual IDs, distinct from WS/Python aggTrade IDs.
+  Future historical aggregate API must name that granularity. No recent-call
+  completeness/cursor guarantee, feed publication or recovery anchor is implied.
+
+## Native trade history
+
+- Explicit granularity is mandatory: Binance aggregate IDs differ from recent
+  individual IDs; OKX/Gate history is Individual. Report history capabilities
+  separately from recent Trade. Bybit/Bitget remain recent-only; Gate delivery range history is one page,
+  SourceLimit if full, with no current native continuation.
+- Seed Binance with <=one-hour times, then fromId only; never combine IDs/times
+  or advance dense same-time pages by milliseconds. OKX type=2 after time seeds,
+  type=1 after ID continues. Gate fixed from/to with page or offset avoids retired
+  last_id. Native/SDK offset ceiling 100,000 has explicit SourceLimit.
+- Count enclosing-second Gate boundary rows against budget, filter exact Decimal
+  times; batches can be empty with continuation. Cursors bind exact mapping,
+  range, kind and page size. No retention/atomic-completeness claim.
+- Gate contract create_time_ms is fractional seconds, unlike Spot milliseconds.
+  Positive/not-future smoke checks were insufficient; recent BTC smoke now also
+  requires age <=300s. Preserve the correction and earlier weak evidence.
+
+## Normalized event recording
+
+- recording is optional/non-default and uses only enabled public normalized model
+  variants. FeedEvent/identity serde derives are gated; no feed/config/status/error
+  serialization. Raw protocol recording/replay remains a separate pending scope.
+- Version 1 JSONL uses external tags; internal/adjacent serde buffering with
+  arbitrary_precision can misdeserialize f64 as maps. Never disable numeric
+  precision to work around this; tests roundtrip all categories and long Decimals.
+- Reserve footer bytes and cap lines/total/events. Lag makes capture fail without
+  footer. Cancelled/failed partial I/O poisons state; replay drop/cancel/error must
+  not permit resuming after a record was read but not delivered.
+- Original model clocks survive; saved elapsed_ns is recorder observation timing.
+  Replay schedules absolute elapsed deadlines to avoid callback-induced drift.
+  Recorded identities are file-local source labels, not live control IDs/epochs.
+- No L2 recovery/lifecycle or atomic callback transaction is claimed. Ending
+  validates sequence/count/EOF, not retained completeness or cryptographic integrity.
+
+## Public raw WS observation
+
+- Builder raw_capture attaches before Session text heartbeat/readiness/control
+  filtering. Capture successful sends, received text and session lifecycle, with
+  immutable public mappings/policy context, no transport/URL/header/handler data.
+- Keep sanitized WS observation separate from normalized JSONL; persisted raw
+  codec/HTTP/bootstrap/session replay remains pending. JSON semantics/precision
+  survive, whitespace may change, so this is not a byte-exact packet recorder.
+- Auth/private topics reject; known credentials and diagnostic strings redact;
+  preserve fixed success/pong controls. Never echo rejected payloads in errors.
+- Queue failure is sticky and source processing remains healthy. The receiver
+  must not retain a Sender through shared state, or producer closure never arrives.
+- WS model and raw observation receipt clocks share the pre-JSON read timestamp.
+  Reconnect/session IDs are process-local and distinct from feed generations.
+
+## Raw WS file codec
+
+- raw-ws version-1 JSONL is distinct from normalized recording and single raw DTO
+  references. Header/observation/footer schema, sequence/context/lifecycle/privacy
+  validate on both sides; no parse/session execution or HTTP fetch during reading.
+- Complete requires all sessions closed. Stopped/LimitReached certify deliberate
+  prefixes; segment starts at observer sequence one, with no rotation/merging yet.
+- Session metadata is frozen and interned after equality validation, with a
+  bounded total session count. Reused IDs/data after close or unredacted input fail.
+- Encoding/line reads share normalized bounded helpers; cancelled/failed I/O
+  poisons state. No snapshot recovery/native protocol completeness is implied.
+
+## Native raw parser replay
+
+- Replay uses a fresh local ExchangeFeed per recorded session, current native
+  plans/parsers and dispatch; never call runtime run/transport/hydration. No live
+  observer/callback/counter/book-store handles attach. Metadata maps are explicit.
+- Bybit ticker and WS-native Bybit/OKX/Bitget book caches reset on close/reconnect.
+  Binance/Gate L2 require captured HTTP and currently fail before callbacks.
+- Do not mistake Bitget first-update overlap for a gap: snapshot seq must lie in
+  [pseq,seq]. Synthetic disjoint [12,13] vs snapshot10 is a real failure probe.
+- Parser outputs use a bounded local queue with explicit overflow/batch/total
+  errors before delivering that frame. Native body/receipt clocks are preserved.
+- Start/end callbacks reflect parser session lifecycle, not remote-ready health.
+  Limited EOF does not invent a close; consumers use summary to end prefix state.
+- Replay drop/cancel/error makes its reader terminal. Transport timers/readiness,
+  HTTP/L2, rotation and broader ecosystem work are not implied by parser replay.
+
+## Consumed snapshot replay v2
+
+- Capture HTTP response at main-loop consumption, not async completion order.
+  Record receive first, consumed snapshot(s), then Processing(received_sequence).
+  This preserves buffered bridge vs strict live-next distinctions. Original HTTP
+  receipt clock is separate from consumption/WS clocks; preserve all of them.
+- Raw v2 observes actual processing; pongs/acks or cutoff packets can remain
+  unprocessed and must not invent model outputs. V1 stays directly parsed and
+  explicitly cannot replay Binance/Gate HTTP-dependent L2. Session versions freeze.
+- Snapshot receivers carry optional raw slots only when capture is enabled.
+  Offline SnapshotMode returns a receiver with retained sender, no spawned fetch.
+  Inject recorded ready responses and reuse native polls/buffers/resnapshot logic.
+- Snapshot/failure scope must match an L2 symbol and pending received input.
+  Replay rejects missing pending bootstrap/width mismatch, never fetches fresh data.
+  Safe failure categories/status omit error text/headers/retry metadata.
+- This covers consumed L2 JSON, not all catalogs/HTTP, transport timers or arbitrary
+  concurrent callback order. Focused mixed-route projection/cache-reset audit is complete (see below);
+  arbitrary concurrent replay equivalence remains unclaimed.
+
+## Physical connection projection and cache ownership
+
+- Filter sparse rules together with channels/symbols/native names when projecting
+  logical feeds to Bybit product and OKX public/business connections. Leaving
+  stale sparse rules broke raw context validation. Reuse the same projection for
+  native message budget measurement; preserve normalized/native positional order.
+- Reset only exact requested L2 pairs owned by the physical route. Binance/Gate
+  already had snapshot-route/instrument guards; preserve those. Seven offline
+  regressions cover projection, recording context and independent book state.
+- A focused ownership regression is not proof of arbitrary timer/interleaving
+  replay. Broader product replay and generic HTTP capture still need work.
+
+## Storage integration boundary
+
+- EventSink/run_sink own a sequential consumer of identified events. No new queue
+  or worker/retry policy: a slow sink may lag broadcast; lag is terminal.
+- Drop sinks without finalization after write errors/panics/deadlines or in-flight
+  shutdown/cancel. Remote commits may be uncertain; never promise exactly-once.
+  Only between-operation shutdown produces Stopped. Finalization is deadline-
+  bounded and consuming. RecordingWriter is the first adapter, keeping its own
+  format, precision, limits, poisoning and I/O deadlines. Flush is not fsync.
+- SinkWrite AcceptedAndFull accepts the final event; Full rejects it before
+  writing. Both finalize with SinkEnd::LimitReached and an actual prefix summary. No Python backend collection,
+  L2 snapshot synthesis, aggregation or NBBO parity is implied by this interface.
+
+## Arrival-clock OHLCV
+
+- Ohlcv lives in runtime behind trade, without candles/storage dependencies.
+  Python's example groups trades by arrival clock, not exchange event time. Rust
+  uses explicit monotonic elapsed time and fixed [start,end) windows anchored at
+  zero; open/close follow arrival order. Out-of-order model clocks are retained.
+- Isolate feed ID/generation/exchange/symbol, cap one-window series (1..=4096),
+  emit in first-seen order, skip empty windows, and expose timer advance/partial
+  consuming finish. Do not merge contract units, sources or generations.
+- Decimal overflow/zero-rounded product and invalid input/clock/capacity/boundary
+  failures are atomic. Finite Decimal precision still rounds products/division;
+  price_volume is not necessarily quote turnover. No ID de-dup or gap recovery.
+- Direct and recording-replay all bar fields match in deterministic tests. EOF
+  does not close the last time window. Consumers handle lag/lifecycle/delivery.
+
+## Throttle and Renko semantics
+
+- Throttle is feature-independent, uses caller elapsed time, admits first input
+  and thereafter only strictly after last accepted + interval (Python >, not >=).
+  Drops do not slide the interval. Backwards consumer clocks are atomic errors.
+- RenkoFixed preserves Python _agg price thresholds, not generic fixed-step
+  charting: continuation from last close, reversal from prior open, one actual-
+  price brick for a gap. Rust fixes the wrapper's initial-empty/one-input delay.
+- Isolate bounded series by identity/generation/exchange/symbol; retire explicitly
+  with remove on gaps/removal. No partial brick, trade-ID dedup or time reordering.
+  Throttle is intentional loss, so apply after book reconstruction/all-trade
+  aggregates. Do not present either helper as a lossless callback pipeline.
+
+## Scoped NBBO
+
+- Keep sources bounded/pinned by feed ID/generation/exchange, one exact public
+  Symbol per helper. Choose best prices and source-native sizes; tie by configured
+  order, never add native contract sizes or infer multipliers. Label per-leg units.
+- Observation elapsed time differs from dequeue/consumer time. Reject old queued
+  observations, drive inclusive expiry on timer ticks, and explicitly emit final
+  unavailability. Availability false blocks queued input until a fresh resume;
+  replacement requires the newer managed generation of the same feed ID.
+- Economic changes exclude clock-only refreshes; output is not a keepalive. Source
+  lifecycle/recovery/anchor ordering remain caller-owned. Suspend on unusable book,
+  disconnect, lag/resync/removal before passing a fresh full top after recovery.
+- Normalized recording elapsed clocks alone lack original monotonic ingress age
+  and all lifecycle transitions. Deterministic replay proof requires identical
+  explicit times/signals. Do not claim full live NBBO/reconnect equivalence.
+
+## Typed custom calculations
+
+- CustomAggregate is feature-independent, accepts init/reducer functions over
+  arbitrary S and identified FeedEnvelope, and uses fixed elapsed [start,end)
+  windows, skipped empty output, timer closure and partial consuming finish.
+- Input caps do not bound arbitrary user memory. Require application group/state/
+  cost bounds and independent initializer state; shared mutable backing can alter
+  old outputs. Source/unit grouping and lifecycle/gaps are caller-owned.
+- Init/reducer errors/catchable panics poison the engine, including finish. Do not
+  clone arbitrary state to fake rollback or certify an old pending window after
+  failed rollover. Validation errors before user code are atomic/recoverable.
+  Consumers can explicitly deliver advance(now) before reducing the boundary input.
+- Identical deterministic callbacks/inputs/clocks replay identically; arbitrary
+  user effects, random/wall clocks and external storage are not reproducibility
+  guarantees. No async callback deadline or automatic state serialization is implied.
+
+## Raw physical series
+
+- RawSeries physical parts form one v2 JSONL byte stream; keep one validator/
+  native replay map, global sequence, session/HTTP/Processing state across files.
+  Middle parts lack standalone headers; never guess separate session starts.
+- Bounded manifest lists sizes/FNV-1a64 and final logical summary. Checksums only
+  catch accidental corruption; raw privacy/lifecycle/schema gates still apply.
+  Do not imply authentication or arbitrary independent-capture merge semantics.
+- create_new protects all paths. Reserve manifest empty during capture; finalize
+  after data flush. Logical budgets span all files; max-parts/create/I/O errors
+  fail without a certified prefix. Do not auto-delete old files or resume after
+  cancellation. A complete readable manifest proves bytes, not fsync/task commit.
+- Reader streams parts lazily; EOF certifies all parts/footer/manifest together.
+  Earlier callbacks can occur before later corruption; no effect rollback. Native
+  replay is fresh-only, and cancellation/failed delivery forbids skipping input.
+
+## HTTP result observation and failure notification
+
+- Generic public HTTP observation starts at SDK entry before admission and ends
+  at JSON result/safe failure or future-drop cancellation; it is not wire capture.
+  Pin per-invocation request IDs, not completion order or URL equality. Complete
+  requires all starts to end; explicit cutoff prefixes can retain missing results.
+- Only current registered public routes/queries are recorded. Reuse WS JSON
+  sanitation, omit headers/proxy credentials/error text and never mutate live JSON.
+  New routes require gate tests. Numeric JSON remains arbitrary-precision.
+- Capture-scoped catalog keys avoid old-cache holes and share clones/coalescing.
+  Proxy auth rebuild must retain capture. The shared directory cache now has bounded byte/entry/LRU/TTL retention;
+  see the bounded directory cache entry below.
+- Sticky capture failure must notify sleeping receivers when no record was queued.
+  Shared receiver state must not retain senders. HTTP and raw WS now test this.
+- File iteration is not HTTP transport injection or offline catalog/REST replay.
+  Preserve original pending starts for future missing-response rejection; no online
+  fallback, timer replay or normalized receipt-clock equality is implied yet.
+
+## Offline HTTP payload source
+
+- Build HttpReplay only from a fresh fully validated file, retaining per-URL
+  request invocation order instead of response completion order. Clones share
+  consumption; new replay instances get isolated cache keys. No network fallback.
+- Missing/pending/exhausted/budget mismatch never consumes or skips a head entry;
+  report mismatches and require zero plus complete consumption for strict audit.
+  Recorded errors/cancels are known outcomes, not successful normalized queries.
+- A recorded cancellation must be terminal inside catalog retry, or retry would
+  steal the next explicit caller's response. Do not share permanent replay/config
+  errors as completed HTTP work with waiting callers. Real captured transport
+  failures keep existing retry behavior.
+- Network client/WS guards must survive config clone/proxy-auth rebuild. Payload
+  injection bypasses live HTTP admission/cooldowns, not caller-chosen code.
+- Local receive clocks, cache expiry, concurrent failure sharing and original
+  scheduling are not reconstructed by payload replay. Native JSON clocks survive;
+  exact normalized clocks use normalized tapes, causal L2 uses raw v2 snapshots.
+
+- Public HTTP v2 preserves configuration-error class on re-recorded failures;
+  otherwise a replay cancellation becomes generic Other/Protocol and can trigger
+  a later catalog retry incorrectly. Reader accepts v1, but rejects v2-only
+  metadata under a v1 header. Successful v1 payloads remain directly usable.
+
+## Bounded directory cache
+
+- Global raw directory retention now owns serialized immutable bytes, not Value
+  trees: 256 entries, 128 MiB combined JSON/key bytes, max 32 MiB entry. LRU,
+  24-hour wall TTL, rollback invalidation and whole-cache expiry sweeps bound
+  abandoned proxy/capture/replay namespace retention. Metadata/readers are extra.
+- JSON parse/encode stays outside the cache lock; precision must survive roundtrip.
+  Existing catalog/feed snapshots own their normalized state, not a cache lease.
+- Never let replay cache loss implicitly consume the next archived catalog. Track
+  successful fetches in the replay object's per-proxy/capture namespace metadata;
+  non-refresh miss is an audited config error, explicit refresh advances the tape.
+  Coalesced waiters can still use their completed response. Mark before unlocking
+  the request gate to avoid a cache-eviction race with another loader.
+
+## Caller-shared admission scopes
+
+- ResourceBudget is immutable shared state attached to TransportConfig; clones,
+  auth rebuilds and feed shards retain it. New instances are independent, but
+  scoped HTTP1..4/WS1..100 and minimum intervals never relax SDK global guards.
+- Check/advance global+local clocks together at admission, not nested independent
+  pacing, or global delay can release local pre-approved starts in a burst.
+  HTTP pacing waits hold no network slots; WS slots include queued handshakes and
+  remain with Session. Cancel/failure/drop must release both permits.
+- Managed connection reservations include budget identity/exchange/capacity. Use
+  max on same-scope replace; retain both scopes until old tasks drain on switching.
+  Reject known excess before committing; cross-handler availability still relies
+  on actual permits and is not an atomic distributed reservation.
+- Replay bypasses real HTTP clocks/slots, and rejects WS before admission. Do not
+  count cache hits as network operations or use budget identity as cache identity.
+- These are unit-cost process-local policies, not native weight/code or IP-wide
+  distributed accounting. Subscription/message/frame/heartbeat limits stay intact.
+
+## Native REST rate envelopes
+
+- Recognize only verified exchange/type code forms: Binance integer -1003,
+  Bybit integer 10006, OKX string 50011, Bitget v3 string 429. Do not parse message
+  text or borrow private/WS/convert-only code scopes; Gate uses HTTP 429 here.
+- Keep JSON intact and set shared cooldown using Retry-After, valid future Bybit
+  reset-ms header, or SDK 60s fallback. Never shorten an existing deadline or
+  invent an HTTP status. Quota JSON must not enter the directory response cache.
+- Offline HTTP injection bypasses real cooldown/admission. Captured JSON codes
+  still drive ordinary validators/retries; recorded native delay is not simulated.
+- Use deterministic/mock quota tests, not intentional live throttling. Weight and
+  WS-control/distributed handling remain separate. The official COIN-M redirect
+  resolved to derivatives-trading-coin-futures/error-code and confirms -1003; no
+  live quota result is implied.
+
+- Binance public HTTP weights use current official sources in docs/http-weights.md,
+  not old Python costs. Spot trades is 25; USD-M funding is a separate 500/5m
+  request window. The shared 2400/min futures pool is conservative SDK policy.
+- Weight accounting commits with both start clocks under global admission;
+  waiters release network permits, started requests never refund, replay bypasses
+  charging/metadata learning. ResourcePolicy ceiling is against shared process
+  usage, not a fresh group ledger. Directory minute ceilings only tighten for
+  process lifetime. Other venue weights/distributed coordination remain pending.
+
+- Public WS frequency/service classification lives in runtime/quota.rs and must
+  use exact current official codes/types/scopes. Error::RateLimited carries an
+  SDK retry floor; live Session extends only WS venue start pacing. Raw replay
+  reports the error without live pacing side effects. Bybit order-entry codes
+  must not be promoted to public market subscriptions.
+- A false shutdown watch update must keep the pinned retry timer; resetting or
+  dropping it allows early retries. Permanent errors still bypass retry loops.
+
+- HTTP upgrades and proxy CONNECT failures preserve status/delay and omit server
+  response material. Proxy 407 remains invalid configuration. Shared Retry-After
+  accepts unsigned seconds or HTTP-date, not signed/fractional numbers.
+- Valid WS Close frames preserve numeric codes in WebSocketClosed. Retry policy
+  is SDK-owned: known RFC/configuration failures terminal, normal/unknown closes
+  retry; OKX private codes are not guessed for another exchange. Caller shutdown
+  wins. Local handshake tests need loopback bind permission, not external access.
+
+- Independent raw merging is explicit replay composition, not raw-file concatenation:
+  caller offsets define the common elapsed axis; ties follow input order. Always
+  retain capture_id alongside native session/FeedIdentity/sequence. No wall-clock
+  synchronization or duplicate-event removal is inferred.
+- Single and merged replay use one native state implementation, with state isolated
+  per capture. File/series EOF and manifests must all certify; global budgets
+  apply across inputs, and streaming callbacks cannot be rolled back on late failure.
+
+- Oversized multi-route feeds must project exact subscriptions by adapter-native
+  route before capacity slicing; otherwise a heavy endpoint duplicates small
+  routes and can falsely exceed ResourceBudget. Preserve logical hydration order
+  and per-route native mappings; concrete concatenation order can differ.
+- connection_feeds enforces product homogeneity in shared and sparse modes.
+  Splitting cannot salvage a mixed logical product or drop an oversized pair.
+  Route-first packing retains existing protocol budgets, not a global minimum
+  bin-packing guarantee for arbitrary subscription sizes.
+
+- Minimum packing is opt-in through RuntimeOptions, with a positive evaluation
+  budget. Success means proof under fixed adapter routes and atomic instruments;
+  exhaustion must error without returning an unproven layout. Preserve defaults.
+- Native demand is a union; shared aliases forbid scalar equal-load symmetry
+  pruning. GCD/remainder bounds apply only to proven disjoint/additive pressure.
+  Iterative search avoids input-depth recursion; candidate groups retain original
+  order, exact pairs/native mappings and existing budget predicates.
+- Enabled async planning is offloaded with two process-wide permits and a Drop
+  cancellation signal. A running job owns its permit until exit; failed planning
+  must not stop an old managed feed. Synchronous helper callers own scheduling.
+
+- Catalog request coalescing uses distinct process operation epochs. Clock reads
+  can share a tick and cannot distinguish a completed request from a later forced
+  refresh. Keep the completion marker after cache publication and before result
+  cloning; permanent configuration/captured-cancellation errors are not shared.
+- Replay clock domains are explicit: normalized/raw retain captured model clocks,
+  HTTP REST receipts use current SystemTime, native optional timestamps remain
+  separate, and catalog TTL is real SystemTime rather than Tokio replay elapsed
+  time. docs/replay-contract-audit.md records finite executable contract evidence.
+
+- 2026-10-12 maintainer decision supersedes earlier distributed-quota plans:
+  defer cross-process/machine quota coordination from current scope and withdraw
+  the standalone Rust coordinator choice. No coordinator implementation exists.
+  Keep process-local safeguards; independent processes do not aggregate quotas.
+  Python backend subprocesses/Redis storage are not quota coordination. Revisit
+  only when a concrete shared-egress collector deployment requires it.
+
+- Public HTTP frequency audit (2026-10-12) covers current Bybit/Bitget/OKX/Gate
+  directory, REST/history and bootstrap routes. Official rules are request
+  counts, already bounded by the process-wide one-second SDK admission interval.
+  Do not invent Binance weight tiers for these venues. Reopen endpoint-window
+  accounting when adding routes or relaxing pacing. Header feedback/adaptive WS
+  sends remain open; distributed coordination is explicitly deferred.
+
+- Binance minute header feedback (2026-10-12) is an independent 60-second
+  receipt-time usage floor, not a replacement/refund of the local rolling ledger.
+  Later admissions add cost; smaller/equal observations do not extend or reduce
+  it. Keep the USD-M bookTicker inaccurate-header exclusion and separate USD-M
+  funding window. Apply valid headers before status/body checks; replay bypasses
+  this live path. No server-clock reset or distributed quota guarantee is implied.
+
+- WS send admission now shares text/heartbeat spacing per physical session.
+  Verified rolling frame and hourly control windows adapt deadlines to actual
+  starts; reserve Pong headroom. Never sleep through reads/shutdown while a
+  queued subscription waits. Only sent requests start ack deadlines.
+- On excessive server Pings, return before flushing tungstenite's automatic
+  Pong and drop the failed session; manual payload-preserving Pong replaces its
+  queued automatic reply. Direct callers own cancellation and must drop failed
+  sessions. These SDK start windows do not certify remote arrival timing.
+
+- Completion audit 2026-10-12 found two required Python book-policy gaps:
+  optional crossed-L2 validation and maximum delivered depth. Native subscription
+  depth and L2 recovery are not substitutes. Preserve native full-book checksum/
+  sequence state when later projecting top-N, including promotion/deletion.
+- Quote single-line YAML run commands when Rust filters end in `::` before a
+  space; otherwise the workflow fails to parse and GitHub may create no jobs/logs.
+  YAML syntax validation is not a successful remote CI run; inspect execution.
+
+- l2_book_cross_check is opt-in (default false), checks exact best bid >= ask
+  after native sync/filtering and before every output. Reject by withdrawing
+  the affected native/local/recovery/readiness state and propagating recoverable
+  MalformedData; reconnect must start fresh. Keep native integrity checks.
+  Raw metadata records true only; old/default records decode false; replay
+  restores the same policy. Maximum delivered depth remains separate work.
+- Keep serde_json float_roundtrip alongside arbitrary_precision. Real Linux CI
+  timestamp values reproduce one-bit f64 deserialization loss without it through
+  HTTP/raw recording. Preserve exact equality/to_bits checks, never tolerances.
+
+- Maximum delivered L2 depth is now implemented separately from native depth:
+  zero/omission means unlimited, positive N projects sorted snapshots and true
+  previous/current top-N membership deltas. Include removal/displacement/promotion,
+  preserve quantity scale and empty deep-only deltas. Never trim native integrity
+  state or compare only a truncated delta. All delivery/recovery surfaces agree.
+- Resync, connection reset, crossed-book failure and fresh managed state clear
+  projection ownership. A delta without a valid delivery snapshot is recoverable
+  malformed data, never a fabricated snapshot. Raw replay restores optional
+  positive metadata; old/default records omit it and explicit zero is invalid.
+- Final core acceptance: 837 all-feature/732 default tests, strict lints/docs,
+  feature boundaries and fresh Rust 1.85 passed. Delivered-depth implementation
+  ad9f22a passed remote run 38241618238 with all five jobs green. Necessary core
+  alignment is accepted; optional ecosystem and explicitly deferred scopes remain
+  as recorded in the public requirement audit. Do not infer new missing core
+  requirements from older dated milestone pending lists.

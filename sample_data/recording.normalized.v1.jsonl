@@ -1,0 +1,3 @@
+{"header":{"format":"cryptofeed-rs.normalized","version":1}}
+{"event":{"record":{"sequence":1,"elapsed_ns":1000000000,"identity":{"id":1,"generation":1},"event":{"trade":{"exchange":"Binance","symbol":{"value":"BTC-USDT","kind":"Spot"},"side":"buy","amount":"0.1234567890123456789012345678","price":"100.1234567890123456789012345","exchange_ts":1.0,"received_ts":2.0,"id":"synthetic-public-execution","implied_volatility":null}}}}}
+{"end":{"events":1,"reason":"complete"}}

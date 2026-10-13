@@ -85,11 +85,22 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
    instrument catalog over HTTP. Unknown/ambiguous/mixed-product/unsupported
    combinations fail before connecting; the runtime never guesses quote
    currencies. Explicit native pairs are caller-asserted and bypass catalog
-   existence checks.
+   existence checks. Per-channel subscriptions resolve their normalized union
+   once, then compile exact channel/symbol pairs into native-route connection feeds;
+   unequal sets may share sockets. Explicit mapping ambiguity is validated before
+   route-first topic/byte budget sharding; opt-in minimum packing proves the
+   fewest connections under fixed SDK routes and atomic instruments.
+   Native subscription budgets then split the concrete groups into bounded
+   connection feeds.
 2. **Per-feed task fan-out** — `run_feeds_until_shutdown` spawns one task per
-   feed with a shared `watch::channel` shutdown signal (Ctrl-C sets it).
+   concrete subscription group (one group for a legacy shared-symbol feed) with a shared `watch::channel` shutdown signal (Ctrl-C sets it).
    Terminal failure of one feed is recorded and reported without cancelling
-   healthy feeds.
+   healthy feeds. Opt-in managed control owns logical feed workers and retained
+   IDs/configuration generations; candidates hydrate before old tasks stop.
+   Started acknowledges launch. Managed state snapshots distinguish correlated
+   subscription confirmations, SDK book initialization and reconnect epochs;
+   remote Ready is separate from task startup. Default startup remains
+   strict; controlled initial startup isolates failures.
 3. **Per-exchange consumers** (`consume_*_feed`) — build connection plans
    (URL per product when an exchange splits by product, e.g. Binance
    Spot/USD-M/CoinM, Bybit spot/linear/inverse), then run each plan through
@@ -98,7 +109,9 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
 4. **Sessions** — `connection::WsConnection`/`Session`
    (`crates/runtime/src/runtime/connection.rs`) owns heartbeat (per-exchange
    `HeartbeatPolicy` — payloads, intervals, idle timeouts), idle detection,
-   ping/pong handling, and clean-close on shutdown. Normal remote close is
+   ping/pong handling, paced subscription queues, and clean-close on shutdown.
+   Connection slots and handshake-start pacing are process-local; snapshot
+   request admission shares a cancellable budget across Binance/Gate feeds. Normal remote close is
    reconnectable; explicit shutdown is clean.
 5. **Message processing** — each `process_*_text_message` classifies control
    frames (subscribe acks, errors, pongs), routes orderbook messages to book
@@ -106,6 +119,10 @@ The user-facing path is `FeedHandler` → `add_feed(exchange_builder.build())`
    dispatches to handler traits (`dispatch_*_event`). Bybit derivative tickers
    reconstruct per-connection snapshot/delta state before pure normalization;
    snapshots and reconnects must clear stale fields.
+   Optional crossed-L2 checks run before publication on full reconstructed state.
+   Delivered-depth projections keep native sync/checksum state full and send one
+   consistent top-N snapshot/delta to callbacks, broadcasts and recovery. Clear
+   projections on resync/reconnect/fresh generations; raw replay restores policies.
 
 ### Per-exchange module pattern (`crates/runtime/src/exchange/<name>/`)
 
@@ -132,8 +149,13 @@ the HTTP catalog fetchers per exchange.
 
 ## Key Invariants
 
-- A single `ExchangeFeed` is product-homogeneous: spot, perpetual, and dated
-  futures must not mix.
+- A single logical `ExchangeFeed` is product-homogeneous: spot, perpetual, and
+  dated futures must not mix, including across per-channel subscriptions.
+- Per-channel subscription mode and shared channels/symbols are exclusive.
+  The runtime compiles `connection_feeds` before adapter/session planning;
+  direct low-level adapter callers must do the same. Different symbol sets
+  can use extra connections. Concrete groups are also sharded by native topic
+  budgets; preserve per-request batching versus per-connection limits.
 - Only capability-matrix combinations may open a connection — absent
   combinations must fail explicitly, never silently subscribe to nothing.
 - Explicit normalized parsing over opaque dynamic conversion; batch messages
@@ -176,7 +198,11 @@ the HTTP catalog fetchers per exchange.
   changing exchange coverage).
 - `PROGRESS.md` — milestones.
 - `MEMORY.md` — durable project constraints/lessons.
+- `docs/README.md` — public documentation index.
 - `docs/harness.md` — fixture formats and parity behavior.
+- `docs/runtime-control.md` — command results, cancellation and identity scope.
+- `docs/readiness.md` — confirmation evidence, query semantics and epoch guards.
+- `docs/reports/` — dated, sanitized live-validation evidence.
 - `docs/ai-coding.md` — the AI-assisted workflow agreement.
 - `docs/exchange-protocol-baseline.md` — current official protocol facts.
 - `AGENTS.md` / `CLAUDE.md` — identical repository rules; when one changes,
@@ -189,6 +215,9 @@ the HTTP catalog fetchers per exchange.
   invented ones.
 
 ## Repository Hygiene
+
+- Keep internal review notes, retired implementation plans, and presentation
+  drafts in ignored `.local/docs/`, not in the public `docs/` tree.
 
 - Workspace dependency resolver 3 honors the declared Rust 1.85 MSRV. Keep
   the no-lockfile policy and run the MSRV gate against fresh dependency resolution.

@@ -2,3 +2,20 @@ https://api.bybit.com/v5/market/instruments-info?category=spot -> 1710000001.100
 https://api.bybit.com/v5/market/instruments-info?category=linear -> 1710000001.200000: {"retCode":0,"result":{"category":"linear","list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","contractType":"LinearPerpetual"}]}}
 https://api.bybit.com/v5/market/instruments-info?category=inverse -> 1710000001.300000: {"retCode":0,"result":{"category":"inverse","list":[{"symbol":"BTCUSD","baseCoin":"BTC","quoteCoin":"USD","contractType":"InversePerpetual"},{"symbol":"BTCUSDH24","baseCoin":"BTC","quoteCoin":"USD","contractType":"InverseFutures"}]}}
 configuration: {"spot":{"l2_book":["BTC-USDT"],"ticker":["BTC-USDT"],"trades":["BTC-USDT"],"candles":["BTC-USDT"]},"linear_perp":{"l2_book":["BTC-USDT-PERP"]},"inverse_perp":{"l2_book":["BTC-USD-PERP"]},"inverse_futures":{"l2_book":["BTC-USD-H24"]}}
+
+https://api.bybit.com/v5/market/instruments-info?category=spot&status=Trading -> 1791580000.000000: {"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"Trading"},{"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","status":"PendingOpen"}]}}
+https://api.bybit.com/v5/market/instruments-info?category=linear&status=Trading -> 1791580000.000000: {"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"Trading"},{"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"PendingOpen"}],"nextPageCursor":"next"}}
+
+https://api.bybit.com/v5/market/instruments-info?category=spot&status=Trading -> 1791580000.000000: {"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"Trading","priceFilter":{"tickSize":"0.1"},"lotSizeFilter":{"basePrecision":"0.000001","minOrderQty":"0.001","minOrderAmt":"5"}}]}}
+
+https://api.bybit.com/v5/market/instruments-info?category=linear&status=Trading -> 1791580000.000000: {"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"Trading","settleCoin":"USDT","priceScale":"1","priceFilter":{"tickSize":"0.1"},"lotSizeFilter":{"qtyStep":"0.001","minOrderQty":"0.001","minNotionalValue":"5"}}],"nextPageCursor":""}}
+
+https://api.bybit.com/v5/market/tickers?symbol=BTCUSDT&category=spot -> 1710000001.500000: {"retCode":0,"time":1710000000123,"result":{"category":"spot","list":[{"symbol":"BTCUSDT","bid1Price":"100.01","ask1Price":"101.02"}]}}
+
+https://api.bybit.com/v5/market/orderbook?symbol=BTCUSDT&category=spot&limit=20 -> 1710000001.500000: {"retCode":0,"result":{"s":"BTCUSDT","b":[["99","2"],["100","1"]],"a":[["102","2"],["101","1"]],"ts":1710000000123,"cts":1710000000100,"u":9007199254740993}}
+
+https://api.bybit.com/v5/market/funding/history?symbol=BTCUSDT&limit=2&category=linear&endTime=9999 -> 1710000001.500000: {"retCode":0,"result":{"category":"linear","list":[{"symbol":"BTCUSDT","fundingRateTimestamp":"9000","fundingRate":"-0.0001"},{"symbol":"BTCUSDT","fundingRateTimestamp":"8000","fundingRate":"-0.0001"}]}}
+
+https://api.bybit.com/v5/market/kline?symbol=BTCUSDT&interval=1&limit=2&start=0&end=119999&category=linear -> 1710000001.500000: {"retCode":0,"result":{"symbol":"BTCUSDT","category":"linear","list":[["60000","100.0000000000000000000000001","102","99","101","3.25","328"]]}}
+
+https://api.bybit.com/v5/market/recent-trade?symbol=BTCUSDT&limit=1&category=spot -> 1710000001.500000: {"retCode":0,"result":{"category":"spot","list":[{"execId":"execution-1","symbol":"BTCUSDT","price":"100.01","size":"0.25","time":"1001","side":"Sell"}]}}

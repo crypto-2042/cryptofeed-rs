@@ -1,0 +1,303 @@
+//! Product-qualified symbol discovery and local pattern selection.
+
+use cryptofeed_core::{
+    error::{Error, Result},
+    exchange::{Channel, ExchangeId},
+    symbol::{InstrumentKind, Symbol},
+};
+
+/// A snapshot of normalized symbols from the exchange's instrument catalog.
+/// Loading uses the existing 24-hour HTTP cache. It does not refresh running
+/// subscriptions or automatically discover new listings in the background.
+#[derive(Debug)]
+pub struct MarketCatalog {
+    exchange: ExchangeId,
+    product: InstrumentKind,
+    channels: Vec<Channel>,
+    symbols: Vec<Symbol>,
+    markets: std::collections::HashMap<Symbol, crate::market_info::MarketInfo>,
+}
+
+impl MarketCatalog {
+    /// Loads one enabled exchange/product catalog, without opening WebSockets.
+    /// Unsupported products are rejected before any HTTP request.
+    pub async fn load(exchange: ExchangeId, product: InstrumentKind) -> Result<Self> {
+        Self::load_with_refresh(
+            exchange,
+            product,
+            false,
+            &crate::transport::TransportConfig::direct(),
+        )
+        .await
+    }
+
+    /// Fetches fresh catalog responses, bypassing cached pages. Concurrent
+    /// requests for the same URL share in-flight work. A failed HTTP/JSON or
+    /// exchange-envelope validation leaves the previous cached response intact.
+    /// This returns a new snapshot and does not change any running feed.
+    pub async fn refresh(exchange: ExchangeId, product: InstrumentKind) -> Result<Self> {
+        Self::load_with_refresh(
+            exchange,
+            product,
+            true,
+            &crate::transport::TransportConfig::direct(),
+        )
+        .await
+    }
+
+    /// Loads through the supplied explicit transport; cache entries are scoped
+    /// to its configuration identity, shared by clones of that configuration.
+    pub async fn load_with_transport(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        transport: &crate::transport::TransportConfig,
+    ) -> Result<Self> {
+        Self::load_with_refresh(exchange, product, false, transport).await
+    }
+    pub async fn refresh_with_transport(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        transport: &crate::transport::TransportConfig,
+    ) -> Result<Self> {
+        Self::load_with_refresh(exchange, product, true, transport).await
+    }
+
+    async fn load_with_refresh(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        refresh: bool,
+        transport: &crate::transport::TransportConfig,
+    ) -> Result<Self> {
+        if !crate::markets::capability_matrix()
+            .iter()
+            .any(|entry| entry.exchange == exchange && entry.product == product)
+        {
+            return Err(Error::UnsupportedCapability(format!(
+                "{exchange:?}/{product:?} catalog"
+            )));
+        }
+        let registry = crate::markets::fetch_symbol_registry_with_refresh(
+            exchange, product, refresh, transport,
+        )
+        .await?;
+        Ok(Self::from_registry(exchange, product, registry))
+    }
+
+    pub(crate) fn from_registry(
+        exchange: ExchangeId,
+        product: InstrumentKind,
+        registry: crate::markets::SymbolRegistry,
+    ) -> Self {
+        let entries = registry.into_markets(exchange);
+        Self {
+            exchange,
+            product,
+            channels: crate::markets::capability_matrix()
+                .iter()
+                .find(|entry| entry.exchange == exchange && entry.product == product)
+                .into_iter()
+                .flat_map(|entry| entry.channels.iter().copied())
+                .filter(|channel| crate::markets::channel_feature_enabled(*channel))
+                .collect(),
+            symbols: entries.iter().map(|info| info.symbol.clone()).collect(),
+            markets: entries
+                .into_iter()
+                .map(|info| (info.symbol.clone(), info))
+                .collect(),
+        }
+    }
+
+    pub fn exchange(&self) -> ExchangeId {
+        self.exchange
+    }
+    pub fn product(&self) -> InstrumentKind {
+        self.product
+    }
+    /// Public WS capabilities for this exchange/product in this Cargo build.
+    pub fn supported_channels(&self) -> &[Channel] {
+        &self.channels
+    }
+
+    /// Exact directory identity and typed reported metadata from this snapshot.
+    pub fn market(&self, symbol: &Symbol) -> Result<&crate::market_info::MarketInfo> {
+        self.markets
+            .get(symbol)
+            .ok_or_else(|| Error::UnsupportedSymbol(symbol.as_str().to_owned()))
+    }
+    /// All metadata records in the same sorted order as symbols().
+    pub fn markets(&self) -> impl ExactSizeIterator<Item = &crate::market_info::MarketInfo> {
+        self.symbols.iter().map(|symbol| &self.markets[symbol])
+    }
+    /// Native name from this exact directory snapshot, without guessing quotes.
+    pub fn exchange_symbol(&self, symbol: &Symbol) -> Result<&str> {
+        Ok(&self.market(symbol)?.exchange_symbol)
+    }
+
+    /// All discovered symbols, sorted by normalized name.
+    pub fn symbols(&self) -> &[Symbol] {
+        &self.symbols
+    }
+
+    /// Selects a sorted, deduplicated union of normalized-name patterns.
+    /// Matching is case-insensitive: `*` matches zero or more characters and
+    /// `?` matches one character. Other characters are literal; character
+    /// classes and escaping are not supported. Each pattern must match at
+    /// least one symbol, and an empty pattern list is an error.
+    pub fn select(&self, patterns: &[&str]) -> Result<Vec<Symbol>> {
+        self.select_with_policy(patterns, true)
+    }
+
+    pub(crate) fn select_discovered(&self, patterns: &[&str]) -> Result<Vec<Symbol>> {
+        self.select_with_policy(patterns, false)
+    }
+
+    fn select_with_policy(&self, patterns: &[&str], require_each: bool) -> Result<Vec<Symbol>> {
+        if patterns.is_empty() {
+            return Err(Error::InvalidConfiguration(
+                "at least one symbol pattern is required".to_owned(),
+            ));
+        }
+        let mut selected = vec![false; self.symbols.len()];
+        for pattern in patterns {
+            let pattern = pattern.to_ascii_uppercase();
+            let mut matched = false;
+            for (index, symbol) in self.symbols.iter().enumerate() {
+                if matches_pattern(&pattern, symbol.as_str()) {
+                    selected[index] = true;
+                    matched = true;
+                }
+            }
+            if !matched && require_each {
+                return Err(Error::UnsupportedSymbol(pattern));
+            }
+        }
+        Ok(self
+            .symbols
+            .iter()
+            .zip(selected)
+            .filter(|(_, selected)| *selected)
+            .map(|(symbol, _)| symbol.clone())
+            .collect())
+    }
+}
+
+fn matches_pattern(pattern: &str, value: &str) -> bool {
+    let pattern: Vec<_> = pattern.chars().collect();
+    let value: Vec<_> = value.chars().collect();
+    let (mut p, mut v) = (0, 0);
+    let mut star = None;
+    let mut retry = 0;
+    while v < value.len() {
+        if p < pattern.len() && pattern[p] == '*' {
+            star = Some(p);
+            p += 1;
+            retry = v;
+        } else if p < pattern.len() && (pattern[p] == '?' || pattern[p] == value[v]) {
+            p += 1;
+            v += 1;
+        } else if let Some(index) = star {
+            retry += 1;
+            v = retry;
+            p = index + 1;
+        } else {
+            return false;
+        }
+    }
+    while p < pattern.len() && pattern[p] == '*' {
+        p += 1;
+    }
+    p == pattern.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::markets::SymbolRegistry;
+
+    fn catalog() -> MarketCatalog {
+        let mut registry = SymbolRegistry::default();
+        for (base, quote) in [
+            ("SOL", "USDT"),
+            ("BTC", "USDC"),
+            ("BTC", "USDT"),
+            ("ETH", "USDT"),
+        ] {
+            registry
+                .insert(Symbol::spot(base, quote), &format!("{base}{quote}"))
+                .unwrap();
+        }
+        MarketCatalog::from_registry(ExchangeId::Binance, InstrumentKind::Spot, registry)
+    }
+
+    #[test]
+    fn native_lookup_uses_the_snapshot_mapping_and_periodic_union_allows_removals() {
+        let catalog = catalog();
+        assert_eq!(
+            catalog
+                .exchange_symbol(&Symbol::spot("BTC", "USDT"))
+                .unwrap(),
+            "BTCUSDT"
+        );
+        assert!(
+            catalog
+                .exchange_symbol(&Symbol::spot("OTHER", "USDT"))
+                .is_err()
+        );
+        assert!(catalog.select(&["BTC-USDT", "REMOVED-*"]).is_err());
+        assert_eq!(
+            catalog
+                .select_discovered(&["BTC-USDT", "REMOVED-*"])
+                .unwrap(),
+            [Symbol::spot("BTC", "USDT")]
+        );
+    }
+
+    #[test]
+    fn selection_sorts_deduplicates_and_normalizes_patterns() {
+        let catalog = catalog();
+        let selected = catalog.select(&["btc-*", "*-usdt", "BTC-USDT"]).unwrap();
+        assert_eq!(selected, catalog.symbols());
+        assert_eq!(
+            selected.iter().map(Symbol::as_str).collect::<Vec<_>>(),
+            ["BTC-USDC", "BTC-USDT", "ETH-USDT", "SOL-USDT"]
+        );
+        assert_eq!(
+            catalog.select(&["?TC-USDT"]).unwrap(),
+            [Symbol::spot("BTC", "USDT")]
+        );
+    }
+
+    #[test]
+    fn missing_pattern_never_silently_yields_a_partial_subscription() {
+        let catalog = catalog();
+        assert!(matches!(
+            catalog.select(&["BTC-USDT", "DOGE-*"]),
+            Err(Error::UnsupportedSymbol(_))
+        ));
+        assert!(matches!(
+            catalog.select(&[]),
+            Err(Error::InvalidConfiguration(_))
+        ));
+        assert!(catalog.select(&[""]).is_err());
+    }
+
+    #[test]
+    fn patterns_are_anchored_and_backtrack_over_stars() {
+        for (pattern, value, expected) in [
+            ("*", "", true),
+            ("?", "", false),
+            ("BTC", "BTC-USDT", false),
+            ("*BTC", "BTC-USDT", false),
+            ("B**-U*?T", "BTC-USDT", true),
+            ("*A?B", "AAAB", true),
+            ("[BE]TC-*", "BTC-USDT", false),
+            ("?", "币", true),
+        ] {
+            assert_eq!(
+                matches_pattern(pattern, value),
+                expected,
+                "{pattern}/{value}"
+            );
+        }
+    }
+}

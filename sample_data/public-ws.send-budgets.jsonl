@@ -1,0 +1,3 @@
+{"kind":"synthetic-send-reference","exchange":"Binance","text_starts_ms":[0,250,500,750],"pong_start_ms":800,"next_text_ready_ms":1250,"frame_limit":5}
+{"kind":"synthetic-send-reference","exchange":"Bitget","control_starts_seconds":"0..239","next_control_attempt_seconds":240,"next_control_ready_seconds":3600,"heartbeat_ready_seconds":240}
+{"kind":"synthetic-send-reference","exchange":"Okx","control_starts_seconds":"0..479","next_control_attempt_seconds":480,"next_control_ready_seconds":3600,"heartbeat_ready_seconds":480}

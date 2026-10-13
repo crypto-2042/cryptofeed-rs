@@ -38,9 +38,8 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-After the source has been pushed to
-[the project repository](https://github.com/crypto-2042/cryptofeed-rs), a Git
-dependency can use `cryptofeed-rs = { git = "https://github.com/crypto-2042/cryptofeed-rs" }`.
+A Git dependency from
+[the project repository](https://github.com/crypto-2042/cryptofeed-rs) can use `cryptofeed-rs = { git = "https://github.com/crypto-2042/cryptofeed-rs" }`.
 Use a registry version such as `"0.1"` only after the crates are actually
 published.
 
@@ -161,8 +160,13 @@ Key API surface:
   `instrument(Symbol)` (typed product identity; option/MARGIN variants are
   retained for fixtures and future work but rejected in the 0.1 runtime),
   `exchange_symbol(...)` (explicit native mapping), `candles_interval(...)`,
-  `l2_book_depth(...)`, `l2_book_interval(...)` (Binance only), one
-  `*_handler(...)` per data category. `build()` warns when a subscribed
+  `l2_book_depth(...)`, `l2_book_interval(...)` (Binance only),
+  optional `l2_book_cross_check(true)` before publication ([policy](docs/book-cross-check.md)),
+  `l2_book_max_depth(N)` for a consistent delivered top-N view ([depth policy](docs/book-delivery-depth.md)), one
+  `*_handler(...)` per data category and `add_*_handler(...)` for additional
+  serial callbacks. Each callback defaults to a five-second timeout; catchable panic or
+  timeout continues to the next callback. See [handler semantics](docs/handlers.md).
+  `build()` warns when a subscribed
   channel has no registered handler.
 - `OpenInterest` preserves exchange-native `open_interest`, optional Decimal
   `coin_quantity` (OKX `oiCcy`), and optional `value_usd`. `oiCcy` is an amount,
@@ -180,34 +184,47 @@ Key API surface:
 
 ## Supported Exchanges and Instruments
 
-Capability matrix by instrument type (✓ = verified public channel; ✗ = not
-supported). The 0.1 release supports spot, perpetuals/swaps, and dated futures.
-Options and MARGIN remain implementation references and fail preflight.
+Capability matrix by instrument type (✓ = verified public channel; ✗ = an
+applicable channel not supported by this SDK). Each table lists only data types
+applicable to that market. The 0.1 release supports spot, perpetuals/swaps, and
+dated futures. Options and MARGIN remain implementation references and fail preflight.
 
 ### 现货 (Spot)
 
-| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Funding | Liquidations | Open Interest | Index | Mark price |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Binance | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Bitget v3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Bybit v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| OKX v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✓ (explicit index symbol) | ✗ |
-| Gate.io v4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Index |
+| --- | --- | --- | --- | --- | --- | --- |
+| Binance | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Bitget v3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Bybit v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| OKX v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (explicit index symbol) |
+| Gate.io v4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 
-### 合约 (Perpetual / Dated Futures)
+The OKX Index entry is the SDK's explicit spot-index-symbol entrypoint. Spot
+feeds do not expose funding, liquidations, open interest, or derivative mark price.
+
+### 永续合约 (Perpetual / Swap)
 
 | Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Funding | Liquidations | Open Interest | Index | Mark price |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Binance USD-M / coin-M perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
-| Binance USD-M / coin-M dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ | ✓ |
 | Bitget v3 perpetual (USDT/USDC/coin) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Bitget v3 dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
 | Bybit v5 linear / inverse perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Bybit v5 linear / inverse dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
 | OKX v5 SWAP | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| OKX v5 FUTURES | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ |
 | Gate.io v4 (USDT/BTC perpetual) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Gate.io v4 (USDT delivery) | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ | ✓ |
+
+### 交割合约 (Dated Futures)
+
+| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Liquidations | Open Interest | Index | Mark price |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Binance USD-M / coin-M dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
+| Bitget v3 dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Bybit v5 linear / inverse dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| OKX v5 FUTURES | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Gate.io v4 (USDT delivery) | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+
+Funding applies only to perpetual/swap contracts, so it is omitted from the
+dated-futures table. A ✗ here indicates an SDK capability gap, not that the data
+type is inapplicable to dated futures.
 
 ### 期权 (Options)
 
@@ -250,7 +267,7 @@ Notes:
   sampled stream (at most one order per contract per second), not a complete
   liquidation ledger.
 - The additions above have deterministic offline regression coverage.
-  [The 2026-10-08 smoke](docs/live-smoke-2026-10-08.md) received Bitget
+  [The 2026-10-08 smoke](docs/reports/live-smoke-2026-10-08.md) received Bitget
   spot/perpetual L1, derivative ticker fields, and OKX SWAP index events.
   Gate.io liquidation subscription was accepted, but no liquidation occurred
   in the short observation window.
@@ -269,8 +286,245 @@ Notes:
   quantity; Gate.io public liquidation sizes retain the native contract unit.
   Other trade and book quantities preserve the exchange-native unit.
 - L3 order books have no public stream across the active exchanges and are
-  deferred (see `docs/plan-advanced-public-channels.md`).
+  deferred (see [the protocol baseline](docs/exchange-protocol-baseline.md#l3-order-book-scope)).
+- OKX v5 uses default WebSocket TLS port 443 and the recommended
+  `openapi.okx.com` REST domain. Dated API verification and migration details
+  are recorded in the [protocol baseline](docs/exchange-protocol-baseline.md#api-currency-review--2026-10-09).
 - Authenticated data and trading are out of scope.
+
+## Per-channel symbol subscriptions
+
+Use `.subscription(channel, symbols)` when channels need different symbols:
+
+```rust
+use cryptofeed_rs::prelude::*;
+
+let feed = Binance::new()
+    .subscription(Channel::Trade, ["BTC-USDT", "ETH-USDT"])
+    .subscription(Channel::L2Book, ["BTC-USDT"])
+    .build();
+```
+
+Pass this feed to `FeedHandler::add_feed` as usual. Repeated entries for a
+channel merge and deduplicate symbols. `.subscription_instruments(channel,
+selected_symbols)` accepts typed instruments returned by a catalog.
+
+This mode cannot be mixed with `.trade()` / `.ticker()` / other channel
+shortcuts or shared `.symbol()` / `.symbols()` / `.instrument()` methods.
+Each channel needs at least one symbol, all symbols must share a product kind,
+and every requested channel must pass capability/feature preflight. Handler
+and interval/depth settings are unchanged. Explicit `.exchange_symbol(...)`
+entries correspond to the first-seen deduplicated union in `feed.symbols`.
+
+The runtime resolves this union once and preserves exact channel/symbol pairs
+while sharing native connections, then shards the first-seen union by actual
+subscription budgets. For example, Trade BTC/ETH plus L2 BTC shares one Spot
+connection without subscribing to ETH depth. Product and public/business routes
+still split when required. [Connection planning, state isolation and budgets](docs/connection-planning.md)
+documents packing, queued sends and shared admission/snapshot pacing. `feed_count()`
+counts logical feeds; managed snapshots identify physical connections and books.
+Low-level adapter callers must still plan each `feed.connection_feeds()?` shard
+and the adapter's endpoint plans; exact map support alone does not enforce capacity.
+
+## Managed runtime updates
+
+Enable `handler.control_handle()` before starting the handler to retain a
+cloneable runtime controller. It supports `add_feed`, `replace_feed`,
+`remove_feed`, `feeds` and `shutdown`. `add_feed_with_id` exposes IDs for initial
+feeds; existing `add_feed` and the default strict startup remain compatible.
+Control mode starts initial logical feeds independently.
+
+`subscribe_identified()` emits `FeedEnvelope { identity, event }`. Replacement
+keeps the feed ID and advances its configuration generation; stale queued events
+remain identifiable. Candidate validation failure leaves the old feed running.
+A successful command acknowledges validated task launch. Query
+`control.state(id).await?` for a retained `FeedSnapshot`; `.is_ready()` requires
+all connection subscriptions confirmed and requested L2 books initialized.
+State queries also work after lifecycle notifications lag.
+
+See [managed runtime control](docs/runtime-control.md) for cancellation, command
+queues, graceful/forced removal, lifecycle states, event lag and remaining scope.
+Run the public add/replace/remove example with:
+
+```bash
+cargo run -p cryptofeed-rs --example managed_public
+```
+
+[Readiness semantics](docs/readiness.md) distinguish confirmations, local book
+state, data observations, reconnect epochs and stopping. Run the five-exchange
+public Trade/L2 observation with `cargo run -p cryptofeed-rs --example readiness_public`.
+
+## Recoverable L2 consumption
+
+Retain `handler.l2_book_handle()` before startup to enable managed L2 recovery.
+`books.recover(identity, &symbol)` atomically returns a full local snapshot and
+subsequent bounded updates with identity/connection/epoch/revision anchors.
+After lag, replace the old receiver and local book with a fresh recovery result.
+Disconnect/resync/stop withdraws unusable books. See [L2 recovery](docs/l2-recovery.md)
+and `book_recovery_public` for the consumer loop and resource/lifecycle limits.
+
+## Candle completion
+
+Use `.candle_policy(CandlePolicy::ClosedOnly)` to deliver only explicitly final
+candles. The compatible default `All` delivers every update; `ClosedOrUnknown`
+omits known unfinished bars but preserves unknown completion as `None`.
+The filter applies to handlers, streams and counters. Bitget currently has
+unknown completion, so strict mode delivers no candles there. See
+[candle delivery](docs/candle-delivery.md) for policies and Python differences.
+
+## Public REST snapshots
+
+`PublicRestClient::load(exchange, product).await?` exposes feature-gated
+`ticker(&symbol)` and `l2_book(&symbol, depth)` on current public endpoints.
+Results reuse normalized models, with optional native timestamp/sequence metadata.
+Catalog identity, proxy routing and bounded HTTP admission are shared; queries
+create no WS subscription and do not change live recovery state. See
+[public REST](docs/public-rest.md) for native depth/time rules, HTTP backoff and
+examples. Feature-gated `funding_history(&symbol, query)` now provides bounded settlement
+pages and versioned continuation, with actual rates and explicit stop reasons.
+See [funding history](docs/funding-history.md). Five-venue
+[candle history](docs/candle-history.md) adds bounded time windows and JSON
+continuation. [Recent trades](docs/recent-trades.md) now provides bounded
+five-venue batches with exact IDs and native quantity units. [Native trade history](docs/trade-history.md) now adds scoped continuation
+for Binance aggregate and OKX/Gate individual executions; Gate delivery candles use the documented delivery endpoint.
+
+## Cross-exchange best bid/ask
+
+With `orderbook`, `Nbbo` selects fresh best bid/ask quotes for an exact public
+symbol, retaining per-leg source generations and native size units. Bounded
+sources, timer expiry and explicit lifecycle withdrawal prevent silent stale
+quotes. See [NBBO inputs, units and lifecycle](docs/nbbo.md).
+
+## Throttle and trade aggregation
+
+With `trade`, `Ohlcv` builds source-isolated arrival-time bars with OHLC, native
+amount volume and Decimal VWAP. Caller-clocked windows, timer closure, partial
+tails and bounded state support live consumption and repeatable offline replay.
+`RenkoFixed` adds source-isolated price-threshold bricks; `Throttle` provides
+caller-clocked leading-edge sampling with any feature set. `CustomAggregate`
+adds caller-defined window state/calculation with input caps and explicit failure.
+See [aggregation semantics and units](docs/aggregation.md).
+
+## Event sinks
+
+`EventSink` and `run_sink` consume identified events sequentially with explicit
+lag, write error, timeout and cancellation behavior. Applications implement their
+own storage adapters; opt-in `recording` provides a bounded JSONL adapter through
+`RecordingWriter`. See [sink delivery and shutdown](docs/sinks.md).
+
+## Event recording and offline replay
+
+Opt-in `recording` adds bounded, versioned JSONL capture of identified normalized
+public events and sequential offline replay callbacks, with exact Decimal data,
+original model clocks, immediate/recorded timing and explicit failure/stop behavior.
+Broadcast lag is an error; incomplete files are rejected. A separate
+[sanitized WS observation channel](docs/raw-capture.md) now captures text before
+control/market parsing. [Raw WS files](docs/raw-recording.md) now persist and validate those observations.
+[Independent capture replay](docs/raw-merge.md) now merges raw files/series on
+explicit elapsed offsets, with capture-scoped identity and isolated native state.
+[Raw series rotation](docs/raw-series.md) preserves one logical stream across
+ordered files, with bounded manifests and continuous native replay.
+[Native parser/state replay](docs/raw-replay.md) now supports five public families
+and WS-native L2 for Bybit/OKX/Bitget. [Consumed HTTP snapshots](docs/http-l2-replay.md) now enable Binance/Gate L2
+replay without online fallback. [Public HTTP result recording](docs/http-recording.md)
+now captures directory/REST/bootstrap attempts, safe outcomes and cancellation.
+[HTTP payload replay](docs/http-replay.md) now drives existing directory/REST APIs
+offline, with exact request matching and no network fallback. Original cache/timer
+scheduling is not simulated. [Replay contract audit](docs/replay-contract-audit.md)
+now records verified clock/cache/concurrency behavior; broader ecosystem work remains pending. See [recording](docs/recording.md) for limits, file schema and the
+end-to-end example.
+
+[Public WS control failures](docs/ws-control-errors.md) now distinguish verified
+frequency/service errors from permanent subscription rejection, with shutdown-aware
+retry floors and shared connection-start cooldowns.
+[Handshake and close failures](docs/ws-lifecycle-failures.md) preserve status/delay
+and numeric close codes, distinguishing retryable failures from known permanent ones.
+
+[Native REST quota responses](docs/native-rate-limits.md) now also feed shared
+per-exchange cooldowns while preserving original JSON and existing error semantics.
+
+Oversized multi-route feeds now [partition routes before capacity slicing](docs/connection-planning.md#route-first-capacity-planning--2026-10-12),
+keeping small unrelated endpoints together and avoiding extra connections.
+[Opt-in minimum packing](docs/minimum-connections.md) proves the fewest physical
+connections under existing route/instrument budgets, with bounded search and
+cancellable async worker admission.
+
+## Shared resource budgets
+
+`ResourceBudget` groups transports/feeds/REST clients under stricter HTTP capacity
+and start spacing, plus per-exchange WS capacity/spacing. Clones share limits;
+existing process and protocol safeguards remain active. See
+[resource admission and replacement](docs/resource-budgets.md).
+[Per-session WS send budgets](docs/ws-send-budgets.md) coordinate text/heartbeat
+spacing, Pong headroom and verified hourly control limits.
+[Binance HTTP weights](docs/http-weights.md) add verified endpoint costs and
+rolling process windows and conservative minute used-weight header feedback,
+with an optional stricter policy ceiling.
+[Other public HTTP limits](docs/public-http-frequency-audit.md) are verified
+against current process-wide pacing; cross-process quota coordination is deferred.
+
+## HTTP and WebSocket proxy
+
+Use `.transport(TransportConfig::http_proxy("http://127.0.0.1:8080")?)` to route
+catalog discovery, REST book bootstrap/resync and WebSockets consistently.
+Basic proxy authentication uses `.basic_auth(username, password)?`; credentials
+are excluded from URLs and debug output. Default routing is explicitly direct,
+including HTTP; system proxy environment inference is not used. See
+[transport configuration](docs/transport.md) for standalone catalogs, discovery,
+cache isolation, supported proxy types and migration details.
+
+## Symbol discovery and service shutdown
+
+Load a product-qualified catalog, then select explicit normalized symbols:
+
+```rust
+use cryptofeed_rs::prelude::*;
+
+async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    let catalog = MarketCatalog::load(ExchangeId::Binance, InstrumentKind::Spot).await?;
+    let selected = catalog.select(&["BTC-*", "ETH-USDT"])?;
+    let feed = Binance::new().trade().instruments(selected).build();
+    let mut handler = FeedHandler::new();
+    handler.add_feed(feed);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let running = tokio::spawn(handler.run_with_shutdown(shutdown_rx));
+    // Keep shutdown_tx while the application runs; at service shutdown:
+    shutdown_tx.send(true)?;
+    running.await??;
+    Ok(())
+}
+```
+
+`MarketCatalog::symbols()` lists normalized instruments. `select` supports `*`
+and `?`, ignores ASCII case, sorts and deduplicates matches, and rejects empty
+input or any unmatched pattern. It uses the [bounded 24-hour catalog cache](docs/catalog-cache.md);
+use `MarketCatalog::refresh(exchange, product).await` to bypass cached responses,
+including paginated catalogs. Concurrent requests for the same URL share
+in-flight work. Refresh does not change existing catalog snapshots or running
+subscriptions. Optional `DiscoveryFeed` periodically refreshes and reconciles a
+managed feed; see [automatic symbol reconciliation](docs/discovery.md). Patterns
+are expanded explicitly before building a feed, not by `.symbol("*-USDT")`.
+Broad matches are split by native subscription budgets; configurations exceeding
+100 planned physical connections per exchange are rejected before WS startup.
+Existing capability preflight still applies. These process-local limits do not
+account for other clients sharing your IP.
+
+`catalog.market(&symbol)` and sorted `catalog.markets()` expose `MarketInfo`:
+reported ticks/lot steps, minimum quantity/notional, separate decimal-place counts,
+native status/type and contract value/currency/multiplier. Missing/inapplicable
+fields are None; steps and denominations are not guessed. `exchange()`, `product()`
+and `supported_channels()` expose catalog/build context. See
+[market metadata](docs/market-metadata.md) for current field mappings, deprecated
+constraints, refresh behavior and limits; this is not an order validator.
+
+For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
+repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
+`run_with_shutdown` uses your watch signal and installs no signal handler.
+Managed add/remove/replace is available through a retained control handle.
+Readiness is available through the managed state API; remaining policy work is tracked in the
+[Python usage alignment plan](docs/python-usage-alignment.md).
+The [requirement audit](docs/python-alignment-audit.md) records implemented crossed-book and delivered-depth policies,
+with explicit native capability and delivery boundaries.
 
 ## Development
 
@@ -330,14 +584,15 @@ use cryptofeed_rs::prelude::*;
 Runtime connections implement exchange application heartbeats, idle detection,
 indefinite transient reconnection with bounded backoff, bounded shutdown, feed
 failure isolation, batch event delivery, and product-aware L2 snapshot/gap
-recovery. Handler callbacks have a five-second deadline so a stuck callback
+recovery. [RuntimeOptions](docs/runtime-options.md) adds per-connection retry
+limits, startup delay, receipt idle policy and handshake/callback deadlines. Handler callbacks default to five
+seconds so a stuck callback
 cannot permanently stop socket reads; high-volume consumers should prefer the
 bounded event-stream API.
 
 The offline evidence and parity workflow is documented in
-[`docs/harness.md`](docs/harness.md). The implementation roadmap and acceptance
-criteria are in
-[`docs/current-exchanges-implementation-plan.md`](docs/current-exchanges-implementation-plan.md).
+[the harness guide](docs/harness.md). See the [documentation index](docs/README.md)
+for protocol references, decisions, and dated live-validation reports.
 
 ## Exchange Policy
 
@@ -359,14 +614,10 @@ New CEX integrations must use the latest stable official exchange API rather tha
   protocol source of truth.
 - **Repository**: https://github.com/crypto-2042/cryptofeed-rs.
 - **License**: this workspace currently declares XFree86-1.1 (see `LICENSE`).
-  The maintainer must confirm licensing and ownership before the first public
-  distribution. This declaration is not a claim that the current Python
+  The maintainer must confirm licensing and ownership before the first formal
+  release. This declaration is not a claim that the current Python
   upstream has the same license; any reused material needs provenance tied
   to its exact source revision.
 - **Maturity**: experimental public-market-data release. The API surface and
   the supported exchange scope are still evolving; `PROGRESS.md` tracks the
   current implementation state and the remaining release work.
-
-The [2026-10-08 pre-push review](docs/pre-push-review-2026-10-08.md) records
-engineering gates, corrected protocol/model contracts, manual evidence,
-and the remaining maintainer decisions before public distribution.

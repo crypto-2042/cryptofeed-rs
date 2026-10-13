@@ -1,3 +1,4 @@
+use crate::transport::TransportConfig;
 use std::collections::{HashMap, HashSet};
 
 use crate::exchange::ExchangeFeed;
@@ -253,6 +254,7 @@ pub fn capability_matrix() -> &'static [Capability] {
 }
 
 pub fn validate_feed(feed: &ExchangeFeed) -> Result<InstrumentKind> {
+    feed.validate_subscription_configuration()?;
     if feed.channels.is_empty() {
         return Err(Error::InvalidConfiguration(
             "a feed must contain at least one channel".to_owned(),
@@ -260,7 +262,19 @@ pub fn validate_feed(feed: &ExchangeFeed) -> Result<InstrumentKind> {
     }
 
     let product = feed.product_kind()?;
+    validate_product_channels(feed, product)?;
+    Ok(product)
+}
 
+pub(crate) fn validate_product_channels(
+    feed: &ExchangeFeed,
+    product: InstrumentKind,
+) -> Result<()> {
+    if feed.channels.is_empty() {
+        return Err(Error::InvalidConfiguration(
+            "a feed must contain at least one channel".to_owned(),
+        ));
+    }
     let capability = CAPABILITIES
         .iter()
         .find(|capability| capability.exchange == feed.exchange && capability.product == product)
@@ -280,7 +294,7 @@ pub fn validate_feed(feed: &ExchangeFeed) -> Result<InstrumentKind> {
     validate_l2_book_depth(feed, product)?;
     validate_l2_book_interval(feed, product)?;
 
-    Ok(product)
+    Ok(())
 }
 
 fn validate_candle_interval(feed: &ExchangeFeed) -> Result<()> {
@@ -397,7 +411,7 @@ fn validate_l2_book_interval(feed: &ExchangeFeed, product: InstrumentKind) -> Re
 }
 
 #[allow(clippy::match_like_matches_macro)] // per-arm `cfg!` cannot use `matches!`
-fn channel_feature_enabled(channel: Channel) -> bool {
+pub(crate) fn channel_feature_enabled(channel: Channel) -> bool {
     match channel {
         Channel::Candles => cfg!(feature = "candles"),
         Channel::Funding => cfg!(feature = "funding"),
@@ -415,12 +429,62 @@ fn channel_feature_enabled(channel: Channel) -> bool {
 
 #[derive(Debug, Default)]
 pub struct SymbolRegistry {
+    metadata: HashMap<Symbol, crate::market_info::MarketInfo>,
     normalized_to_exchange: HashMap<Symbol, String>,
     exchange_to_normalized: HashMap<(String, InstrumentKind), Symbol>,
     exchange_products: HashMap<String, HashSet<InstrumentKind>>,
 }
 
 impl SymbolRegistry {
+    pub(crate) fn into_entries(self) -> Vec<(Symbol, String)> {
+        let mut entries: Vec<_> = self.normalized_to_exchange.into_iter().collect();
+        entries.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
+        entries
+    }
+
+    pub(crate) fn into_markets(
+        mut self,
+        exchange: ExchangeId,
+    ) -> Vec<crate::market_info::MarketInfo> {
+        let mut metadata = std::mem::take(&mut self.metadata);
+        self.into_entries()
+            .into_iter()
+            .map(|(symbol, native)| {
+                metadata.remove(&symbol).unwrap_or_else(|| {
+                    crate::market_info::MarketInfo::new(exchange, symbol, &native)
+                })
+            })
+            .collect()
+    }
+    pub(crate) fn insert_market(
+        &mut self,
+        symbol: Symbol,
+        native: &str,
+        exchange: ExchangeId,
+        row: &Value,
+        settlement: Option<&str>,
+    ) -> Result<()> {
+        let info = crate::market_info::parse(
+            exchange,
+            symbol.clone(),
+            &native.to_ascii_uppercase(),
+            row,
+            settlement,
+        )?;
+        self.insert(symbol.clone(), native)?;
+        if self
+            .metadata
+            .get(&symbol)
+            .is_some_and(|existing| existing != &info)
+        {
+            return Err(Error::MalformedData(format!(
+                "conflicting metadata for {symbol:?}"
+            )));
+        }
+        self.metadata.insert(symbol, info);
+        Ok(())
+    }
+
     pub fn insert(&mut self, symbol: Symbol, exchange_symbol: &str) -> Result<()> {
         let exchange_symbol = exchange_symbol.to_ascii_uppercase();
         if exchange_symbol.is_empty() {
@@ -505,32 +569,40 @@ pub async fn resolve_feed_symbols(feed: &ExchangeFeed) -> Result<Vec<String>> {
             .collect();
     }
 
-    let registry = fetch_symbol_registry(feed.exchange, product).await?;
+    let registry =
+        fetch_symbol_registry_with_refresh(feed.exchange, product, false, &feed.transport).await?;
     feed.symbols
         .iter()
         .map(|symbol| registry.to_exchange(symbol).map(ToOwned::to_owned))
         .collect()
 }
 
-async fn fetch_symbol_registry(
+pub(crate) async fn fetch_symbol_registry_with_refresh(
     exchange: ExchangeId,
     product: InstrumentKind,
+    refresh: bool,
+    transport: &TransportConfig,
 ) -> Result<SymbolRegistry> {
     let mut registry = SymbolRegistry::default();
     match exchange {
         ExchangeId::Binance => {
             if product == InstrumentKind::Spot {
-                let payload = fetch_json("https://api.binance.com/api/v3/exchangeInfo").await?;
-                for item in array_at(&payload, &["symbols"])? {
-                    add_spot_market(
-                        &mut registry,
-                        str_at(item, &["symbol"]),
-                        str_at(item, &["baseAsset"]),
-                        str_at(item, &["quoteAsset"]),
-                    )?;
-                }
+                let payload = fetch_json(
+                    "https://api.binance.com/api/v3/exchangeInfo",
+                    refresh,
+                    transport,
+                    exchange,
+                )
+                .await?;
+                add_spot_catalog(&mut registry, &payload, ExchangeId::Binance)?;
             } else if product == InstrumentKind::Option {
-                let payload = fetch_json("https://eapi.binance.com/eapi/v1/exchangeInfo").await?;
+                let payload = fetch_json(
+                    "https://eapi.binance.com/eapi/v1/exchangeInfo",
+                    refresh,
+                    transport,
+                    exchange,
+                )
+                .await?;
                 for item in array_at(&payload, &["optionSymbols"])? {
                     add_binance_option_market(&mut registry, item)?;
                 }
@@ -539,7 +611,7 @@ async fn fetch_symbol_registry(
                     "https://fapi.binance.com/fapi/v1/exchangeInfo",
                     "https://dapi.binance.com/dapi/v1/exchangeInfo",
                 ] {
-                    let payload = fetch_json(url).await?;
+                    let payload = fetch_json(url, refresh, transport, exchange).await?;
                     add_binance_markets(&mut registry, &payload, product)?;
                 }
             }
@@ -553,16 +625,9 @@ async fn fetch_symbol_registry(
             for category in categories {
                 let url =
                     format!("https://api.bitget.com/api/v3/market/instruments?category={category}");
-                let payload = fetch_json(&url).await?;
+                let payload = fetch_json(&url, refresh, transport, exchange).await?;
                 if product == InstrumentKind::Spot {
-                    for item in array_at(&payload, &["data"])? {
-                        add_spot_market(
-                            &mut registry,
-                            str_at(item, &["symbol"]),
-                            str_at(item, &["baseCoin"]),
-                            str_at(item, &["quoteCoin"]),
-                        )?;
-                    }
+                    add_spot_catalog(&mut registry, &payload, ExchangeId::Bitget)?;
                 } else {
                     add_bitget_markets(&mut registry, &payload, product)?;
                 }
@@ -570,52 +635,53 @@ async fn fetch_symbol_registry(
         }
         ExchangeId::Bybit => {
             if product == InstrumentKind::Spot {
-                let payload =
-                    fetch_json("https://api.bybit.com/v5/market/instruments-info?category=spot")
-                        .await?;
-                for item in array_at(&payload, &["result", "list"])? {
-                    add_spot_market(
-                        &mut registry,
-                        str_at(item, &["symbol"]),
-                        str_at(item, &["baseCoin"]),
-                        str_at(item, &["quoteCoin"]),
-                    )?;
-                }
+                let payload = fetch_json(
+                    "https://api.bybit.com/v5/market/instruments-info?category=spot&status=Trading",
+                    refresh,
+                    transport,
+                    exchange,
+                )
+                .await?;
+                add_spot_catalog(&mut registry, &payload, ExchangeId::Bybit)?;
             } else if product == InstrumentKind::Option {
                 // Verified live 2026-08-07: `tickers?category=option`
                 // requires a `baseCoin` parameter (PARAMS_ERROR otherwise);
                 // the full option catalog pages from
                 // `instruments-info?category=option` without a base coin.
-                fetch_bybit_option_category(&mut registry).await?;
+                fetch_bybit_option_category(&mut registry, refresh, transport).await?;
             } else {
                 for category in ["linear", "inverse"] {
-                    fetch_bybit_category(&mut registry, category, product).await?;
+                    fetch_bybit_category(&mut registry, category, product, refresh, transport)
+                        .await?;
                 }
             }
         }
         ExchangeId::Gateio => match product {
             InstrumentKind::Spot => {
-                let payload =
-                    fetch_json("https://api.gateio.ws/api/v4/spot/currency_pairs").await?;
-                for item in gateio_contracts(&payload)? {
-                    add_spot_market(
-                        &mut registry,
-                        str_at(item, &["id"]),
-                        str_at(item, &["base"]),
-                        str_at(item, &["quote"]),
-                    )?;
-                }
+                let payload = fetch_json(
+                    "https://api.gateio.ws/api/v4/spot/currency_pairs",
+                    refresh,
+                    transport,
+                    exchange,
+                )
+                .await?;
+                add_spot_catalog(&mut registry, &payload, ExchangeId::Gateio)?;
             }
             InstrumentKind::Perpetual => {
                 for settle in ["usdt", "btc"] {
                     let url = format!("https://api.gateio.ws/api/v4/futures/{settle}/contracts");
-                    let payload = fetch_json(&url).await?;
+                    let payload = fetch_json(&url, refresh, transport, exchange).await?;
                     add_gateio_perpetual_markets(&mut registry, &payload, settle)?;
                 }
             }
             InstrumentKind::Futures => {
-                let payload =
-                    fetch_json("https://api.gateio.ws/api/v4/delivery/usdt/contracts").await?;
+                let payload = fetch_json(
+                    "https://api.gateio.ws/api/v4/delivery/usdt/contracts",
+                    refresh,
+                    transport,
+                    exchange,
+                )
+                .await?;
                 add_gateio_delivery_markets(&mut registry, &payload)?;
             }
             InstrumentKind::Unknown | InstrumentKind::Option | InstrumentKind::Margin => {
@@ -650,17 +716,11 @@ async fn fetch_symbol_registry(
                     )));
                 }
             };
-            let url = format!("https://www.okx.com/api/v5/public/instruments?instType={inst_type}");
-            let payload = fetch_json(&url).await?;
+            let url =
+                format!("https://openapi.okx.com/api/v5/public/instruments?instType={inst_type}");
+            let payload = fetch_json(&url, refresh, transport, exchange).await?;
             if product == InstrumentKind::Spot {
-                for item in array_at(&payload, &["data"])? {
-                    add_spot_market(
-                        &mut registry,
-                        str_at(item, &["instId"]),
-                        str_at(item, &["baseCcy"]),
-                        str_at(item, &["quoteCcy"]),
-                    )?;
-                }
+                add_okx_spot_markets(&mut registry, &payload)?;
             } else {
                 add_okx_markets(&mut registry, &payload, product)?;
             }
@@ -721,6 +781,14 @@ fn add_binance_markets(
     product: InstrumentKind,
 ) -> Result<()> {
     for item in array_at(payload, &["symbols"])? {
+        let status = if item.get("contractStatus").is_some() {
+            "contractStatus"
+        } else {
+            "status"
+        };
+        if !catalog_status(item, status, &["TRADING"])? {
+            continue;
+        }
         let contract_type = required_str(item, "contractType")?;
         let item_product = if contract_type == "PERPETUAL" {
             InstrumentKind::Perpetual
@@ -744,7 +812,7 @@ fn add_binance_markets(
             )?,
             _ => continue,
         };
-        registry.insert(symbol, exchange_symbol)?;
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Binance, item, None)?;
     }
     Ok(())
 }
@@ -755,6 +823,9 @@ fn add_bitget_markets(
     product: InstrumentKind,
 ) -> Result<()> {
     for item in array_at(payload, &["data"])? {
+        if !catalog_status(item, "status", &["online", "limit_open", "limit_close"])? {
+            continue;
+        }
         let contract_type = required_str(item, "type")?;
         let item_product = match contract_type {
             "perpetual" => InstrumentKind::Perpetual,
@@ -779,7 +850,7 @@ fn add_bitget_markets(
             }
             _ => continue,
         };
-        registry.insert(symbol, exchange_symbol)?;
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Bitget, item, None)?;
     }
     Ok(())
 }
@@ -788,6 +859,8 @@ async fn fetch_bybit_category(
     registry: &mut SymbolRegistry,
     category: &str,
     product: InstrumentKind,
+    refresh: bool,
+    transport: &TransportConfig,
 ) -> Result<()> {
     let mut cursor: Option<String> = None;
     let mut seen = HashSet::new();
@@ -797,12 +870,13 @@ async fn fetch_bybit_category(
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("category", category);
+            query.append_pair("status", "Trading");
             query.append_pair("limit", "1000");
             if let Some(cursor) = &cursor {
                 query.append_pair("cursor", cursor);
             }
         }
-        let payload = fetch_json(url.as_str()).await?;
+        let payload = fetch_json(url.as_str(), refresh, transport, ExchangeId::Bybit).await?;
         cursor = add_bybit_page(registry, &payload, product)?;
         let Some(next) = cursor.as_deref() else {
             return Ok(());
@@ -811,7 +885,11 @@ async fn fetch_bybit_category(
     }
 }
 
-async fn fetch_bybit_option_category(registry: &mut SymbolRegistry) -> Result<()> {
+async fn fetch_bybit_option_category(
+    registry: &mut SymbolRegistry,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<()> {
     let mut cursor: Option<String> = None;
     let mut seen = HashSet::new();
     loop {
@@ -825,7 +903,7 @@ async fn fetch_bybit_option_category(registry: &mut SymbolRegistry) -> Result<()
                 query.append_pair("cursor", cursor);
             }
         }
-        let payload = fetch_json(url.as_str()).await?;
+        let payload = fetch_json(url.as_str(), refresh, transport, ExchangeId::Bybit).await?;
         cursor = add_bybit_option_page(registry, &payload)?;
         let Some(next) = cursor.as_deref() else {
             return Ok(());
@@ -913,6 +991,9 @@ fn add_bybit_page(
     product: InstrumentKind,
 ) -> Result<Option<String>> {
     for item in array_at(payload, &["result", "list"])? {
+        if !catalog_status(item, "status", &["Trading"])? {
+            continue;
+        }
         let contract_type = required_str(item, "contractType")?;
         let item_product = if contract_type.ends_with("Perpetual") {
             InstrumentKind::Perpetual
@@ -937,7 +1018,7 @@ fn add_bybit_page(
             }
             _ => continue,
         };
-        registry.insert(symbol, exchange_symbol)?;
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Bybit, item, None)?;
     }
 
     let cursor = str_at(payload, &["result", "nextPageCursor"])
@@ -953,6 +1034,23 @@ fn record_bybit_cursor(seen: &mut HashSet<String>, cursor: &str) -> Result<()> {
         return Err(Error::Protocol(format!(
             "Bybit repeated instruments cursor {cursor}"
         )));
+    }
+    Ok(())
+}
+
+fn add_okx_spot_markets(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
+    for item in array_at(payload, &["data"])? {
+        if str_at(item, &["state"]).is_some_and(|state| state != "live") {
+            continue;
+        }
+        add_spot_market(
+            registry,
+            ExchangeId::Okx,
+            item,
+            str_at(item, &["instId"]),
+            str_at(item, &["baseCcy"]),
+            str_at(item, &["quoteCcy"]),
+        )?;
     }
     Ok(())
 }
@@ -1022,7 +1120,7 @@ fn add_okx_markets(
             }
             _ => continue,
         };
-        registry.insert(symbol, exchange_symbol)?;
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Okx, item, None)?;
     }
     Ok(())
 }
@@ -1058,7 +1156,13 @@ fn add_gateio_perpetual_markets(
                 "Gateio {settle} contract {exchange_symbol} has type {contract_type} and quote {quote}"
             )));
         }
-        registry.insert(Symbol::perpetual(base, quote), exchange_symbol)?;
+        registry.insert_market(
+            Symbol::perpetual(base, quote),
+            exchange_symbol,
+            ExchangeId::Gateio,
+            item,
+            Some(settle),
+        )?;
     }
     Ok(())
 }
@@ -1102,7 +1206,13 @@ fn add_gateio_delivery_markets(registry: &mut SymbolRegistry, payload: &Value) -
                 "Gateio delivery contract {exchange_symbol} disagrees with expire_time {expire_time}"
             )));
         }
-        registry.insert(Symbol::futures(base, quote, expiry), exchange_symbol)?;
+        registry.insert_market(
+            Symbol::futures(base, quote, expiry),
+            exchange_symbol,
+            ExchangeId::Gateio,
+            item,
+            Some("USDT"),
+        )?;
     }
     Ok(())
 }
@@ -1202,8 +1312,72 @@ fn required_str<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
         .ok_or_else(|| Error::MalformedData(format!("instrument is missing {field}")))
 }
 
+fn catalog_status(item: &Value, field: &str, eligible: &[&str]) -> Result<bool> {
+    match item.get(field) {
+        None => Ok(true), // Minimal sanitized references omit optional status.
+        Some(Value::String(status)) => Ok(eligible.contains(&status.as_str())),
+        Some(_) => Err(Error::MalformedData(format!(
+            "catalog {field} must be a string"
+        ))),
+    }
+}
+
+fn add_spot_catalog(
+    registry: &mut SymbolRegistry,
+    payload: &Value,
+    exchange: ExchangeId,
+) -> Result<()> {
+    let (rows, keys, field, eligible): (&[Value], [&str; 3], &str, &[&str]) = match exchange {
+        ExchangeId::Binance => (
+            array_at(payload, &["symbols"])?,
+            ["symbol", "baseAsset", "quoteAsset"],
+            "status",
+            &["TRADING"],
+        ),
+        ExchangeId::Bitget => (
+            array_at(payload, &["data"])?,
+            ["symbol", "baseCoin", "quoteCoin"],
+            "status",
+            &["online", "limit_open", "limit_close"],
+        ),
+        ExchangeId::Bybit => (
+            array_at(payload, &["result", "list"])?,
+            ["symbol", "baseCoin", "quoteCoin"],
+            "status",
+            &["Trading"],
+        ),
+        ExchangeId::Gateio => (
+            gateio_contracts(payload)?,
+            ["id", "base", "quote"],
+            "trade_status",
+            &["tradable", "buyable", "sellable"],
+        ),
+        _ => {
+            return Err(Error::UnsupportedExchange(format!(
+                "{exchange:?} spot catalog"
+            )));
+        }
+    };
+    for item in rows {
+        if !catalog_status(item, field, eligible)? {
+            continue;
+        }
+        add_spot_market(
+            registry,
+            exchange,
+            item,
+            str_at(item, &[keys[0]]),
+            str_at(item, &[keys[1]]),
+            str_at(item, &[keys[2]]),
+        )?;
+    }
+    Ok(())
+}
+
 fn add_spot_market(
     registry: &mut SymbolRegistry,
+    exchange: ExchangeId,
+    row: &Value,
     exchange_symbol: Option<&str>,
     base: Option<&str>,
     quote: Option<&str>,
@@ -1213,74 +1387,130 @@ fn add_spot_market(
             "instrument is missing its native symbol, base, or quote".to_owned(),
         ));
     };
-    registry.insert(Symbol::spot(base, quote), exchange_symbol)
+    if exchange_symbol.is_empty() || base.is_empty() || quote.is_empty() {
+        return Err(Error::MalformedData(
+            "instrument has an empty native symbol, base, or quote".to_owned(),
+        ));
+    }
+    registry.insert_market(
+        Symbol::spot(base, quote),
+        exchange_symbol,
+        exchange,
+        row,
+        None,
+    )
 }
 
-async fn fetch_json(url: &str) -> Result<Value> {
-    // Large catalogs (e.g. Binance exchangeInfo ~17 MB) can be slow or
-    // unstable. A fresh 24h in-process cache is used first (a catalog is a stable
-    // reference; a stale-but-recent one is strictly better than a slow
-    // startup); otherwise fetch with a bounded timeout and one retry, then
-    // refresh the cache.
-    if let Some(cached) = read_catalog_cache(url) {
-        // A cached catalog can lag a brand-new listing by up to 24h; make
-        // the staleness visible instead of surfacing a confusing
-        // "unsupported symbol" for a freshly listed pair.
-        tracing::debug!(url, "serving exchange catalog from cache (24h TTL)");
-        return Ok(cached);
-    }
+async fn fetch_json(
+    url: &str,
+    refresh: bool,
+    transport: &TransportConfig,
+    exchange: ExchangeId,
+) -> Result<Value> {
+    let key = transport.cache_key(url);
+    fetch_catalog_with(&key, refresh, || async {
+        #[cfg(feature = "recording")]
+        transport.check_replay_catalog_fetch(url, exchange, refresh)?;
+        let result = fetch_catalog_json(url, transport, exchange).await;
+        #[cfg(feature = "recording")]
+        if result.is_ok() {
+            transport.replay_catalog_loaded(url, exchange);
+        }
+        result
+    })
+    .await
+}
 
-    let attempt = async |attempt: u8| -> Result<Value> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(45))
-            .build()
-            .map_err(|e| Error::Transport(e.to_string()))?;
-        let response = client
-            .get(url)
-            .header(reqwest::header::USER_AGENT, "cryptofeed-rs/0.1")
-            .send()
-            .await
-            .map_err(|e| Error::Transport(format!("{url}: {e} (attempt {attempt})")))?;
-        let mut response = response
-            .error_for_status()
-            .map_err(|e| Error::Transport(format!("{url}: {e} (attempt {attempt})")))?;
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_CATALOG_RESPONSE_BYTES as u64)
-        {
-            return Err(Error::MalformedData(format!(
-                "{url}: catalog exceeds {MAX_CATALOG_RESPONSE_BYTES} bytes (attempt {attempt})"
+// Each waiter retains the gate; weak entries avoid retaining completed requests.
+type CatalogRequest = tokio::sync::Mutex<Option<(u64, std::result::Result<Value, Error>)>>;
+type CatalogRequests = std::sync::Mutex<HashMap<String, std::sync::Weak<CatalogRequest>>>;
+static CATALOG_REQUESTS: std::sync::OnceLock<CatalogRequests> = std::sync::OnceLock::new();
+// Starts and completions have distinct epochs even within one clock tick.
+fn catalog_epoch() -> u64 {
+    static EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+}
+
+async fn fetch_catalog_with<F, Fut>(url: &str, refresh: bool, fetch: F) -> Result<Value>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Value>>,
+{
+    let requested_epoch = catalog_epoch();
+    if !refresh {
+        if let Some(value) = read_catalog_cache(url) {
+            tracing::debug!(url, "serving exchange catalog from cache (24h TTL)");
+            return Ok(value);
+        }
+    }
+    let gate = {
+        let mut requests = CATALOG_REQUESTS
+            .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+            .lock()
+            .expect("catalog requests lock");
+        requests.retain(|_, gate| gate.strong_count() > 0);
+        if let Some(gate) = requests.get(url).and_then(std::sync::Weak::upgrade) {
+            gate
+        } else {
+            let gate = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+            requests.insert(url.to_owned(), std::sync::Arc::downgrade(&gate));
+            gate
+        }
+    };
+    let mut completed = gate.lock().await;
+    // Share only work completed since this call began. In particular, a new
+    // refresh never reuses an earlier success or a failed request indefinitely.
+    if let Some((completed_epoch, result)) = completed.as_ref() {
+        if *completed_epoch > requested_epoch {
+            return result.clone();
+        }
+    }
+    if !refresh {
+        if let Some(value) = read_catalog_cache(url) {
+            return Ok(value);
+        }
+    }
+    let result = fetch().await;
+    if let Ok(value) = &result {
+        write_catalog_cache(url, value);
+    }
+    // Configuration failures are not shareable completed HTTP work. A cancelled
+    // replay call must let another waiter make its own next request.
+    if !matches!(result, Err(Error::InvalidConfiguration(_))) {
+        *completed = Some((catalog_epoch(), result.clone()));
+    }
+    result
+}
+
+async fn fetch_catalog_json(
+    url: &str,
+    transport: &TransportConfig,
+    exchange: ExchangeId,
+) -> Result<Value> {
+    let attempt = async |_attempt: u8| -> Result<Value> {
+        let value = crate::runtime::snapshot::fetch_json_with_limits(
+            url,
+            transport,
+            exchange,
+            std::time::Duration::from_secs(45),
+            MAX_CATALOG_RESPONSE_BYTES,
+        )
+        .await?;
+        if let Some(code) = crate::runtime::quota::native_code(exchange, &value) {
+            return Err(Error::Protocol(format!(
+                "{exchange:?} catalog reports native rate limit {code}"
             )));
         }
-
-        let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|e| Error::Transport(format!("{url}: {e} (attempt {attempt})")))?
-        {
-            if body.len().saturating_add(chunk.len()) > MAX_CATALOG_RESPONSE_BYTES {
-                return Err(Error::MalformedData(format!(
-                    "{url}: catalog exceeds {MAX_CATALOG_RESPONSE_BYTES} bytes (attempt {attempt})"
-                )));
-            }
-            body.extend_from_slice(&chunk);
-        }
-        let value = serde_json::from_slice::<Value>(&body)
-            .map_err(|e| Error::MalformedData(format!("{url}: {e} (attempt {attempt})")))?;
         validate_catalog_envelope(url, &value)?;
         Ok(value)
     };
-
     match attempt(1).await {
-        Ok(value) => {
-            write_catalog_cache(url, &value);
-            Ok(value)
-        }
+        Ok(value) => Ok(value),
+        Err(first @ (Error::HttpStatus { .. } | Error::InvalidConfiguration(_))) => Err(first),
         Err(first) => match attempt(2).await {
-            Ok(value) => {
-                write_catalog_cache(url, &value);
-                Ok(value)
+            Ok(value) => Ok(value),
+            Err(second @ (Error::HttpStatus { .. } | Error::InvalidConfiguration(_))) => {
+                Err(second)
             }
             Err(second) => Err(Error::Transport(format!(
                 "catalog fetch failed twice for {url}: first: {first}; second: {second}"
@@ -1290,36 +1520,8 @@ async fn fetch_json(url: &str) -> Result<Value> {
 }
 
 const MAX_CATALOG_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
-const CATALOG_CACHE_TTL_SECS: u64 = 24 * 60 * 60;
-type CatalogCache = std::sync::Mutex<HashMap<String, (std::time::SystemTime, Value)>>;
-static CATALOG_CACHE: std::sync::OnceLock<CatalogCache> = std::sync::OnceLock::new();
-
-fn catalog_cache() -> &'static CatalogCache {
-    CATALOG_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
-}
-
-fn read_catalog_cache(url: &str) -> Option<Value> {
-    let mut cache = catalog_cache().lock().ok()?;
-    let (stored_at, value) = cache.get(url).cloned()?;
-    let age = std::time::SystemTime::now()
-        .duration_since(stored_at)
-        .ok()?
-        .as_secs();
-    if age > CATALOG_CACHE_TTL_SECS {
-        cache.remove(url);
-        return None;
-    }
-    Some(value)
-}
-
-fn write_catalog_cache(url: &str, value: &Value) {
-    if let Ok(mut cache) = catalog_cache().lock() {
-        cache.insert(
-            url.to_owned(),
-            (std::time::SystemTime::now(), value.clone()),
-        );
-    }
-}
+mod cache;
+use cache::{read_catalog_cache, write_catalog_cache};
 
 fn validate_catalog_envelope(url: &str, value: &Value) -> Result<()> {
     if let Some(code) = value.get("retCode").and_then(Value::as_i64) {
@@ -1383,6 +1585,414 @@ mod tests {
     };
     use serde_json::json;
 
+    #[tokio::test]
+    async fn catalog_refresh_bypasses_cache_and_failed_refresh_preserves_it() {
+        let url = "test://refresh-preserves-cache";
+        super::write_catalog_cache(url, &json!({"version": 1}));
+        let value =
+            super::fetch_catalog_with(url, false, || async { panic!("cache hit must not fetch") })
+                .await
+                .unwrap();
+        assert_eq!(value["version"], 1);
+        let value = super::fetch_catalog_with(url, true, || async { Ok(json!({"version": 2})) })
+            .await
+            .unwrap();
+        assert_eq!(value["version"], 2);
+        assert!(
+            super::fetch_catalog_with(url, true, || async {
+                Err(Error::Transport("unavailable".into()))
+            })
+            .await
+            .is_err()
+        );
+        assert_eq!(super::read_catalog_cache(url).unwrap()["version"], 2);
+    }
+
+    #[tokio::test]
+    async fn overlapping_catalog_requests_share_success_or_failure() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        for (url, fail, refresh) in [
+            ("test://cold-success", false, false),
+            ("test://refresh-success", false, true),
+            ("test://cold-failure", true, false),
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let requests = (0..8).map(|_| {
+                let calls = calls.clone();
+                super::fetch_catalog_with(url, refresh, move || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::task::yield_now().await;
+                    if fail {
+                        Err(Error::Transport("unavailable".into()))
+                    } else {
+                        Ok(json!({"version": 1}))
+                    }
+                })
+            });
+            let results = futures::future::join_all(requests).await;
+            assert_eq!(calls.load(Ordering::SeqCst), 1, "{url}");
+            assert!(results.iter().all(|result| result.is_err() == fail));
+            if fail {
+                assert!(super::read_catalog_cache(url).is_none());
+                assert!(
+                    super::fetch_catalog_with(url, false, || async { Ok(json!({"version": 2})) })
+                        .await
+                        .is_ok()
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn overlapping_catalog_failures_preserve_structured_http_status() {
+        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+        let calls = (0..2).map(|_| {
+            let barrier = barrier.clone();
+            async move {
+                barrier.wait().await;
+                super::fetch_catalog_with("test://structured-http", true, || async {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    Err(Error::HttpStatus {
+                        status: 429,
+                        retry_after: Some(std::time::Duration::from_secs(2)),
+                    })
+                })
+                .await
+            }
+        });
+        for result in futures::future::join_all(calls).await {
+            assert!(
+                matches!(result, Err(Error::HttpStatus {status:429,retry_after:Some(delay)}) if delay == std::time::Duration::from_secs(2))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn different_catalog_urls_fetch_independently() {
+        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+        let requests = ["test://independent-a", "test://independent-b"]
+            .into_iter()
+            .map(|url| {
+                let barrier = barrier.clone();
+                super::fetch_catalog_with(url, false, move || async move {
+                    barrier.wait().await;
+                    Ok(json!({"url": url}))
+                })
+            });
+        let values = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            futures::future::join_all(requests),
+        )
+        .await
+        .unwrap();
+        assert!(values.iter().all(|value| value.is_ok()));
+    }
+
+    #[tokio::test]
+    async fn cancelling_catalog_leader_does_not_block_later_requests() {
+        let url = "test://cancelled-leader";
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(super::fetch_catalog_with(url, false, || async move {
+            started_tx.send(()).unwrap();
+            std::future::pending::<cryptofeed_core::error::Result<serde_json::Value>>().await
+        }));
+        started_rx.await.unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            super::fetch_catalog_with(url, false, || async { Ok(json!({"version": 1})) }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result["version"], 1);
+    }
+
+    #[test]
+    fn metadata_survives_catalog_assembly_and_duplicate_conflicts_fail() {
+        let symbol = Symbol::spot("BTC", "USDT");
+        let row =
+            json!({"status":"TRADING","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.05"}]});
+        let mut registry = SymbolRegistry::default();
+        registry
+            .insert_market(symbol.clone(), "BTCUSDT", ExchangeId::Binance, &row, None)
+            .unwrap();
+        registry
+            .insert_market(symbol.clone(), "BTCUSDT", ExchangeId::Binance, &row, None)
+            .unwrap();
+        let conflicting =
+            json!({"status":"TRADING","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.10"}]});
+        assert!(
+            registry
+                .insert_market(
+                    symbol.clone(),
+                    "BTCUSDT",
+                    ExchangeId::Binance,
+                    &conflicting,
+                    None
+                )
+                .is_err()
+        );
+        assert!(matches!(
+            registry.insert_market(symbol.clone(), "XBTUSDT", ExchangeId::Binance, &row, None),
+            Err(Error::AmbiguousSymbol(_))
+        ));
+        let catalog = crate::catalog::MarketCatalog::from_registry(
+            ExchangeId::Binance,
+            InstrumentKind::Spot,
+            registry,
+        );
+        let market = catalog.market(&symbol).unwrap();
+        assert_eq!(market.price_increment.unwrap().to_string(), "0.05");
+        assert_eq!(
+            market.exchange_symbol,
+            catalog.exchange_symbol(&symbol).unwrap()
+        );
+        assert_eq!(market.exchange, catalog.exchange());
+        assert_eq!(catalog.product(), InstrumentKind::Spot);
+        assert_eq!(catalog.markets().len(), 1);
+        assert_eq!(
+            catalog
+                .supported_channels()
+                .contains(&cryptofeed_core::exchange::Channel::Trade),
+            cfg!(feature = "trade")
+        );
+        assert!(catalog.market(&Symbol::spot("MISSING", "USDT")).is_err());
+    }
+
+    #[test]
+    fn catalog_helpers_populate_verified_metadata_for_all_five_exchanges() {
+        let cases = [
+            (
+                ExchangeId::Binance,
+                InstrumentKind::Spot,
+                r#"{"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","filters":[{"filterType":"LOT_SIZE","stepSize":"0.001","minQty":"0.001"},{"filterType":"PRICE_FILTER","tickSize":"0.05"}]}]}"#,
+                Some("0.05"),
+            ),
+            (
+                ExchangeId::Bitget,
+                InstrumentKind::Spot,
+                r#"{"data":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"online","pricePrecision":"2","quantityPrecision":"6","minOrderAmount":"5"}]}"#,
+                None,
+            ),
+            (
+                ExchangeId::Bybit,
+                InstrumentKind::Spot,
+                r#"{"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"Trading","priceFilter":{"tickSize":"0.1"},"lotSizeFilter":{"basePrecision":"0.000001","minOrderQty":"0.001","minOrderAmt":"5"}}]}}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Okx,
+                InstrumentKind::Spot,
+                r#"{"data":[{"instId":"BTC-USDT","instType":"SPOT","baseCcy":"BTC","quoteCcy":"USDT","state":"live","tickSz":"0.1","lotSz":"0.000001","minSz":"0.00001"}]}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Gateio,
+                InstrumentKind::Spot,
+                r#"[{"id":"BTC_USDT","base":"BTC","quote":"USDT","trade_status":"tradable","precision":2,"amount_precision":6,"min_base_amount":"0.00001","min_quote_amount":"5"}]"#,
+                None,
+            ),
+            (
+                ExchangeId::Binance,
+                InstrumentKind::Perpetual,
+                r#"{"symbols":[{"symbol":"BTCUSD_PERP","baseAsset":"BTC","quoteAsset":"USD","contractType":"PERPETUAL","contractStatus":"TRADING","contractSize":100,"marginAsset":"BTC","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.1"},{"filterType":"LOT_SIZE","stepSize":"1","minQty":"1"}]}]}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Bitget,
+                InstrumentKind::Perpetual,
+                r#"{"data":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","type":"perpetual","status":"online","pricePrecision":"2","quantityPrecision":"3","priceMultiplier":"0.02","quantityMultiplier":"0.005","minOrderQty":"0.01","minOrderAmount":"5"}]}"#,
+                Some("0.02"),
+            ),
+            (
+                ExchangeId::Bybit,
+                InstrumentKind::Perpetual,
+                r#"{"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"Trading","settleCoin":"USDT","priceScale":"1","priceFilter":{"tickSize":"0.1"},"lotSizeFilter":{"qtyStep":"0.001","minOrderQty":"0.001","minNotionalValue":"5"}}],"nextPageCursor":""}}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Okx,
+                InstrumentKind::Perpetual,
+                r#"{"data":[{"instId":"BTC-USD-SWAP","instType":"SWAP","state":"live","tickSz":"0.1","lotSz":"1","minSz":"1","ctVal":"100","ctValCcy":"USD","ctMult":"1","ctType":"inverse","settleCcy":"BTC"}]}"#,
+                Some("0.1"),
+            ),
+            (
+                ExchangeId::Gateio,
+                InstrumentKind::Perpetual,
+                r#"[{"name":"BTC_USDT","type":"direct","in_delisting":false,"quanto_multiplier":"0.0001","order_price_round":"0.1","order_size_min":1}]"#,
+                Some("0.1"),
+            ),
+        ];
+        for (exchange, product, raw, tick) in cases {
+            let payload: serde_json::Value = serde_json::from_str(raw).unwrap();
+            let mut registry = SymbolRegistry::default();
+            match (exchange, product) {
+                (ExchangeId::Okx, InstrumentKind::Spot) => {
+                    super::add_okx_spot_markets(&mut registry, &payload).unwrap()
+                }
+                (_, InstrumentKind::Spot) => {
+                    super::add_spot_catalog(&mut registry, &payload, exchange).unwrap()
+                }
+                (ExchangeId::Binance, _) => {
+                    super::add_binance_markets(&mut registry, &payload, product).unwrap()
+                }
+                (ExchangeId::Bitget, _) => {
+                    super::add_bitget_markets(&mut registry, &payload, product).unwrap()
+                }
+                (ExchangeId::Bybit, _) => {
+                    super::add_bybit_page(&mut registry, &payload, product).unwrap();
+                }
+                (ExchangeId::Okx, _) => {
+                    super::add_okx_markets(&mut registry, &payload, product).unwrap()
+                }
+                (ExchangeId::Gateio, _) => {
+                    super::add_gateio_perpetual_markets(&mut registry, &payload, "usdt").unwrap()
+                }
+                _ => unreachable!(),
+            }
+            let catalog = crate::catalog::MarketCatalog::from_registry(exchange, product, registry);
+            let info = catalog.markets().next().unwrap();
+            assert_eq!(catalog.markets().len(), 1);
+            assert_eq!(info.exchange, exchange);
+            assert_eq!(info.symbol.kind(), product);
+            assert_eq!(
+                info.price_increment,
+                tick.map(|value| rust_decimal::Decimal::from_str_exact(value).unwrap()),
+                "{exchange:?}/{product:?}"
+            );
+            if tick.is_none() {
+                assert_eq!(info.price_decimal_places, Some(2));
+            }
+            assert_eq!(
+                catalog.exchange_symbol(&info.symbol).unwrap(),
+                info.exchange_symbol
+            );
+        }
+    }
+
+    #[test]
+    fn spot_catalog_eligibility_filters_unavailable_markets_without_guessing() {
+        for (exchange, payload) in [
+            (
+                ExchangeId::Binance,
+                json!({"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING"},{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","status":"HALT"}]}),
+            ),
+            (
+                ExchangeId::Bitget,
+                json!({"data":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"online"},{"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","status":"offline"}]}),
+            ),
+            (
+                ExchangeId::Bybit,
+                json!({"result":{"list":[{"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","status":"Trading"},{"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","status":"PendingOpen"}]}}),
+            ),
+            (
+                ExchangeId::Gateio,
+                json!([{"id":"BTC_USDT","base":"BTC","quote":"USDT","trade_status":"tradable"},{"id":"OLD_USDT","base":"OLD","quote":"USDT","trade_status":"untradable"}]),
+            ),
+        ] {
+            let mut registry = SymbolRegistry::default();
+            super::add_spot_catalog(&mut registry, &payload, exchange).unwrap();
+            assert_eq!(
+                registry
+                    .into_entries()
+                    .iter()
+                    .map(|(symbol, _)| symbol.as_str())
+                    .collect::<Vec<_>>(),
+                ["BTC-USDT"],
+                "{exchange:?}"
+            );
+        }
+        assert!(super::catalog_status(&json!({"status": 42}), "status", &["Trading"]).is_err());
+    }
+
+    #[test]
+    fn derivative_catalogs_exclude_inactive_and_pending_instruments() {
+        for (coin_margin, field) in [(false, "status"), (true, "contractStatus")] {
+            let mut rows = json!({"symbols":[
+                {"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","contractType":"PERPETUAL"},
+                {"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","contractType":"PERPETUAL"}
+            ]});
+            rows["symbols"][0][field] = json!("TRADING");
+            rows["symbols"][1][field] = json!("SETTLING");
+            if coin_margin {
+                rows["symbols"][0]["status"] = json!("SETTLING"); // contractStatus is authoritative.
+            }
+            let mut registry = SymbolRegistry::default();
+            add_binance_markets(&mut registry, &rows, InstrumentKind::Perpetual).unwrap();
+            assert_eq!(registry.into_entries().len(), 1);
+        }
+        let mut registry = SymbolRegistry::default();
+        add_bitget_markets(&mut registry, &json!({"data":[
+            {"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","type":"perpetual","status":"limit_open"},
+            {"symbol":"ETHUSDT","baseCoin":"ETH","quoteCoin":"USDT","type":"perpetual","status":"limit_close"},
+            {"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","type":"perpetual","status":"restrictedAPI"}
+        ]}), InstrumentKind::Perpetual).unwrap();
+        assert_eq!(registry.into_entries().len(), 2);
+        let mut registry = SymbolRegistry::default();
+        let cursor = add_bybit_page(&mut registry, &json!({"result":{"list":[
+            {"symbol":"BTCUSDT","baseCoin":"BTC","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"Trading"},
+            {"symbol":"OLDUSDT","baseCoin":"OLD","quoteCoin":"USDT","contractType":"LinearPerpetual","status":"PendingOpen"}
+        ],"nextPageCursor":"next"}}), InstrumentKind::Perpetual).unwrap();
+        assert_eq!(cursor.as_deref(), Some("next"));
+        assert_eq!(
+            registry.into_entries()[0].0,
+            Symbol::perpetual("BTC", "USDT")
+        );
+    }
+
+    #[test]
+    fn okx_spot_catalog_skips_preopen_identity_without_guessing() {
+        let mut registry = super::SymbolRegistry::default();
+        super::add_okx_spot_markets(&mut registry, &json!({"data": [
+            {"instId":"XBB-USDT","instType":"SPOT","state":"preopen","baseCcy":"","quoteCcy":""},
+            {"instId":"BTC-USDT","instType":"SPOT","state":"live","baseCcy":"BTC","quoteCcy":"USDT"}
+        ]})).unwrap();
+        assert_eq!(
+            registry
+                .into_entries()
+                .into_iter()
+                .map(|(symbol, _)| symbol)
+                .collect::<Vec<_>>(),
+            [Symbol::spot("BTC", "USDT")]
+        );
+        assert!(
+            super::add_okx_spot_markets(
+                &mut super::SymbolRegistry::default(),
+                &json!({"data":[
+                    {"instId":"BTC-USDT","state":"live","baseCcy":"","quoteCcy":"USDT"}
+                ]})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn empty_spot_catalog_identity_returns_an_error() {
+        let mut registry = super::SymbolRegistry::default();
+        for (native, base, quote) in [
+            ("BTC-USDT", "", "USDT"),
+            ("BTC-USDT", "BTC", ""),
+            ("", "BTC", "USDT"),
+        ] {
+            assert!(matches!(
+                super::add_spot_market(
+                    &mut registry,
+                    ExchangeId::Binance,
+                    &json!({}),
+                    Some(native),
+                    Some(base),
+                    Some(quote)
+                ),
+                Err(Error::MalformedData(_))
+            ));
+        }
+    }
+
     #[test]
     fn catalog_error_envelopes_are_rejected_before_caching() {
         assert!(validate_catalog_envelope("bybit", &json!({"retCode": 10001})).is_err());
@@ -1392,6 +2002,17 @@ mod tests {
     }
     use std::collections::HashSet;
 
+    #[cfg(all(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles",
+        feature = "funding",
+        feature = "liquidations",
+        feature = "index",
+        feature = "markprice",
+        feature = "openinterest"
+    ))]
     #[test]
     fn capability_matrix_is_non_empty_and_channel_consistent() {
         let matrix = capability_matrix();
@@ -1498,6 +2119,14 @@ mod tests {
         ));
     }
 
+    #[cfg(all(
+        feature = "funding",
+        feature = "liquidations",
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles"
+    ))]
     #[test]
     fn preflight_allows_verified_derivative_cells_only() {
         let binance = Binance::new()
@@ -1861,6 +2490,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "candles")]
     #[test]
     fn preflight_validates_candle_interval_per_exchange() {
         let binance_hourly = ExchangeFeedBuilder::new(ExchangeId::Binance)
@@ -1911,6 +2541,7 @@ mod tests {
         assert_eq!(validate_feed(&gate_10s).unwrap(), InstrumentKind::Perpetual);
     }
 
+    #[cfg(all(feature = "orderbook", feature = "ticker"))]
     #[test]
     fn preflight_validates_l2_depth_level_per_exchange() {
         let bybit_200 = ExchangeFeedBuilder::new(ExchangeId::Bybit)
@@ -1991,6 +2622,7 @@ mod tests {
         ));
     }
 
+    #[cfg(all(feature = "orderbook", feature = "ticker"))]
     #[test]
     fn preflight_validates_l2_book_interval_per_exchange() {
         let binance_spot_1000 = ExchangeFeedBuilder::new(ExchangeId::Binance)
@@ -2382,6 +3014,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ticker")]
     #[tokio::test]
     async fn explicit_bidirectional_mapping_resolves_without_discovery() {
         let feed = Binance::new()
@@ -2396,6 +3029,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ticker")]
     #[tokio::test]
     async fn explicit_mapping_requires_one_native_symbol_per_instrument() {
         let feed = Binance::new()
@@ -2409,5 +3043,132 @@ mod tests {
             resolve_feed_symbols(&feed).await,
             Err(Error::InvalidConfiguration(_))
         ));
+    }
+}
+
+#[cfg(all(test, feature = "recording"))]
+mod replay_waiter_tests {
+    use super::*;
+    #[tokio::test]
+    async fn cancelled_replay_work_is_not_shared_as_a_completed_request_with_waiters() {
+        let key = "sdk-http-replay-cancelled-waiter-regression";
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let (release, waiting) = tokio::sync::oneshot::channel();
+        let first = tokio::spawn(fetch_catalog_with(key, true, || async move {
+            let _ = entered.send(());
+            let _ = waiting.await;
+            Err(Error::InvalidConfiguration(
+                "recorded HTTP cancellation".into(),
+            ))
+        }));
+        started.await.unwrap();
+        let second =
+            fetch_catalog_with(key, true, || async { Ok(serde_json::json!({"next":true})) });
+        tokio::pin!(second);
+        assert!(futures::poll!(second.as_mut()).is_pending());
+        release.send(()).unwrap();
+        assert!(matches!(
+            first.await.unwrap(),
+            Err(Error::InvalidConfiguration(_))
+        ));
+        assert_eq!(second.await.unwrap(), serde_json::json!({"next":true}));
+    }
+}
+
+#[cfg(all(test, feature = "recording"))]
+pub(crate) fn evict_catalog_for_test(key: &str) {
+    cache::evict_for_test(key);
+}
+
+#[cfg(test)]
+mod replay_audit_cohorts {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn replay_audit_catalog_epochs_distinguish_calls_inside_one_timer_tick() {
+        let clock = tokio::time::Instant::now();
+        let first = catalog_epoch();
+        let waiter = catalog_epoch();
+        let completed = catalog_epoch();
+        let later = catalog_epoch();
+        assert!(first < waiter && waiter < completed && completed < later);
+        assert_eq!(tokio::time::Instant::now(), clock);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn replay_audit_new_refresh_does_not_reuse_a_retained_completed_cohort() {
+        let key = "test://replay-audit-retained-cohort";
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let (release, waiting) = tokio::sync::oneshot::channel();
+        let first = tokio::spawn(fetch_catalog_with(key, true, || async move {
+            let _ = entered.send(());
+            waiting.await.unwrap();
+            Ok(serde_json::json!({"version":1}))
+        }));
+        started.await.unwrap();
+        let retained = CATALOG_REQUESTS
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get(key)
+            .unwrap()
+            .upgrade()
+            .unwrap();
+        let waiter = fetch_catalog_with(key, true, || async {
+            panic!("registered waiter must share the in-flight result")
+        });
+        tokio::pin!(waiter);
+        assert!(futures::poll!(waiter.as_mut()).is_pending());
+        release.send(()).unwrap();
+        assert_eq!(first.await.unwrap().unwrap()["version"], 1);
+        assert_eq!(waiter.await.unwrap()["version"], 1);
+        assert_eq!(
+            fetch_catalog_with(key, true, || async { Ok(serde_json::json!({"version":2})) })
+                .await
+                .unwrap()["version"],
+            2
+        );
+        assert_eq!(
+            retained.lock().await.as_ref().unwrap().1.as_ref().unwrap()["version"],
+            2
+        );
+    }
+    #[tokio::test]
+    async fn replay_audit_cancelled_leader_and_waiter_preserve_other_callers() {
+        for cancel_leader in [false, true] {
+            let key = if cancel_leader {
+                "test://replay-audit-cancel-leader"
+            } else {
+                "test://replay-audit-cancel-waiter"
+            };
+            let (entered, started) = tokio::sync::oneshot::channel();
+            let (release, waiting) = tokio::sync::oneshot::channel();
+            let first = tokio::spawn(fetch_catalog_with(key, true, || async move {
+                let _ = entered.send(());
+                let _ = waiting.await;
+                Ok(serde_json::json!({"version":1}))
+            }));
+            started.await.unwrap();
+            {
+                let cancelled = fetch_catalog_with(key, true, || async {
+                    panic!("cancelled waiter must not fetch")
+                });
+                tokio::pin!(cancelled);
+                assert!(futures::poll!(cancelled.as_mut()).is_pending());
+            }
+            let survivor =
+                fetch_catalog_with(key, true, || async { Ok(serde_json::json!({"version":2})) });
+            tokio::pin!(survivor);
+            assert!(futures::poll!(survivor.as_mut()).is_pending());
+            if cancel_leader {
+                first.abort();
+                assert!(first.await.unwrap_err().is_cancelled());
+                drop(release);
+                assert_eq!(survivor.await.unwrap()["version"], 2);
+            } else {
+                release.send(()).unwrap();
+                first.await.unwrap().unwrap();
+                assert_eq!(survivor.await.unwrap()["version"], 1);
+            }
+        }
     }
 }

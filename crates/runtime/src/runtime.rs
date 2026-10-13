@@ -1,4 +1,28 @@
+#[cfg(feature = "orderbook")]
+mod book_depth;
+#[cfg(all(test, feature = "orderbook"))]
+mod book_depth_tests;
+mod budget;
+#[cfg(all(test, feature = "recording", feature = "orderbook"))]
+mod http_replay_tests;
+pub(crate) mod quota;
+#[cfg(feature = "recording")]
+mod raw_replay;
+#[cfg(test)]
+mod scope_tests;
+mod weights;
+#[cfg(feature = "recording")]
+pub(crate) use raw_replay::RawParserSession;
 pub mod connection;
+mod control;
+#[cfg(all(test, feature = "orderbook"))]
+mod cross_check_tests;
+#[cfg(all(test, feature = "trade"))]
+pub(crate) use control::tests::start as test_managed_runtime;
+pub(crate) mod planning;
+pub(crate) mod readiness;
+mod send_budget;
+pub(crate) mod snapshot;
 pub mod supervisor;
 
 #[cfg(all(feature = "orderbook", test))]
@@ -37,12 +61,10 @@ use cryptofeed_core::{
 };
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::L2Book;
-use futures::{Sink, Stream};
+use futures::{FutureExt, Sink, Stream};
 use serde_json::Value;
 use std::fmt::Display;
 use std::future::Future;
-#[cfg(feature = "orderbook")]
-use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::Message;
@@ -51,19 +73,18 @@ use url::Url;
 #[cfg(feature = "orderbook")]
 type SnapshotReceivers = std::collections::HashMap<
     String,
-    oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
 >;
 #[cfg(feature = "orderbook")]
 type GateioSnapshotReceivers = std::collections::HashMap<
     String,
-    oneshot::Receiver<Result<crate::exchange::gateio::book_sync::GateioBookSnapshot>>,
+    snapshot::SnapshotReceiver<crate::exchange::gateio::book_sync::GateioBookSnapshot>,
 >;
 
 #[cfg(test)]
 const SHUTDOWN_GRACE_PERIOD: std::time::Duration = std::time::Duration::from_millis(100);
 #[cfg(not(test))]
 const SHUTDOWN_GRACE_PERIOD: std::time::Duration = std::time::Duration::from_secs(5);
-const HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// In-session Gate.io snapshot bootstrap retries per symbol. A failed
 /// bootstrap (e.g. buffered deltas that cannot bridge the snapshot) re-fetches
@@ -75,20 +96,18 @@ const GATEIO_MAX_RESNAPSHOTS: u32 = 3;
 const BINANCE_MAX_RESNAPSHOTS: u32 = 3;
 #[cfg(feature = "orderbook")]
 const MAX_BUFFERED_DELTAS_PER_SYMBOL: usize = 512;
-/// REST snapshot fetches must not hang the session: a stalled request would
-/// otherwise leak the fetch task and grow the pending-delta buffer forever.
-const SNAPSHOT_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-#[cfg(feature = "orderbook")]
-const MAX_SNAPSHOT_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
-
 /// Runs the feeds until Ctrl-C triggers a clean shutdown.
 pub async fn run(handler: FeedHandler) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        let _ = shutdown_tx.send(true);
-    });
-    run_with_shutdown(handler, shutdown_rx).await
+    let runtime = run_with_shutdown(handler, shutdown_rx);
+    tokio::pin!(runtime);
+    tokio::select! {
+        result = &mut runtime => result,
+        _ = tokio::signal::ctrl_c() => {
+            let _ = shutdown_tx.send(true);
+            runtime.await
+        }
+    }
 }
 
 /// Runs the feeds until `shutdown` is set, or a feed fails terminally.
@@ -100,6 +119,9 @@ pub async fn run_with_shutdown(
 ) -> Result<()> {
     if *shutdown.borrow() {
         return Ok(());
+    }
+    if handler.has_control() {
+        return control::run(handler, shutdown).await;
     }
     let hydration = hydrate_feed_symbols(handler.into_feeds());
     tokio::pin!(hydration);
@@ -115,38 +137,41 @@ pub async fn run_with_shutdown(
             result = &mut hydration => break result?,
         }
     };
-    run_feeds_until_shutdown(feeds, shutdown, |feed, shutdown| async move {
-        match feed.exchange {
-            ExchangeId::Binance => consume_binance_feed(feed, shutdown).await,
-            ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
-            ExchangeId::Bybit => consume_bybit_feed(feed, shutdown).await,
-            ExchangeId::Okx => consume_okx_feed(feed, shutdown).await,
-            ExchangeId::Gateio => consume_gateio_feed(feed, shutdown).await,
-            // Builders that exist without a live runtime (Coinbase/Kraken)
-            // and any future exchange are rejected by capability validation
-            // before a feed reaches this point.
-            _ => Ok(()),
-        }
-    })
-    .await?;
-    Ok(())
+    run_feeds_until_shutdown(feeds, shutdown, consume_feed).await
+}
+
+async fn consume_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+    match feed.exchange {
+        ExchangeId::Binance => consume_binance_feed(feed, shutdown).await,
+        ExchangeId::Bitget => consume_bitget_feed(feed, shutdown).await,
+        ExchangeId::Bybit => consume_bybit_feed(feed, shutdown).await,
+        ExchangeId::Okx => consume_okx_feed(feed, shutdown).await,
+        ExchangeId::Gateio => consume_gateio_feed(feed, shutdown).await,
+        // Builders that exist without a live runtime (Coinbase/Kraken)
+        // and any future exchange are rejected by capability validation
+        // before a feed reaches this point.
+        _ => Ok(()),
+    }
 }
 
 async fn hydrate_feed_symbols(feeds: Vec<ExchangeFeed>) -> Result<Vec<ExchangeFeed>> {
-    // Catalogs are fetched concurrently: with several feeds (e.g. the
-    // multi-megabyte Binance exchangeInfo plus Bybit pages), resolving
-    // sequentially would stall every feed on the slowest endpoint. All
-    // feeds still fail together if any resolution fails.
-    let mut hydrated: Vec<Result<ExchangeFeed>> =
+    // Reject invalid logical configurations before starting any catalog fetch.
+    for feed in &feeds {
+        markets::validate_feed(feed)?;
+    }
+    // Resolve the union once, preserving global native-mapping validation,
+    // then partition exact channel/symbol sets for existing session paths.
+    let hydrated: Vec<Result<Vec<ExchangeFeed>>> =
         futures::future::join_all(feeds.into_iter().map(|mut feed| async move {
             feed.exchange_symbols = markets::resolve_feed_symbols(&feed).await?;
-            Ok(feed)
+            planning::prepare(feed).await
         }))
         .await;
-    let mut result = Vec::with_capacity(hydrated.len());
-    for feed in hydrated.drain(..) {
-        result.push(feed?);
+    let mut result = Vec::new();
+    for feed in hydrated {
+        result.extend(feed?);
     }
+    planning::validate_connection_counts(&result)?;
     Ok(result)
 }
 
@@ -176,86 +201,122 @@ fn planned_url(feed: &ExchangeFeed) -> String {
 
 async fn run_feeds_until_shutdown<F, Fut>(
     feeds: Vec<ExchangeFeed>,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
     consume: F,
 ) -> Result<()>
 where
     F: Fn(ExchangeFeed, watch::Receiver<bool>) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Result<()>> + Send + 'static,
 {
+    run_feeds_until_shutdown_tracked(feeds, shutdown, consume, None).await
+}
+
+type FeedTaskRoutes = std::collections::HashMap<
+    tokio::task::Id,
+    (Option<std::sync::Arc<readiness::FeedMonitor>>, ExchangeId),
+>;
+type FeedTaskResult = std::result::Result<
+    (
+        Option<std::sync::Arc<readiness::FeedMonitor>>,
+        ExchangeId,
+        Result<()>,
+    ),
+    tokio::task::JoinError,
+>;
+
+async fn run_feeds_until_shutdown_tracked<F, Fut>(
+    feeds: Vec<ExchangeFeed>,
+    mut shutdown: watch::Receiver<bool>,
+    consume: F,
+    forced: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<()>
+where
+    F: Fn(ExchangeFeed, watch::Receiver<bool>) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Result<()>> + Send + 'static,
+{
+    if *shutdown.borrow() {
+        return Ok(());
+    }
     let status_sender = feeds.iter().find_map(|feed| feed.status_sender.clone());
     let mut tasks = JoinSet::new();
+    let mut routes = FeedTaskRoutes::new();
     let mut terminal_errors = Vec::new();
-
     for feed in feeds {
         let consume = consume.clone();
         let exchange = feed.exchange;
+        let identity = if feed.managed {
+            feed.monitor.clone()
+        } else {
+            None
+        };
         let feed_shutdown = shutdown.clone();
-        tasks.spawn(async move { (exchange, consume(feed, feed_shutdown).await) });
+        let routed = identity.clone();
+        let task =
+            tasks.spawn(async move { (identity, exchange, consume(feed, feed_shutdown).await) });
+        routes.insert(task.id(), (routed, exchange));
     }
-
     while !tasks.is_empty() {
         tokio::select! {
+            biased;
             changed = shutdown.changed() => {
-                match changed {
-                    Ok(()) if *shutdown.borrow() => {
-                        let drain = async {
-                            while let Some(result) = tasks.join_next().await {
-                                record_feed_result(result, &mut terminal_errors, status_sender.as_ref());
-                            }
-                        };
-                        if tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, drain).await.is_err() {
-                            tasks.abort_all();
-                        }
-                        return terminal_result(terminal_errors);
+                if changed.is_ok() && !*shutdown.borrow() { continue; }
+                let drain = async {
+                    while let Some(result) = tasks.join_next().await {
+                        record_feed_result(result, &mut terminal_errors, status_sender.as_ref(), &routes);
                     }
-                    Ok(()) => {}
-                    Err(_) => {
-                        let drain = async {
-                            while let Some(result) = tasks.join_next().await {
-                                record_feed_result(result, &mut terminal_errors, status_sender.as_ref());
-                            }
-                        };
-                        if tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, drain).await.is_err() {
-                            tasks.abort_all();
-                        }
-                        return terminal_result(terminal_errors);
+                };
+                if tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, drain).await.is_err() {
+                    if let Some(forced) = &forced { forced.store(true, std::sync::atomic::Ordering::Relaxed); }
+                    tasks.abort_all();
+                    // A stop acknowledgement must follow child cancellation,
+                    // not just dropping a JoinSet whose tasks may still run.
+                    while let Some(result) = tasks.join_next().await {
+                        if result.as_ref().is_err_and(|error| error.is_cancelled()) { continue; }
+                        record_feed_result(result, &mut terminal_errors, status_sender.as_ref(), &routes);
                     }
                 }
+                return terminal_result(terminal_errors);
             }
             result = tasks.join_next() => {
-                if let Some(result) = result {
-                    record_feed_result(result, &mut terminal_errors, status_sender.as_ref());
-                }
+                if let Some(result) = result { record_feed_result(result, &mut terminal_errors, status_sender.as_ref(), &routes); }
             }
         }
     }
-
     terminal_result(terminal_errors)
 }
 
 fn record_feed_result(
-    result: std::result::Result<(ExchangeId, Result<()>), tokio::task::JoinError>,
+    result: FeedTaskResult,
     terminal_errors: &mut Vec<String>,
     status_sender: Option<&tokio::sync::broadcast::Sender<crate::feed::FeedStatus>>,
+    routes: &FeedTaskRoutes,
 ) {
     match result {
-        Ok((_, Ok(()))) => {}
-        Ok((exchange, Err(error))) => {
-            let message = format!("{exchange:?}: {error}");
-            tracing::error!(exchange = ?exchange, error = %error, "feed terminated after retry exhaustion");
+        Ok((_, _, Ok(()))) => {}
+        Ok((identity, exchange, Err(error))) => {
+            tracing::error!(?exchange, %error, "feed terminated after retry exhaustion");
             if let Some(sender) = status_sender {
                 let _ = sender.send(crate::feed::FeedStatus::Terminated {
                     exchange,
                     error: error.to_string(),
                 });
             }
-            terminal_errors.push(message);
+            if let Some(monitor) = identity {
+                monitor.lifecycle(crate::feed::FeedState::Degraded {
+                    error: error.to_string(),
+                });
+            }
+            terminal_errors.push(format!("{exchange:?}: {error}"));
         }
         Err(error) => {
-            tracing::error!(error = %error, "feed task terminated unexpectedly");
+            tracing::error!(%error, "feed task terminated unexpectedly");
             if let Some(sender) = status_sender {
                 let _ = sender.send(crate::feed::FeedStatus::TaskPanicked {
+                    error: error.to_string(),
+                });
+            }
+            if let Some((Some(monitor), _)) = routes.get(&error.id()) {
+                monitor.lifecycle(crate::feed::FeedState::Degraded {
                     error: error.to_string(),
                 });
             }
@@ -279,14 +340,26 @@ async fn consume_binance_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool
     let plans = BinanceAdapter::connection_plans(&feed)?;
     let mut tasks = JoinSet::new();
     for plan in plans {
-        let feed = feed.clone();
+        let mut feed = feed.clone();
+        let books = if plan.snapshot_urls.is_empty() {
+            Vec::new()
+        } else {
+            plan.instruments
+                .iter()
+                .filter(|instrument| feed.subscribes(Channel::L2Book, &instrument.symbol))
+                .map(|instrument| instrument.symbol.as_str().to_owned())
+                .collect()
+        };
+        readiness::track(&mut feed, &plan.websocket_url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
             let product = plan.product;
-            let result = supervisor::retry_with_backoff_until_shutdown(
-                None,
+            let result = supervisor::retry_with_progress(
+                feed.runtime_options.retry_limit(),
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
+                feed.retry_progress.clone(),
+                feed.runtime_options.startup_delay(),
                 move || {
                     let feed = feed.clone();
                     let plan = plan.clone();
@@ -317,11 +390,27 @@ async fn consume_binance_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool
     Ok(())
 }
 
-async fn consume_bitget_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
-    supervisor::retry_with_backoff_until_shutdown(
-        None,
+async fn consume_bitget_feed(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
         supervisor::Backoff::new(1, 8),
         shutdown.clone(),
+        feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
         move || {
             let feed = feed.clone();
             let shutdown = shutdown.clone();
@@ -335,13 +424,26 @@ async fn consume_bitget_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
 async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
     let mut tasks = JoinSet::new();
     for url in BybitAdapter::subscription_urls(&feed) {
-        let planned_feed = bybit_feed_for_url(&feed, &url);
+        let mut planned_feed = bybit_feed_for_url(&feed, &url);
+        let books = if planned_feed.channels.contains(&Channel::L2Book) {
+            planned_feed
+                .symbols
+                .iter()
+                .filter(|symbol| planned_feed.subscribes(Channel::L2Book, symbol))
+                .map(|symbol| symbol.as_str().to_owned())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        readiness::track(&mut planned_feed, &url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
-            supervisor::retry_with_backoff_until_shutdown(
-                None,
+            supervisor::retry_with_progress(
+                planned_feed.runtime_options.retry_limit(),
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
+                planned_feed.retry_progress.clone(),
+                planned_feed.runtime_options.startup_delay(),
                 move || {
                     let feed = planned_feed.clone();
                     let url = url.clone();
@@ -359,17 +461,26 @@ async fn consume_bybit_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>)
 async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
     let mut tasks = JoinSet::new();
     for url in OkxAdapter::subscription_urls(&feed) {
-        let mut planned_feed = feed.clone();
-        let business = url.ends_with("/business");
-        planned_feed.channels.retain(|channel| {
-            matches!(channel, cryptofeed_core::exchange::Channel::Candles) == business
-        });
+        let mut planned_feed = okx_feed_for_url(&feed, &url);
+        let books = if planned_feed.channels.contains(&Channel::L2Book) {
+            planned_feed
+                .symbols
+                .iter()
+                .filter(|symbol| planned_feed.subscribes(Channel::L2Book, symbol))
+                .map(|symbol| symbol.as_str().to_owned())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        readiness::track(&mut planned_feed, &url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
-            supervisor::retry_with_backoff_until_shutdown(
-                None,
+            supervisor::retry_with_progress(
+                planned_feed.runtime_options.retry_limit(),
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
+                planned_feed.retry_progress.clone(),
+                planned_feed.runtime_options.startup_delay(),
                 move || {
                     let feed = planned_feed.clone();
                     let url = url.clone();
@@ -402,6 +513,16 @@ async fn collect_connection_results(label: &str, mut tasks: JoinSet<Result<()>>)
     Ok(())
 }
 
+fn okx_feed_for_url(feed: &ExchangeFeed, url: &str) -> ExchangeFeed {
+    let mut planned = feed.clone();
+    let business = url.ends_with("/business");
+    planned
+        .channels
+        .retain(|channel| matches!(channel, Channel::Candles) == business);
+    planned.prune_connection_scope();
+    planned
+}
+
 fn bybit_feed_for_url(feed: &ExchangeFeed, url: &str) -> ExchangeFeed {
     let product = if url.ends_with("/linear") {
         BybitProduct::Linear
@@ -423,6 +544,7 @@ fn bybit_feed_for_url(feed: &ExchangeFeed, url: &str) -> ExchangeFeed {
             }
         }
     }
+    planned.prune_connection_scope();
     planned
 }
 
@@ -430,14 +552,26 @@ async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
     let plans = GateioAdapter::connection_plans(&feed)?;
     let mut tasks = JoinSet::new();
     for plan in plans {
-        let feed = feed.clone();
+        let mut feed = feed.clone();
+        let books = if plan.snapshot_urls.is_empty() {
+            Vec::new()
+        } else {
+            plan.instruments
+                .iter()
+                .filter(|instrument| feed.subscribes(Channel::L2Book, &instrument.symbol))
+                .map(|instrument| instrument.symbol.as_str().to_owned())
+                .collect()
+        };
+        readiness::track(&mut feed, &plan.websocket_url, books);
         let retry_shutdown = shutdown.clone();
         tasks.spawn(async move {
             let product = plan.product;
-            let result = supervisor::retry_with_backoff_until_shutdown(
-                None,
+            let result = supervisor::retry_with_progress(
+                feed.runtime_options.retry_limit(),
                 supervisor::Backoff::new(1, 8),
                 retry_shutdown.clone(),
+                feed.retry_progress.clone(),
+                feed.runtime_options.startup_delay(),
                 move || {
                     let feed = feed.clone();
                     let shutdown = retry_shutdown.clone();
@@ -480,19 +614,79 @@ async fn consume_gateio_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>
     Ok(())
 }
 
+fn reset_connection_books<'a>(
+    feed: &ExchangeFeed,
+    book_route: bool,
+    candidates: impl IntoIterator<Item = &'a cryptofeed_core::symbol::Symbol>,
+) {
+    if !book_route {
+        return;
+    }
+    let owned: Vec<_> = candidates
+        .into_iter()
+        .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+        .cloned()
+        .collect();
+    feed.clear_connection_books(&owned);
+}
+
 async fn consume_binance_session(
-    feed: ExchangeFeed,
+    mut feed: ExchangeFeed,
     plan: BinanceConnectionPlan,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
-    let url = Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(
+        &feed,
+        !plan.snapshot_urls.is_empty(),
+        plan.instruments.iter().map(|instrument| &instrument.symbol),
+    );
+    let explicit = if attempt.is_some() {
+        Some(BinanceAdapter::explicit_subscription(&plan)?)
+    } else {
+        None
+    };
+    let url = match &explicit {
+        Some((url, _)) => Url::parse(url).map_err(|error| Error::Transport(error.to_string()))?,
+        None => Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?,
+    };
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    if let Some((_, subscribe)) = explicit {
+        session.queue_subscriptions([subscribe]);
+    }
     #[cfg(feature = "orderbook")]
     let snapshot_receivers = if plan.snapshot_urls.is_empty() {
         std::collections::HashMap::new()
     } else {
-        spawn_binance_snapshot_fetches(&plan.instruments, plan.l2_book_depth.unwrap_or(1000))
+        spawn_binance_snapshot_fetches(
+            &plan
+                .instruments
+                .iter()
+                .filter(|instrument| feed.subscribes(Channel::L2Book, &instrument.symbol))
+                .cloned()
+                .collect::<Vec<_>>(),
+            plan.l2_book_depth.unwrap_or(1000),
+            &feed.transport,
+            feed.snapshot_mode(),
+        )
     };
     #[cfg(feature = "orderbook")]
     let pending_deltas: std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>> =
@@ -500,7 +694,7 @@ async fn consume_binance_session(
     #[cfg(feature = "orderbook")]
     let resnapshot_attempts: std::collections::HashMap<String, u32> =
         std::collections::HashMap::new();
-    consume_binance_session_with(
+    let result = consume_binance_session_with(
         feed,
         plan,
         shutdown,
@@ -512,7 +706,9 @@ async fn consume_binance_session(
         #[cfg(feature = "orderbook")]
         resnapshot_attempts,
     )
-    .await
+    .await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_binance_session_with<S, E>(
@@ -532,6 +728,7 @@ where
     E: Display,
 {
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
         #[cfg(feature = "orderbook")]
         poll_binance_snapshot_bootstraps(
             &feed,
@@ -544,30 +741,60 @@ where
         )
         .await?;
         #[cfg(feature = "orderbook")]
-        let handled = process_binance_orderbook_message(
-            &feed,
-            &plan,
-            &text,
-            current_timestamp(),
-            &mut snapshot_receivers,
-            &mut pending_deltas,
-        )
-        .await?;
+        let handled = {
+            session.processing();
+            process_binance_orderbook_message(
+                &feed,
+                &plan,
+                &text,
+                received_ts,
+                &mut snapshot_receivers,
+                &mut pending_deltas,
+            )
+            .await?
+        };
         #[cfg(not(feature = "orderbook"))]
-        let handled = false;
+        let handled = {
+            session.processing();
+            false
+        };
         if !handled {
-            process_binance_text_message_for_plan(&feed, &plan, &text, current_timestamp()).await?;
+            process_binance_text_message_for_plan(&feed, &plan, &text, received_ts).await?;
         }
     }
 
     Ok(())
 }
 
-async fn consume_bitget_session(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+async fn consume_bitget_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
     let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
-    consume_bitget_session_with(feed, shutdown, &mut session).await
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_bitget_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_bitget_session_with<S, E>(
@@ -579,25 +806,47 @@ where
     S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
     E: Display,
 {
-    let subscribe = BitgetAdapter::subscription_message(&feed);
-    session.send_text(&subscribe).await?;
+    session.queue_subscriptions([BitgetAdapter::subscription_message(&feed)]);
 
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
-        process_bitget_text_message(&feed, &text, current_timestamp()).await?;
+        let received_ts = session.received_timestamp();
+        session.processing();
+        process_bitget_text_message(&feed, &text, received_ts).await?;
     }
 
     Ok(())
 }
 
 async fn consume_bybit_session(
-    feed: ExchangeFeed,
+    mut feed: ExchangeFeed,
     websocket_url: String,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
-    consume_bybit_session_with(feed, shutdown, &mut session).await
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_bybit_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_bybit_session_with<S, E>(
@@ -609,14 +858,14 @@ where
     S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
     E: Display,
 {
-    let subscribe = BybitAdapter::subscription_message(&feed);
-    session.send_text(&subscribe).await?;
+    session.queue_subscriptions(BybitAdapter::subscription_messages(&feed)?);
 
     // Ticker deltas carry only changed fields. State is per connection, so a
     // reconnect cannot reuse values from a previous session.
     let mut tickers = std::collections::HashMap::new();
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
-        let received_ts = current_timestamp();
+        let received_ts = session.received_timestamp();
+        session.processing();
         let mut message: Value =
             serde_json::from_str(&text).map_err(|e| Error::Parse(e.to_string()))?;
         merge_bybit_ticker_message(&feed, &mut tickers, &mut message)?;
@@ -627,14 +876,35 @@ where
 }
 
 async fn consume_okx_session(
-    feed: ExchangeFeed,
+    mut feed: ExchangeFeed,
     websocket_url: String,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
     let url = Url::parse(&websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
-    consume_okx_session_with(feed, shutdown, &mut session).await
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_okx_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_okx_session_with<S, E>(
@@ -646,30 +916,54 @@ where
     S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
     E: Display,
 {
-    let subscribe = OkxAdapter::subscription_message(&feed);
-    session.send_text(&subscribe).await?;
+    session.queue_subscriptions([OkxAdapter::subscription_message(&feed)]);
 
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
-        process_okx_text_message(&feed, &text, current_timestamp()).await?;
+        let received_ts = session.received_timestamp();
+        session.processing();
+        process_okx_text_message(&feed, &text, received_ts).await?;
     }
 
     Ok(())
 }
 
 async fn consume_gateio_session(
-    feed: ExchangeFeed,
+    mut feed: ExchangeFeed,
     plan: GateioConnectionPlan,
     shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(
+        &feed,
+        !plan.snapshot_urls.is_empty(),
+        plan.instruments.iter().map(|instrument| &instrument.symbol),
+    );
     let url = Url::parse(&plan.websocket_url).map_err(|e| Error::Transport(e.to_string()))?;
-    let connection = connection::WsConnection::new(url, feed.exchange);
-    let mut session = connection.connect().await?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.disconnected(Some(error.to_string()));
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
     #[cfg(feature = "orderbook")]
-    let snapshot_receivers = spawn_gateio_snapshot_fetches_for_plan(&plan)?;
+    let snapshot_receivers = std::collections::HashMap::new();
     #[cfg(feature = "orderbook")]
     let pending_deltas: std::collections::HashMap<String, Vec<GateioDepthDelta>> =
         std::collections::HashMap::new();
-    consume_gateio_session_with(
+    let result = consume_gateio_session_with(
         feed,
         plan,
         shutdown,
@@ -679,7 +973,9 @@ async fn consume_gateio_session(
         #[cfg(feature = "orderbook")]
         pending_deltas,
     )
-    .await
+    .await;
+    session.record_result(&result);
+    result
 }
 
 async fn consume_gateio_session_with<S, E>(
@@ -697,13 +993,12 @@ where
     S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
     E: Display,
 {
-    for subscribe in &plan.subscription_messages {
-        session.send_text(subscribe).await?;
-    }
+    session.queue_subscriptions(plan.subscription_messages.clone());
 
     #[cfg(feature = "orderbook")]
     let mut resnapshot_attempts = std::collections::HashMap::new();
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
         #[cfg(feature = "orderbook")]
         poll_gateio_snapshot_bootstraps_for_plan(
             &feed,
@@ -713,12 +1008,13 @@ where
             &mut resnapshot_attempts,
         )
         .await?;
+        session.processing();
         #[cfg(feature = "orderbook")]
         if process_gateio_orderbook_message_for_plan(
             &feed,
             &plan,
             &text,
-            current_timestamp(),
+            received_ts,
             &mut snapshot_receivers,
             &mut pending_deltas,
         )
@@ -726,14 +1022,14 @@ where
         {
             continue;
         }
-        process_gateio_text_message_for_plan(&feed, &plan, &text, current_timestamp()).await?;
+        process_gateio_text_message_for_plan(&feed, &plan, &text, received_ts).await?;
     }
 
     Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
+async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -753,7 +1049,7 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
         #[cfg(feature = "orderbook")]
         BinanceEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
         #[cfg(feature = "orderbook")]
-        BinanceEvent::L2Book(book) => dispatch_l2_book(feed, book).await,
+        BinanceEvent::L2Book(book) => dispatch_l2_book(feed, book).await?,
         #[cfg(feature = "openinterest")]
         BinanceEvent::OpenInterest(open_interest) => {
             dispatch_open_interest(feed, open_interest).await;
@@ -763,10 +1059,11 @@ async fn dispatch_binance_event(feed: &ExchangeFeed, event: BinanceEvent) {
         #[cfg(feature = "trade")]
         BinanceEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
+async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -785,22 +1082,23 @@ async fn dispatch_bitget_event(feed: &ExchangeFeed, event: BitgetEvent) {
         BitgetEvent::Liquidation(liquidation) => dispatch_liquidation(feed, liquidation).await,
         #[cfg(feature = "orderbook")]
         BitgetEvent::L2Book(book) => {
-            dispatch_bitget_l2_book(feed, book).await;
+            dispatch_bitget_l2_book(feed, book).await?;
         }
         #[cfg(feature = "ticker")]
         BitgetEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
         BitgetEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_bitget_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_bitget_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
+async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -825,22 +1123,23 @@ async fn dispatch_bybit_event(feed: &ExchangeFeed, event: BybitEvent) {
         BybitEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
         #[cfg(feature = "orderbook")]
         BybitEvent::L2Book(book) => {
-            dispatch_bybit_l2_book(feed, book).await;
+            dispatch_bybit_l2_book(feed, book).await?;
         }
         #[cfg(feature = "ticker")]
         BybitEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
         BybitEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_bybit_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_bybit_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
+async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -865,17 +1164,18 @@ async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) {
         OkxEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
         #[cfg(feature = "orderbook")]
         OkxEvent::L2Book(book) => {
-            dispatch_okx_l2_book(feed, book).await;
+            dispatch_okx_l2_book(feed, book).await?;
         }
         #[cfg(feature = "ticker")]
         OkxEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
         #[cfg(feature = "trade")]
         OkxEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
+async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) -> Result<()> {
     let _ = feed;
     match event {
         #[cfg(feature = "candles")]
@@ -889,7 +1189,7 @@ async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
             dispatch_index_price(feed, index_price).await;
         }
         #[cfg(feature = "orderbook")]
-        GateioEvent::L2Book(book) => dispatch_l2_book(feed, book).await,
+        GateioEvent::L2Book(book) => dispatch_l2_book(feed, book).await?,
         #[cfg(feature = "orderbook")]
         GateioEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
         #[cfg(feature = "markprice")]
@@ -905,16 +1205,17 @@ async fn dispatch_gateio_event(feed: &ExchangeFeed, event: GateioEvent) {
         #[cfg(feature = "trade")]
         GateioEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_gateio_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_gateio_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_okx_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_okx_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -925,7 +1226,7 @@ async fn process_binance_text_message(
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
     for event in BinanceAdapter::parse_messages(&message, received_ts) {
-        dispatch_binance_event(feed, event).await;
+        dispatch_binance_event(feed, event).await?;
     }
     Ok(())
 }
@@ -939,7 +1240,7 @@ async fn process_binance_text_message_for_plan(
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
     let instrument = binance_instrument_for_message(plan, &message)?;
     for event in BinanceAdapter::parse_messages_for_instrument(&message, received_ts, instrument) {
-        dispatch_binance_event(feed, event).await;
+        dispatch_binance_event(feed, event).await?;
     }
     Ok(())
 }
@@ -969,7 +1270,10 @@ fn binance_instrument_for_message<'a>(
 }
 
 #[cfg(feature = "orderbook")]
-fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Book) {
+fn apply_orderbook_state(
+    feed: &ExchangeFeed,
+    book: &cryptofeed_orderbook::L2Book,
+) -> Result<L2Book> {
     use cryptofeed_orderbook::L2Book;
 
     let symbol = match book {
@@ -985,11 +1289,41 @@ fn apply_orderbook_state(feed: &ExchangeFeed, book: &cryptofeed_orderbook::L2Boo
         })
     });
     state.apply(book.clone());
+    let result = if feed.l2_book_cross_check && state.is_crossed() {
+        Err(Error::MalformedData(format!(
+            "crossed L2 book: {}",
+            book.symbol().as_str()
+        )))
+    } else if let Some(maximum) = feed.l2_book_max_depth {
+        let exchange = match book {
+            L2Book::Snapshot(value) => value.exchange,
+            L2Book::Delta(value) => value.exchange,
+        };
+        let current = state.to_snapshot_with_depth(
+            exchange,
+            book.exchange_ts(),
+            book.received_ts(),
+            maximum.get(),
+        );
+        let mut projections = feed.book_projections.lock().expect("book projection lock");
+        let result = book_depth::project(book, &current, projections.get(&symbol));
+        if result.is_ok() {
+            projections.insert(symbol, current);
+        }
+        result
+    } else {
+        Ok(book.clone())
+    };
+    drop(states);
+    if result.is_err() {
+        feed.clear_connection_books(std::slice::from_ref(book.symbol()));
+    }
+    result
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_binance_l2_book(feed: &ExchangeFeed, book: L2Book) {
-    dispatch_l2_book(feed, book).await;
+async fn dispatch_binance_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg(feature = "candles")]
@@ -997,9 +1331,25 @@ async fn dispatch_candle(feed: &ExchangeFeed, candle: cryptofeed_candles::Candle
     if !subscribed_to(feed, Channel::Candles, &candle.symbol) {
         return;
     }
+    use crate::exchange::CandlePolicy;
+    let deliver = match feed.candle_policy {
+        CandlePolicy::All => true,
+        CandlePolicy::ClosedOnly => candle.closed == Some(true),
+        CandlePolicy::ClosedOrUnknown => candle.closed != Some(false),
+    };
+    if !deliver {
+        return;
+    }
     feed.publish_event(crate::feed::FeedEvent::Candle(candle.clone()));
-    if let Some(handler) = &feed.candle_handler {
-        await_handler("candle", handler.on_candle(candle)).await;
+    for handler in feed
+        .candle_handler
+        .iter()
+        .chain(&feed.additional_candle_handlers)
+    {
+        await_handler(feed.runtime_options.callback_deadline(), "candle", async {
+            handler.on_candle(candle.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1009,8 +1359,15 @@ async fn dispatch_funding(feed: &ExchangeFeed, funding: cryptofeed_funding::Fund
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Funding(funding.clone()));
-    if let Some(handler) = &feed.funding_handler {
-        await_handler("funding", handler.on_funding(funding)).await;
+    for handler in feed
+        .funding_handler
+        .iter()
+        .chain(&feed.additional_funding_handlers)
+    {
+        await_handler(feed.runtime_options.callback_deadline(), "funding", async {
+            handler.on_funding(funding.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1023,8 +1380,17 @@ async fn dispatch_liquidation(
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Liquidation(liquidation.clone()));
-    if let Some(handler) = &feed.liquidation_handler {
-        await_handler("liquidation", handler.on_liquidation(liquidation)).await;
+    for handler in feed
+        .liquidation_handler
+        .iter()
+        .chain(&feed.additional_liquidation_handlers)
+    {
+        await_handler(
+            feed.runtime_options.callback_deadline(),
+            "liquidation",
+            async { handler.on_liquidation(liquidation.clone()).await },
+        )
+        .await;
     }
 }
 
@@ -1034,8 +1400,17 @@ async fn dispatch_mark_price(feed: &ExchangeFeed, mark_price: cryptofeed_markpri
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::MarkPrice(mark_price.clone()));
-    if let Some(handler) = &feed.mark_price_handler {
-        await_handler("mark_price", handler.on_mark_price(mark_price)).await;
+    for handler in feed
+        .mark_price_handler
+        .iter()
+        .chain(&feed.additional_mark_price_handlers)
+    {
+        await_handler(
+            feed.runtime_options.callback_deadline(),
+            "mark_price",
+            async { handler.on_mark_price(mark_price.clone()).await },
+        )
+        .await;
     }
 }
 
@@ -1048,8 +1423,17 @@ async fn dispatch_open_interest(
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::OpenInterest(open_interest.clone()));
-    if let Some(handler) = &feed.open_interest_handler {
-        await_handler("open_interest", handler.on_open_interest(open_interest)).await;
+    for handler in feed
+        .open_interest_handler
+        .iter()
+        .chain(&feed.additional_open_interest_handlers)
+    {
+        await_handler(
+            feed.runtime_options.callback_deadline(),
+            "open_interest",
+            async { handler.on_open_interest(open_interest.clone()).await },
+        )
+        .await;
     }
 }
 
@@ -1059,8 +1443,17 @@ async fn dispatch_index_price(feed: &ExchangeFeed, index_price: cryptofeed_index
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::IndexPrice(index_price.clone()));
-    if let Some(handler) = &feed.index_price_handler {
-        await_handler("index_price", handler.on_index_price(index_price)).await;
+    for handler in feed
+        .index_price_handler
+        .iter()
+        .chain(&feed.additional_index_price_handlers)
+    {
+        await_handler(
+            feed.runtime_options.callback_deadline(),
+            "index_price",
+            async { handler.on_index_price(index_price.clone()).await },
+        )
+        .await;
     }
 }
 
@@ -1070,8 +1463,15 @@ async fn dispatch_ticker(feed: &ExchangeFeed, ticker: cryptofeed_ticker::Ticker)
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Ticker(ticker.clone()));
-    if let Some(handler) = &feed.ticker_handler {
-        await_handler("ticker", handler.on_ticker(ticker)).await;
+    for handler in feed
+        .ticker_handler
+        .iter()
+        .chain(&feed.additional_ticker_handlers)
+    {
+        await_handler(feed.runtime_options.callback_deadline(), "ticker", async {
+            handler.on_ticker(ticker.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1081,21 +1481,48 @@ async fn dispatch_trade(feed: &ExchangeFeed, trade: cryptofeed_trade::Trade) {
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Trade(trade.clone()));
-    if let Some(handler) = &feed.trade_handler {
-        await_handler("trade", handler.on_trade(trade)).await;
+    for handler in feed
+        .trade_handler
+        .iter()
+        .chain(&feed.additional_trade_handlers)
+    {
+        await_handler(feed.runtime_options.callback_deadline(), "trade", async {
+            handler.on_trade(trade.clone()).await
+        })
+        .await;
     }
 }
 
 #[cfg(feature = "orderbook")]
-async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) {
+async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
     if !subscribed_to(feed, Channel::L2Book, book.symbol()) {
-        return;
+        return Ok(());
     }
-    apply_orderbook_state(feed, &book);
+    let book = apply_orderbook_state(feed, &book)?;
+    if let (Some(monitor), Some(tracker), Some(epoch)) = (
+        &feed.monitor,
+        &feed.connection_tracker,
+        feed.connection_epoch,
+    ) {
+        if let Some(books) = &monitor.books {
+            books.apply(monitor.identity, tracker.id, epoch, &book);
+        }
+    }
+    if matches!(&book, L2Book::Snapshot(_)) {
+        feed.book_synchronized(book.symbol().as_str());
+    }
     feed.publish_event(crate::feed::FeedEvent::L2Book(book.clone()));
-    if let Some(handler) = &feed.orderbook_handler {
-        await_handler("l2_book", handler.on_l2_book(book)).await;
+    for handler in feed
+        .orderbook_handler
+        .iter()
+        .chain(&feed.additional_orderbook_handlers)
+    {
+        await_handler(feed.runtime_options.callback_deadline(), "l2_book", async {
+            handler.on_l2_book(book.clone()).await
+        })
+        .await;
     }
+    Ok(())
 }
 
 #[cfg(feature = "orderbook")]
@@ -1104,8 +1531,15 @@ async fn dispatch_l1_book(feed: &ExchangeFeed, book: cryptofeed_orderbook::L1Boo
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::L1Book(book.clone()));
-    if let Some(handler) = &feed.orderbook_handler {
-        await_handler("l1_book", handler.on_l1_book(book)).await;
+    for handler in feed
+        .orderbook_handler
+        .iter()
+        .chain(&feed.additional_orderbook_handlers)
+    {
+        await_handler(feed.runtime_options.callback_deadline(), "l1_book", async {
+            handler.on_l1_book(book.clone()).await
+        })
+        .await;
     }
 }
 
@@ -1114,15 +1548,17 @@ fn subscribed_to(
     channel: Channel,
     symbol: &cryptofeed_core::symbol::Symbol,
 ) -> bool {
-    feed.channels.contains(&channel) && feed.symbols.iter().any(|candidate| candidate == symbol)
+    feed.subscribes(channel, symbol)
 }
 
-async fn await_handler<F>(channel: &'static str, future: F)
+async fn await_handler<F>(timeout: std::time::Duration, channel: &'static str, future: F)
 where
     F: Future<Output = ()>,
 {
-    if tokio::time::timeout(HANDLER_TIMEOUT, future).await.is_err() {
-        tracing::warn!(channel, "handler timed out; event callback cancelled");
+    match tokio::time::timeout(timeout, std::panic::AssertUnwindSafe(future).catch_unwind()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => tracing::error!(channel, "handler panicked; continuing remaining callbacks"),
+        Err(_) => tracing::warn!(channel, "handler timed out; event callback cancelled"),
     }
 }
 
@@ -1130,15 +1566,17 @@ where
 fn spawn_binance_snapshot_fetches(
     instruments: &[BinanceInstrument],
     limit: u16,
+    transport: &crate::transport::TransportConfig,
+    mode: snapshot::SnapshotMode,
 ) -> std::collections::HashMap<
     String,
-    oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+    snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
 > {
     let mut receivers = std::collections::HashMap::new();
 
     for instrument in instruments {
         let symbol_key = instrument.symbol.as_str().to_owned();
-        let rx = spawn_binance_snapshot_fetch(instrument.clone(), limit);
+        let rx = spawn_binance_snapshot_fetch(instrument.clone(), limit, transport.clone(), mode);
         receivers.insert(symbol_key, rx);
     }
 
@@ -1149,13 +1587,18 @@ fn spawn_binance_snapshot_fetches(
 fn spawn_binance_snapshot_fetch(
     instrument: BinanceInstrument,
     limit: u16,
-) -> oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>> {
-    let (mut tx, rx) = oneshot::channel();
+    transport: crate::transport::TransportConfig,
+    mode: snapshot::SnapshotMode,
+) -> snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)> {
+    let (tx, rx, raw) = snapshot::SnapshotReceiver::channel(mode);
+    let Some(mut tx) = tx else {
+        return rx;
+    };
     tokio::spawn(async move {
         tokio::select! {
             biased;
             _ = tx.closed() => {}
-            result = fetch_binance_l2_snapshot(instrument, limit) => {
+            result = fetch_binance_l2_snapshot(instrument, limit, transport,raw) => {
                 let _ = tx.send(result);
             }
         }
@@ -1167,26 +1610,24 @@ fn spawn_binance_snapshot_fetch(
 async fn fetch_binance_l2_snapshot(
     instrument: BinanceInstrument,
     limit: u16,
+    transport: crate::transport::TransportConfig,
+    raw: Option<snapshot::RawSlot>,
 ) -> Result<(u64, cryptofeed_orderbook::L2BookSnapshot)> {
     // Partial-depth streams must be bootstrapped from a snapshot of the same
     // width; the full-depth default uses the 1000-level snapshot.
     let url = BinanceAdapter::snapshot_url(&instrument, limit);
-    let client = reqwest::Client::builder()
-        .timeout(SNAPSHOT_HTTP_TIMEOUT)
-        .build()
-        .map_err(|e| Error::Transport(e.to_string()))?;
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| Error::Transport(e.to_string()))?;
-    let payload = read_bounded_snapshot_json(response, &url).await?;
-    binance_parser::parse_l2_book_snapshot_for_instrument(
-        &payload,
-        &instrument,
-        current_timestamp(),
-    )
-    .ok_or_else(|| Error::Parse("failed to parse binance l2 snapshot".to_owned()))
+    let payload = snapshot::fetch_json(&url, &transport, ExchangeId::Binance).await?;
+    let received_ts = current_timestamp();
+    let result =
+        binance_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, received_ts)
+            .ok_or_else(|| Error::Parse("failed to parse binance l2 snapshot".to_owned()));
+    if let Some(raw) = raw {
+        *raw.lock().expect("snapshot capture") = Some(snapshot::RawSnapshot {
+            payload,
+            received_ts,
+        });
+    }
+    result
 }
 
 #[cfg(feature = "orderbook")]
@@ -1195,7 +1636,7 @@ async fn poll_binance_snapshot_bootstraps(
     instruments: &[BinanceInstrument],
     receivers: &mut std::collections::HashMap<
         String,
-        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+        snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
     resnapshot_attempts: &mut std::collections::HashMap<String, u32>,
@@ -1221,6 +1662,27 @@ async fn poll_binance_snapshot_bootstraps(
         };
 
         if let Some(result) = ready {
+            #[cfg(feature = "recording")]
+            if let Some(link) = &feed.raw_session {
+                if let Some(instrument) = instruments
+                    .iter()
+                    .find(|instrument| instrument.symbol.as_str() == key)
+                {
+                    if let Some(raw) = receivers
+                        .get_mut(&key)
+                        .and_then(|receiver| receiver.take_raw())
+                    {
+                        link.snapshot(
+                            instrument.symbol.clone(),
+                            Some(limit),
+                            &raw.payload,
+                            raw.received_ts,
+                        );
+                    } else if let Err(error) = &result {
+                        link.snapshot_error(instrument.symbol.clone(), Some(limit), error);
+                    }
+                }
+            }
             let (last_update_id, snapshot) = result?;
             let instrument = instruments
                 .iter()
@@ -1253,13 +1715,18 @@ async fn poll_binance_snapshot_bootstraps(
                     }
                     receivers.insert(
                         key.clone(),
-                        spawn_binance_snapshot_fetch(instrument.clone(), limit),
+                        spawn_binance_snapshot_fetch(
+                            instrument.clone(),
+                            limit,
+                            feed.transport.clone(),
+                            feed.snapshot_mode(),
+                        ),
                     );
                     continue;
                 }
             };
             for book in books {
-                dispatch_binance_l2_book(feed, book).await;
+                dispatch_binance_l2_book(feed, book).await?;
             }
             receivers.remove(&key);
         }
@@ -1317,7 +1784,7 @@ async fn process_binance_orderbook_message(
     received_ts: f64,
     receivers: &mut std::collections::HashMap<
         String,
-        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+        snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
 ) -> Result<bool> {
@@ -1391,10 +1858,13 @@ async fn apply_binance_sequenced_update(
     update: BinanceSequencedDepthDelta,
     receivers: &mut std::collections::HashMap<
         String,
-        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+        snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
 ) -> Result<()> {
+    if !feed.subscribes(Channel::L2Book, &instrument.symbol) {
+        return Ok(());
+    }
     if feed
         .binance_book_syncs
         .lock()
@@ -1409,7 +1879,7 @@ async fn apply_binance_sequenced_update(
 
         match maybe_book {
             Ok(Some(book)) => {
-                dispatch_binance_l2_book(feed, book).await;
+                dispatch_binance_l2_book(feed, book).await?;
             }
             Ok(None) => {}
             Err(err) => {
@@ -1455,6 +1925,7 @@ fn reset_binance_sequenced_sync_state(
     update: BinanceSequencedDepthDelta,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
 ) {
+    feed.invalidate_book_readiness(symbol_key);
     feed.binance_book_syncs
         .lock()
         .expect("binance sync lock")
@@ -1469,6 +1940,7 @@ fn reset_binance_sync_state(
     update: BinanceDepthDelta,
     pending: &mut std::collections::HashMap<String, Vec<BinanceDepthDelta>>,
 ) {
+    feed.invalidate_book_readiness(symbol_key);
     feed.binance_book_syncs
         .lock()
         .expect("binance sync lock")
@@ -1487,7 +1959,7 @@ fn schedule_binance_resync(
     update: BinanceSequencedDepthDelta,
     receivers: &mut std::collections::HashMap<
         String,
-        oneshot::Receiver<Result<(u64, cryptofeed_orderbook::L2BookSnapshot)>>,
+        snapshot::SnapshotReceiver<(u64, cryptofeed_orderbook::L2BookSnapshot)>,
     >,
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
     limit: u16,
@@ -1496,47 +1968,31 @@ fn schedule_binance_resync(
     receivers.remove(symbol_key);
     receivers.insert(
         symbol_key.to_owned(),
-        spawn_binance_snapshot_fetch(instrument.clone(), limit),
+        spawn_binance_snapshot_fetch(
+            instrument.clone(),
+            limit,
+            feed.transport.clone(),
+            feed.snapshot_mode(),
+        ),
     );
-}
-
-#[cfg(feature = "orderbook")]
-fn spawn_gateio_snapshot_fetches_for_plan(
-    plan: &GateioConnectionPlan,
-) -> Result<GateioSnapshotReceivers> {
-    if plan.snapshot_urls.is_empty() {
-        return Ok(std::collections::HashMap::new());
-    }
-    if plan.instruments.len() != plan.snapshot_urls.len() {
-        return Err(Error::InvalidConfiguration(
-            "gateio instruments and snapshot URL counts differ".to_owned(),
-        ));
-    }
-    Ok(plan
-        .instruments
-        .iter()
-        .cloned()
-        .zip(plan.snapshot_urls.iter().cloned())
-        .map(|(instrument, url)| {
-            (
-                instrument.symbol.as_str().to_owned(),
-                spawn_gateio_snapshot_fetch_for_instrument(instrument, url),
-            )
-        })
-        .collect())
 }
 
 #[cfg(feature = "orderbook")]
 fn spawn_gateio_snapshot_fetch_for_instrument(
     instrument: GateioInstrument,
     snapshot_url: String,
-) -> oneshot::Receiver<Result<crate::exchange::gateio::book_sync::GateioBookSnapshot>> {
-    let (mut tx, rx) = oneshot::channel();
+    transport: crate::transport::TransportConfig,
+    mode: snapshot::SnapshotMode,
+) -> snapshot::SnapshotReceiver<crate::exchange::gateio::book_sync::GateioBookSnapshot> {
+    let (tx, rx, raw) = snapshot::SnapshotReceiver::channel(mode);
+    let Some(mut tx) = tx else {
+        return rx;
+    };
     tokio::spawn(async move {
         tokio::select! {
             biased;
             _ = tx.closed() => {}
-            result = fetch_gateio_l2_snapshot_for_instrument(instrument, snapshot_url) => {
+            result = fetch_gateio_l2_snapshot_for_instrument(instrument, snapshot_url, transport,raw) => {
                 let _ = tx.send(result);
             }
         }
@@ -1548,48 +2004,21 @@ fn spawn_gateio_snapshot_fetch_for_instrument(
 async fn fetch_gateio_l2_snapshot_for_instrument(
     instrument: GateioInstrument,
     snapshot_url: String,
+    transport: crate::transport::TransportConfig,
+    raw: Option<snapshot::RawSlot>,
 ) -> Result<crate::exchange::gateio::book_sync::GateioBookSnapshot> {
-    let client = reqwest::Client::builder()
-        .timeout(SNAPSHOT_HTTP_TIMEOUT)
-        .build()
-        .map_err(|error| Error::Transport(error.to_string()))?;
-    let response = client
-        .get(&snapshot_url)
-        .send()
-        .await
-        .map_err(|error| Error::Transport(error.to_string()))?;
-    let payload = read_bounded_snapshot_json(response, &snapshot_url).await?;
-    gateio_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, current_timestamp())
-        .ok_or_else(|| Error::Parse("failed to parse gateio l2 snapshot".to_owned()))
-}
-
-#[cfg(feature = "orderbook")]
-async fn read_bounded_snapshot_json(response: reqwest::Response, url: &str) -> Result<Value> {
-    let mut response = response
-        .error_for_status()
-        .map_err(|error| Error::Transport(format!("{url}: {error}")))?;
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_SNAPSHOT_RESPONSE_BYTES as u64)
-    {
-        return Err(Error::MalformedData(format!(
-            "{url}: snapshot exceeds {MAX_SNAPSHOT_RESPONSE_BYTES} bytes"
-        )));
+    let payload = snapshot::fetch_json(&snapshot_url, &transport, ExchangeId::Gateio).await?;
+    let received_ts = current_timestamp();
+    let result =
+        gateio_parser::parse_l2_book_snapshot_for_instrument(&payload, &instrument, received_ts)
+            .ok_or_else(|| Error::Parse("failed to parse gateio l2 snapshot".to_owned()));
+    if let Some(raw) = raw {
+        *raw.lock().expect("snapshot capture") = Some(snapshot::RawSnapshot {
+            payload,
+            received_ts,
+        });
     }
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| Error::Transport(format!("{url}: {error}")))?
-    {
-        if body.len().saturating_add(chunk.len()) > MAX_SNAPSHOT_RESPONSE_BYTES {
-            return Err(Error::MalformedData(format!(
-                "{url}: snapshot exceeds {MAX_SNAPSHOT_RESPONSE_BYTES} bytes"
-            )));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    serde_json::from_slice(&body).map_err(|error| Error::Parse(format!("{url}: {error}")))
+    result
 }
 
 #[cfg(feature = "orderbook")]
@@ -1631,13 +2060,29 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
             .iter()
             .find(|instrument| instrument.symbol.as_str() == key)
             .ok_or_else(|| Error::Parse(format!("missing gateio instrument for {key}")))?;
+        #[cfg(feature = "recording")]
+        if let Some(link) = &feed.raw_session {
+            if let Some(raw) = receivers
+                .get_mut(&key)
+                .and_then(|receiver| receiver.take_raw())
+            {
+                link.snapshot(
+                    instrument.symbol.clone(),
+                    None,
+                    &raw.payload,
+                    raw.received_ts,
+                );
+            } else if let Err(error) = &result {
+                link.snapshot_error(instrument.symbol.clone(), None, error);
+            }
+        }
         let snapshot = result?;
         let last_update_id = snapshot.last_update_id;
         let buffered = pending.remove(&key).unwrap_or_default();
         match bootstrap_gateio_book(feed, &key, snapshot, buffered.clone()) {
             Ok(books) => {
                 for book in books {
-                    dispatch_gateio_l2_book(feed, book).await;
+                    dispatch_gateio_l2_book(feed, book).await?;
                 }
                 receivers.remove(&key);
                 resnapshot_attempts.remove(&key);
@@ -1686,6 +2131,7 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                     .get(
                         plan.instruments
                             .iter()
+                            .filter(|candidate| feed.subscribes(Channel::L2Book, &candidate.symbol))
                             .position(|candidate| candidate.symbol.as_str() == key)
                             .expect("gateio resnapshot instrument"),
                     )
@@ -1696,7 +2142,12 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                 receivers.remove(&key);
                 receivers.insert(
                     key.clone(),
-                    spawn_gateio_snapshot_fetch_for_instrument(instrument.clone(), snapshot_url),
+                    spawn_gateio_snapshot_fetch_for_instrument(
+                        instrument.clone(),
+                        snapshot_url,
+                        feed.transport.clone(),
+                        feed.snapshot_mode(),
+                    ),
                 );
             }
         }
@@ -1767,7 +2218,7 @@ async fn process_gateio_orderbook_message(
 
         match maybe_book {
             Ok(Some(book)) => {
-                dispatch_gateio_l2_book(feed, book).await;
+                dispatch_gateio_l2_book(feed, book).await?;
             }
             Ok(None) => {}
             Err(err) => {
@@ -1807,6 +2258,9 @@ async fn process_gateio_orderbook_message_for_plan(
     }
     let instrument = GateioAdapter::instrument_for_message(&message, &plan.instruments)
         .ok_or_else(|| Error::Parse("gateio message instrument is not in the plan".to_owned()))?;
+    if !subscribed_to(feed, Channel::L2Book, &instrument.symbol) {
+        return Ok(true);
+    }
     let parsed =
         gateio_parser::parse_l2_book_update_for_instrument(&message, received_ts, instrument)
             .ok_or_else(|| Error::Parse("failed to parse gateio depth update".to_owned()))?;
@@ -1834,7 +2288,7 @@ async fn process_gateio_orderbook_message_for_plan(
             sync.apply_next_delta(update.clone())
         };
         match maybe_book {
-            Ok(Some(book)) => dispatch_gateio_l2_book(feed, book).await,
+            Ok(Some(book)) => dispatch_gateio_l2_book(feed, book).await?,
             Ok(None) => {}
             Err(Error::Parse(_)) => {
                 schedule_gateio_resync_for_plan(
@@ -1849,8 +2303,20 @@ async fn process_gateio_orderbook_message_for_plan(
             }
             Err(error) => return Err(error),
         }
-    } else {
+    } else if receivers.contains_key(&symbol_key) {
         buffer_gateio_delta(pending, &symbol_key, update);
+    } else {
+        // Start REST only after this symbol's WS delta is buffered. Paced
+        // subscription queues must not fetch a snapshot before subscribing.
+        schedule_gateio_resync_for_plan(
+            feed,
+            plan,
+            instrument,
+            &symbol_key,
+            update,
+            receivers,
+            pending,
+        )?;
     }
     Ok(true)
 }
@@ -1878,7 +2344,7 @@ async fn apply_gateio_full_push(
     }
     receivers.remove(&symbol_key);
     pending.remove(&symbol_key);
-    dispatch_gateio_l2_book(feed, L2Book::Snapshot(snapshot)).await;
+    dispatch_gateio_l2_book(feed, L2Book::Snapshot(snapshot)).await?;
     Ok(())
 }
 
@@ -1896,6 +2362,7 @@ fn schedule_gateio_resync_for_plan(
     let index = plan
         .instruments
         .iter()
+        .filter(|candidate| feed.subscribes(Channel::L2Book, &candidate.symbol))
         .position(|candidate| candidate == instrument)
         .ok_or_else(|| Error::Parse("missing gateio resync instrument".to_owned()))?;
     let snapshot_url = plan
@@ -1906,7 +2373,12 @@ fn schedule_gateio_resync_for_plan(
     receivers.remove(symbol_key);
     receivers.insert(
         symbol_key.to_owned(),
-        spawn_gateio_snapshot_fetch_for_instrument(instrument.clone(), snapshot_url),
+        spawn_gateio_snapshot_fetch_for_instrument(
+            instrument.clone(),
+            snapshot_url,
+            feed.transport.clone(),
+            feed.snapshot_mode(),
+        ),
     );
     Ok(())
 }
@@ -1918,6 +2390,7 @@ fn reset_gateio_sync_state(
     update: GateioDepthDelta,
     pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
 ) {
+    feed.invalidate_book_readiness(symbol_key);
     feed.gateio_book_syncs
         .lock()
         .expect("gateio sync lock")
@@ -1959,7 +2432,12 @@ fn schedule_gateio_resync(
         receivers.remove(symbol_key);
         receivers.insert(
             symbol_key.to_owned(),
-            spawn_gateio_snapshot_fetch_for_instrument(instrument, snapshot_url),
+            spawn_gateio_snapshot_fetch_for_instrument(
+                instrument,
+                snapshot_url,
+                feed.transport.clone(),
+                feed.snapshot_mode(),
+            ),
         );
     }
 }
@@ -1971,6 +2449,9 @@ async fn process_bitget_text_message(
     received_ts: f64,
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(error) = quota::websocket_error(feed.exchange, &message) {
+        return Err(error);
+    }
     if message.get("event").and_then(Value::as_str) == Some("subscribe") {
         return Ok(());
     }
@@ -2009,7 +2490,7 @@ async fn process_bitget_text_message(
         ));
     }
     for event in events {
-        dispatch_bitget_event(feed, event).await;
+        dispatch_bitget_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2137,7 +2618,7 @@ async fn process_bybit_message(
         )));
     }
     for event in events {
-        dispatch_bybit_event(feed, event).await;
+        dispatch_bybit_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2159,13 +2640,16 @@ async fn process_bybit_orderbook_message(
 
     if topic.starts_with("orderbook.1.") {
         for event in BybitAdapter::parse_messages_for_feed(feed, message, received_ts) {
-            dispatch_bybit_event(feed, event).await;
+            dispatch_bybit_event(feed, event).await?;
         }
         return Ok(true);
     }
 
     let update = BybitAdapter::parse_l2_book_update_for_feed(feed, message, received_ts)
         .ok_or_else(|| Error::Parse("failed to parse bybit depth update".to_owned()))?;
+    if !feed.subscribes(Channel::L2Book, update.book.symbol()) {
+        return Ok(true);
+    }
     let symbol_key = match &update.book {
         L2Book::Snapshot(snapshot) => snapshot.symbol.as_str().to_owned(),
         L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
@@ -2182,7 +2666,7 @@ async fn process_bybit_orderbook_message(
     };
 
     if let Some(book) = maybe_book {
-        dispatch_bybit_l2_book(feed, book).await;
+        dispatch_bybit_l2_book(feed, book).await?;
     }
 
     Ok(true)
@@ -2194,6 +2678,9 @@ async fn process_okx_text_message(feed: &ExchangeFeed, text: &str, received_ts: 
         return control.map(|_| ());
     }
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(error) = quota::websocket_error(feed.exchange, &message) {
+        return Err(error);
+    }
     if let Some(control) = OkxAdapter::parse_control_message(&message) {
         return control.map(|_| ());
     }
@@ -2205,7 +2692,7 @@ async fn process_okx_text_message(feed: &ExchangeFeed, text: &str, received_ts: 
         return Ok(());
     }
     for event in OkxAdapter::parse_messages_for_feed(feed, &message, received_ts) {
-        dispatch_okx_event(feed, event).await;
+        dispatch_okx_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2217,6 +2704,9 @@ async fn process_gateio_text_message(
     received_ts: f64,
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(error) = quota::websocket_error(feed.exchange, &message) {
+        return Err(error);
+    }
     if let Some(detail) = gateio_error_detail(&message) {
         // A rejected subscription is a permanent configuration problem;
         // `Subscription` errors fail fast instead of burning the retries.
@@ -2225,7 +2715,7 @@ async fn process_gateio_text_message(
         )));
     }
     for event in GateioAdapter::parse_messages(&message, received_ts) {
-        dispatch_gateio_event(feed, event).await;
+        dispatch_gateio_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2237,6 +2727,9 @@ async fn process_gateio_text_message_for_plan(
     received_ts: f64,
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(error) = quota::websocket_error(feed.exchange, &message) {
+        return Err(error);
+    }
     if let Some(detail) = gateio_error_detail(&message) {
         // A rejected subscription is a permanent configuration problem;
         // `Subscription` errors fail fast instead of burning the retries.
@@ -2263,7 +2756,7 @@ async fn process_gateio_text_message_for_plan(
                         received_ts,
                         instrument,
                     ) {
-                        dispatch_gateio_event(feed, event).await;
+                        dispatch_gateio_event(feed, event).await?;
                     }
                 }
             }
@@ -2273,7 +2766,7 @@ async fn process_gateio_text_message_for_plan(
     let instrument = GateioAdapter::instrument_for_message(&message, &plan.instruments)
         .ok_or_else(|| Error::Parse("gateio message instrument is not in the plan".to_owned()))?;
     for event in GateioAdapter::parse_messages_for_instrument(&message, received_ts, instrument) {
-        dispatch_gateio_event(feed, event).await;
+        dispatch_gateio_event(feed, event).await?;
     }
     Ok(())
 }
@@ -2325,6 +2818,9 @@ async fn process_okx_orderbook_message(
         return Err(Error::Parse("failed to parse okx depth update".to_owned()));
     }
     for update in updates {
+        if !feed.subscribes(Channel::L2Book, update.book.symbol()) {
+            continue;
+        }
         let symbol_key = match &update.book {
             L2Book::Snapshot(snapshot) => snapshot.symbol.as_str().to_owned(),
             L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
@@ -2341,7 +2837,7 @@ async fn process_okx_orderbook_message(
         };
 
         if let Some(book) = maybe_book {
-            dispatch_okx_l2_book(feed, book).await;
+            dispatch_okx_l2_book(feed, book).await?;
         }
     }
 
@@ -2405,6 +2901,9 @@ async fn process_bitget_orderbook_message(
                 _ => None,
             })
             .ok_or_else(|| Error::Parse("failed to parse bitget depth update".to_owned()))?;
+        if !feed.subscribes(Channel::L2Book, book.symbol()) {
+            continue;
+        }
         let parse_sequence = |name: &str| {
             row.get(name)
                 .and_then(|value| {
@@ -2440,14 +2939,14 @@ async fn process_bitget_orderbook_message(
         };
 
         if let Some(book) = maybe_book {
-            dispatch_bitget_l2_book(feed, book).await;
+            dispatch_bitget_l2_book(feed, book).await?;
         }
     }
 
     Ok(true)
 }
 
-fn current_timestamp() -> f64 {
+pub(crate) fn current_timestamp() -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     SystemTime::now()
@@ -2634,6 +3133,244 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "trade")]
+    struct OrderedTradeHandler {
+        name: &'static str,
+        seen: Arc<Mutex<Vec<&'static str>>>,
+        behavior: u8,
+    }
+    #[cfg(feature = "trade")]
+    #[async_trait]
+    impl TradeHandler for OrderedTradeHandler {
+        async fn on_trade(&self, mut trade: Trade) {
+            assert_eq!(trade.price, rust_decimal::Decimal::ONE);
+            trade.price = rust_decimal::Decimal::ZERO; // Each callback receives an independent model.
+            let first = {
+                let mut seen = self.seen.lock().unwrap();
+                seen.push(self.name);
+                seen.iter().filter(|name| **name == self.name).count() == 1
+            };
+            match self.behavior {
+                1 => panic!("scripted handler failure"),
+                2 if first => std::future::pending().await,
+                _ => tokio::task::yield_now().await,
+            }
+        }
+    }
+    #[cfg(feature = "trade")]
+    fn handler_trade() -> Trade {
+        Trade {
+            exchange: ExchangeId::Binance,
+            symbol: cryptofeed_core::symbol::Symbol::spot("BTC", "USDT"),
+            side: cryptofeed_trade::Side::Buy,
+            amount: rust_decimal::Decimal::ONE,
+            price: rust_decimal::Decimal::ONE,
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+            id: None,
+            implied_volatility: None,
+        }
+    }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn multiple_handlers_preserve_order_primary_replacement_and_single_publication() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let probe = |name| {
+            Arc::new(OrderedTradeHandler {
+                name,
+                seen: seen.clone(),
+                behavior: 0,
+            })
+        };
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .trade_handler(probe("replaced"))
+            .add_trade_handler(probe("second"))
+            .trade_handler(probe("primary"))
+            .add_trade_handler(probe("third"))
+            .build();
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        let counters = handler.event_counters();
+        handler.add_feed(feed);
+        let feed = handler.into_feeds().pop().unwrap();
+        super::dispatch_trade(&feed, handler_trade()).await;
+        assert_eq!(*seen.lock().unwrap(), ["primary", "second", "third"]);
+        assert_eq!(counters.count(cryptofeed_core::exchange::Channel::Trade), 1);
+        assert!(events.try_recv().is_ok());
+        assert!(events.try_recv().is_err());
+        let extra_only = Binance::new().trade().add_trade_handler(probe("only"));
+        assert!(extra_only.has_handler_for(cryptofeed_core::exchange::Channel::Trade));
+        super::dispatch_trade(&extra_only.symbol("BTC-USDT").build(), handler_trade()).await;
+        assert_eq!(seen.lock().unwrap().last(), Some(&"only"));
+    }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn handler_panic_and_timeout_allow_later_handlers_and_future_events() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let probe = |name, behavior| {
+            Arc::new(OrderedTradeHandler {
+                name,
+                seen: seen.clone(),
+                behavior,
+            })
+        };
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .trade_handler(probe("panic", 1))
+            .add_trade_handler(probe("slow", 2))
+            .add_trade_handler(probe("last", 0))
+            .build();
+        tokio::time::timeout(
+            Duration::from_secs(7),
+            super::dispatch_trade(&feed, handler_trade()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["panic", "slow", "last"]);
+        super::dispatch_trade(&feed, handler_trade()).await;
+        assert_eq!(
+            *seen.lock().unwrap(),
+            ["panic", "slow", "last", "panic", "slow", "last"]
+        );
+    }
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn configured_callback_deadline_reaches_dispatch_after_handler_registration() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let options = crate::options::RuntimeOptions::default()
+            .handler_timeout(Duration::from_millis(10))
+            .unwrap();
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .runtime_options(options)
+            .add_trade_handler(Arc::new(OrderedTradeHandler {
+                name: "slow",
+                seen: seen.clone(),
+                behavior: 2,
+            }))
+            .add_trade_handler(Arc::new(OrderedTradeHandler {
+                name: "later",
+                seen: seen.clone(),
+                behavior: 0,
+            }))
+            .build();
+        let mut handler = FeedHandler::new();
+        handler.add_feed(feed);
+        let feed = handler.into_feeds().pop().unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            super::dispatch_trade(&feed, handler_trade()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["slow", "later"]);
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn shutdown_cancels_slow_handler_before_remaining_callbacks() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .add_trade_handler(Arc::new(OrderedTradeHandler {
+                name: "slow",
+                seen: seen.clone(),
+                behavior: 2,
+            }))
+            .add_trade_handler(Arc::new(OrderedTradeHandler {
+                name: "later",
+                seen: seen.clone(),
+                behavior: 0,
+            }))
+            .build();
+        let (stop, shutdown) = watch::channel(false);
+        let running = tokio::spawn(super::run_feeds_until_shutdown(
+            vec![feed],
+            shutdown,
+            |feed, _| async move {
+                super::dispatch_trade(&feed, handler_trade()).await;
+                Ok(())
+            },
+        ));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while seen.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        stop.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), running)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["slow"]);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn l2_recovery_runtime_hooks_fence_resync_disconnect_and_stop() {
+        use crate::feed::FeedState;
+        let mut handler = FeedHandler::new();
+        let id = handler.add_feed_with_id(Okx::new().l2_book().symbol("BTC-USDT").build());
+        let handle = handler.l2_book_handle(); // May be enabled after initial registration.
+        let (_, context, _commands) = handler.into_control_parts();
+        let identity = crate::feed::FeedIdentity { id, generation: 1 };
+        let monitor = context.monitor(identity, ExchangeId::Okx);
+        monitor.lifecycle(FeedState::Started);
+        let mut feed = Okx::new().l2_book().symbol("BTC-USDT").build();
+        feed.identity = Some(identity);
+        feed.monitor = Some(monitor.clone());
+        super::readiness::track(
+            &mut feed,
+            "wss://ws.okx.com/ws/v5/public",
+            vec!["BTC-USDT".into()],
+        );
+        let attempt = super::readiness::begin(&mut feed).unwrap();
+        attempt.connected();
+        let symbol = feed.symbols[0].clone();
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 1))
+            .await
+            .unwrap();
+        assert!(handle.recover(identity, &symbol).snapshot.is_some());
+        feed.invalidate_book_readiness("BTC-USDT");
+        super::dispatch_l2_book(&feed, crate::books::tests::book(false, 2))
+            .await
+            .unwrap();
+        assert!(handle.recover(identity, &symbol).snapshot.is_none());
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 3))
+            .await
+            .unwrap();
+        assert!(handle.recover(identity, &symbol).snapshot.is_some());
+        drop(attempt);
+        assert!(handle.recover(identity, &symbol).snapshot.is_none());
+        let attempt = super::readiness::begin(&mut feed).unwrap();
+        attempt.connected();
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 4))
+            .await
+            .unwrap();
+        assert_eq!(
+            handle
+                .recover(identity, &symbol)
+                .snapshot
+                .unwrap()
+                .anchor
+                .epoch,
+            2
+        );
+        monitor.lifecycle(FeedState::Stopping);
+        super::dispatch_l2_book(&feed, crate::books::tests::book(true, 9))
+            .await
+            .unwrap();
+        assert!(handle.recover(identity, &symbol).snapshot.is_none());
+    }
+
     #[cfg(feature = "orderbook")]
     struct TestOrderBookHandler {
         seen: Arc<Mutex<usize>>,
@@ -2673,6 +3410,76 @@ mod tests {
         async fn on_candle(&self, _candle: Candle) {
             *self.seen.lock().expect("lock") += 1;
         }
+    }
+
+    #[cfg(feature = "candles")]
+    #[tokio::test]
+    async fn candle_completion_policy_filters_every_delivery_surface_without_guessing() {
+        use crate::exchange::CandlePolicy;
+        use cryptofeed_core::{exchange::Channel, symbol::Symbol};
+        use rust_decimal::Decimal;
+        for (policy, expected) in [
+            (CandlePolicy::All, vec![Some(false), None, Some(true)]),
+            (CandlePolicy::ClosedOnly, vec![Some(true)]),
+            (CandlePolicy::ClosedOrUnknown, vec![None, Some(true)]),
+        ] {
+            let seen = Arc::new(Mutex::new(0));
+            let mut handler = FeedHandler::new();
+            let mut events = handler.subscribe();
+            let mut identified = handler.subscribe_identified();
+            let counters = handler.event_counters();
+            handler.add_feed(
+                Binance::new()
+                    .candles()
+                    .symbol("BTC-USDT")
+                    .candle_policy(policy)
+                    .candle_handler(Arc::new(TestCandleHandler { seen: seen.clone() }))
+                    .build(),
+            );
+            let feed = handler.into_feeds().pop().unwrap();
+            let candle = Candle {
+                exchange: ExchangeId::Binance,
+                symbol: Symbol::spot("BTC", "USDT"),
+                start: 1.0,
+                end: 61.0,
+                interval: "1m".into(),
+                trades: None,
+                open: Decimal::ONE,
+                close: Decimal::ONE,
+                high: Decimal::ONE,
+                low: Decimal::ONE,
+                volume: Decimal::ONE,
+                closed: None,
+                exchange_ts: 2.0,
+                received_ts: 100.0, // Receipt after end must not imply completion.
+            };
+            for closed in [Some(false), None, Some(true)] {
+                let mut next = candle.clone();
+                next.closed = closed;
+                super::dispatch_candle(&feed, next).await;
+            }
+            assert_eq!(*seen.lock().unwrap(), expected.len());
+            assert_eq!(counters.count(Channel::Candles), expected.len() as u64);
+            for closed in expected {
+                let crate::feed::FeedEvent::Candle(actual) = events.try_recv().unwrap() else {
+                    panic!("candle")
+                };
+                let mut wanted = candle.clone();
+                wanted.closed = closed;
+                assert_eq!(actual, wanted); // Unknown stays unknown; no model rewrite.
+                let scoped = identified.try_recv().unwrap();
+                assert_eq!(Some(scoped.identity), feed.identity());
+                assert!(
+                    matches!(scoped.event, crate::feed::FeedEvent::Candle(value) if value == wanted)
+                );
+            }
+            assert!(events.try_recv().is_err());
+            assert!(identified.try_recv().is_err());
+        }
+        assert_eq!(
+            Binance::new().candles().build().candle_policy,
+            CandlePolicy::All
+        );
     }
 
     #[cfg(feature = "funding")]
@@ -2769,11 +3576,131 @@ mod tests {
         assert!(matches!(trade_event, BinanceEvent::Trade(_)));
         assert!(matches!(ticker_event, BinanceEvent::Ticker(_)));
 
-        super::dispatch_binance_event(&feed, trade_event).await;
-        super::dispatch_binance_event(&feed, ticker_event).await;
+        super::dispatch_binance_event(&feed, trade_event)
+            .await
+            .unwrap();
+        super::dispatch_binance_event(&feed, ticker_event)
+            .await
+            .unwrap();
 
         assert_eq!(*trade_seen.lock().expect("lock"), 1);
         assert_eq!(*ticker_seen.lock().expect("lock"), 1);
+    }
+
+    #[cfg(all(feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn channel_subscriptions_hydrate_and_filter_handlers_events_and_books() {
+        use cryptofeed_core::exchange::Channel;
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        let counters = handler.event_counters();
+        handler.add_feed(
+            Binance::new()
+                .subscription(Channel::Trade, ["BTC-USDT", "ETH-USDT"])
+                .subscription(Channel::L2Book, ["BTC-USDT"])
+                .exchange_symbol("BTCUSDT")
+                .exchange_symbol("ETHUSDT")
+                .trade_handler(Arc::new(TestTradeHandler {
+                    seen: trade_seen.clone(),
+                }))
+                .orderbook_handler(Arc::new(TestOrderBookHandler {
+                    seen: book_seen.clone(),
+                }))
+                .build(),
+        );
+        assert_eq!(handler.feed_count(), 1);
+        let groups = super::hydrate_feed_symbols(handler.into_feeds())
+            .await
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        let trade = serde_json::json!({"e":"aggTrade","s":"ETHUSDT","a":1,"p":"100","q":"2","m":false,"T":1710000000123u64});
+        for feed in &groups {
+            super::process_binance_text_message(feed, &trade.to_string(), 1.0)
+                .await
+                .unwrap();
+            for base in ["BTC", "ETH"] {
+                super::dispatch_l2_book(
+                    feed,
+                    cryptofeed_orderbook::L2Book::Snapshot(cryptofeed_orderbook::L2BookSnapshot {
+                        exchange: ExchangeId::Binance,
+                        symbol: cryptofeed_core::symbol::Symbol::spot(base, "USDT"),
+                        bids: vec![],
+                        asks: vec![],
+                        exchange_ts: 1.0,
+                        received_ts: 2.0,
+                    }),
+                )
+                .await
+                .unwrap();
+            }
+        }
+        assert_eq!(*trade_seen.lock().unwrap(), 1);
+        assert_eq!(*book_seen.lock().unwrap(), 1);
+        assert_eq!(counters.count(Channel::Trade), 1);
+        assert_eq!(counters.count(Channel::L2Book), 1);
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::feed::FeedEvent::Trade(_)
+        ));
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::feed::FeedEvent::L2Book(_)
+        ));
+        assert!(events.try_recv().is_err());
+        let states = groups[0].orderbook_states.lock().unwrap();
+        assert!(states.contains_key("BTC-USDT"));
+        assert!(!states.contains_key("ETH-USDT"));
+    }
+
+    #[cfg(all(feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn packed_trade_only_symbol_does_not_create_book_sync_or_rest_work() {
+        use cryptofeed_core::exchange::Channel;
+        let feed = |exchange| {
+            crate::exchange::ExchangeFeedBuilder::new(exchange)
+                .subscription(Channel::Trade, ["ETH-USDT"])
+                .subscription(Channel::L2Book, ["BTC-USDT"])
+                .build()
+        };
+        let binance = feed(ExchangeId::Binance);
+        let plan = BinanceAdapter::connection_plans(&binance)
+            .unwrap()
+            .remove(0);
+        let mut receivers = std::collections::HashMap::new();
+        let mut pending = std::collections::HashMap::new();
+        let message = serde_json::json!({"e":"depthUpdate","s":"ETHUSDT","U":101,"u":102,"b":[["100","1"]],"a":[]});
+        super::process_binance_orderbook_message(
+            &binance,
+            &plan,
+            &message.to_string(),
+            1.0,
+            &mut receivers,
+            &mut pending,
+        )
+        .await
+        .unwrap();
+        assert!(receivers.is_empty() && pending.is_empty());
+        assert!(binance.binance_book_syncs.lock().unwrap().is_empty());
+        let bybit = feed(ExchangeId::Bybit);
+        let message = serde_json::json!({"topic":"orderbook.50.ETHUSDT","type":"delta","ts":1710000000000i64,"data":{"s":"ETHUSDT","b":[["100","1"]],"a":[],"u":102,"seq":102}});
+        super::process_bybit_orderbook_message(&bybit, &message, 1.0)
+            .await
+            .unwrap();
+        assert!(bybit.bybit_book_syncs.lock().unwrap().is_empty());
+        let okx = feed(ExchangeId::Okx);
+        let message = serde_json::json!({"arg":{"channel":"books","instId":"ETH-USDT"},"action":"update","data":[{"bids":[["100","1","0","1"]],"asks":[],"ts":"1710000000000","seqId":102,"prevSeqId":100}]});
+        super::process_okx_orderbook_message(&okx, &message, 1.0)
+            .await
+            .unwrap();
+        assert!(okx.okx_book_syncs.lock().unwrap().is_empty());
+        let bitget = feed(ExchangeId::Bitget);
+        let message = serde_json::json!({"arg":{"instType":"spot","topic":"books","symbol":"ETHUSDT"},"action":"update","data":[{"b":[["100","1"]],"a":[],"ts":"1710000000000","seq":102,"pseq":100}]});
+        super::process_bitget_orderbook_message(&bitget, &message, 1.0)
+            .await
+            .unwrap();
+        assert!(bitget.bitget_book_syncs.lock().unwrap().is_empty());
     }
 
     #[cfg(all(feature = "ticker", feature = "orderbook"))]
@@ -2864,7 +3791,7 @@ mod tests {
         let event = BinanceAdapter::parse_message(&message, 1710000001.5).expect("book event");
         assert!(matches!(event, BinanceEvent::L2Book(_)));
 
-        super::dispatch_binance_event(&feed, event).await;
+        super::dispatch_binance_event(&feed, event).await.unwrap();
         assert_eq!(*seen.lock().expect("lock"), 1);
         let states = feed.orderbook_states.lock().expect("lock");
         let state = states.get("BTC-USDT").expect("btc-usdt state");
@@ -2925,7 +3852,7 @@ mod tests {
         let book = super::bootstrap_binance_book(&feed, "BTC-USDT", 100, snapshot, vec![])
             .expect("bootstrap")
             .expect("snapshot event");
-        super::dispatch_binance_l2_book(&feed, book).await;
+        super::dispatch_binance_l2_book(&feed, book).await.unwrap();
 
         assert_eq!(*seen.lock().expect("lock"), 1);
         let states = feed.orderbook_states.lock().expect("lock");
@@ -3571,7 +4498,7 @@ mod tests {
 
         assert_eq!(
             planned_connection_urls(&handler),
-            vec!["wss://ws.okx.com:8443/ws/v5/public".to_owned()]
+            vec!["wss://ws.okx.com/ws/v5/public".to_owned()]
         );
     }
 
@@ -4053,6 +4980,63 @@ mod tests {
 
     #[cfg(feature = "orderbook")]
     #[tokio::test]
+    async fn gateio_initial_delta_starts_one_snapshot_after_buffering() {
+        let feed = Gateio::new().l2_book().symbol("BTC-USDT").build();
+        let mut plan = super::GateioAdapter::connection_plans(&feed)
+            .unwrap()
+            .remove(0);
+        plan.snapshot_urls[0] = "test://snapshot-after-delta".to_owned();
+        let mut receivers = std::collections::HashMap::new();
+        let mut pending = std::collections::HashMap::new();
+        for id in [101u64, 102] {
+            let text = serde_json::json!({"channel":"spot.order_book_update","event":"update", "result":{"t":1710000000123u64,"s":"BTC_USDT","U":id,"u":id,"b":[["100","1"]],"a":[]}}).to_string();
+            super::process_gateio_orderbook_message_for_plan(
+                &feed,
+                &plan,
+                &text,
+                1.0,
+                &mut receivers,
+                &mut pending,
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(receivers.len(), 1);
+        assert_eq!(
+            pending["BTC-USDT"]
+                .iter()
+                .map(|delta| delta.last_update_id)
+                .collect::<Vec<_>>(),
+            [101, 102]
+        );
+    }
+
+    #[cfg(all(feature = "orderbook", feature = "trade"))]
+    #[tokio::test]
+    async fn gateio_unrequested_book_does_not_start_snapshot_or_buffer() {
+        let feed = Gateio::new().trade().symbol("BTC-USDT").build();
+        let plan = super::GateioAdapter::connection_plans(&feed)
+            .unwrap()
+            .remove(0);
+        let mut receivers = std::collections::HashMap::new();
+        let mut pending = std::collections::HashMap::new();
+        let text = serde_json::json!({"channel":"spot.order_book_update","event":"update", "result":{"t":1710000000123u64,"s":"BTC_USDT","U":101,"u":101,"b":[["100","1"]],"a":[]}}).to_string();
+        super::process_gateio_orderbook_message_for_plan(
+            &feed,
+            &plan,
+            &text,
+            1.0,
+            &mut receivers,
+            &mut pending,
+        )
+        .await
+        .unwrap();
+        assert!(receivers.is_empty());
+        assert!(pending.is_empty());
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
     async fn gateio_book_gap_schedules_resync() {
         let feed = Gateio::new().l2_book().symbol("BTC-USDT").build();
         let snapshot = cryptofeed_orderbook::L2BookSnapshot {
@@ -4275,7 +5259,7 @@ mod tests {
         }))
         .expect("snapshot result");
         let mut receivers = std::collections::HashMap::new();
-        receivers.insert("BTC-USDT".to_owned(), rx);
+        receivers.insert("BTC-USDT".to_owned(), rx.into());
         let mut pending = std::collections::HashMap::new();
         pending.insert("BTC-USDT".to_owned(), vec![non_bridging]);
         let mut attempts = std::collections::HashMap::new();
@@ -4305,7 +5289,7 @@ mod tests {
             book: snapshot,
         }))
         .expect("resnapshot result");
-        receivers.insert("BTC-USDT".to_owned(), rx2);
+        receivers.insert("BTC-USDT".to_owned(), rx2.into());
         super::poll_gateio_snapshot_bootstraps_for_plan(
             &feed,
             &plan,
@@ -4367,7 +5351,7 @@ mod tests {
         }))
         .expect("snapshot result");
         let mut receivers = std::collections::HashMap::new();
-        receivers.insert("BTC-USDT".to_owned(), rx);
+        receivers.insert("BTC-USDT".to_owned(), rx.into());
         let mut pending = std::collections::HashMap::new();
         pending.insert("BTC-USDT".to_owned(), vec![non_bridging]);
         let mut attempts = std::collections::HashMap::new();
@@ -4491,7 +5475,7 @@ mod tests {
         let event = BitgetAdapter::parse_message(&message, 1710000001.5).expect("bitget ticker");
         assert!(matches!(event, BitgetEvent::Ticker(_)));
 
-        super::dispatch_bitget_event(&feed, event).await;
+        super::dispatch_bitget_event(&feed, event).await.unwrap();
         assert_eq!(*seen.lock().expect("lock"), 1);
     }
 
@@ -4542,7 +5526,7 @@ mod tests {
         let event = BitgetAdapter::parse_message(&message, 1710000001.5).expect("bitget book");
         assert!(matches!(event, BitgetEvent::L2Book(_)));
 
-        super::dispatch_bitget_event(&feed, event).await;
+        super::dispatch_bitget_event(&feed, event).await.unwrap();
         assert_eq!(*seen.lock().expect("lock"), 1);
         let states = feed.orderbook_states.lock().expect("lock");
         let state = states.get("BTC-USDT").expect("btc-usdt state");
@@ -4684,6 +5668,63 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn bybit_managed_session_confirms_subscription_then_synchronizes_book() {
+        use crate::feed::{FeedId, FeedIdentity, FeedState};
+        let monitor = Arc::new(super::readiness::FeedMonitor::new(
+            FeedIdentity {
+                id: FeedId::allocate(),
+                generation: 1,
+            },
+            ExchangeId::Bybit,
+            None,
+        ));
+        monitor.configure(1, vec!["BTC-USDT".into()]);
+        monitor.lifecycle(FeedState::Started);
+        let mut feed = Bybit::new()
+            .l2_book()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .build();
+        feed.monitor = Some(monitor.clone());
+        super::readiness::track(
+            &mut feed,
+            "wss://stream.bybit.com/v5/public/spot",
+            vec!["BTC-USDT".into()],
+        );
+        let attempt = super::readiness::begin(&mut feed);
+        let (mut client, mut server) = duplex_session(ExchangeId::Bybit).await;
+        client.set_readiness(attempt);
+        let (stop, receiver) = watch::channel(false);
+        let task = tokio::spawn(async move {
+            super::consume_bybit_session_with(feed, receiver, &mut client).await
+        });
+        let Message::Text(request) = server.next().await.unwrap().unwrap() else {
+            panic!("subscription expected");
+        };
+        let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        server
+            .send(Message::Text(
+                serde_json::json!({"op":"subscribe","success":true,"req_id":request["req_id"]})
+                    .to_string(),
+            ))
+            .await
+            .unwrap();
+        wait_for_seen(|| monitor.snapshot().state == FeedState::Subscribed).await;
+        assert_eq!(monitor.snapshot().books_synchronized, 0);
+        server.send(Message::Text(serde_json::json!({"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1710000000123u64,"data":{"s":"BTCUSDT","b":[["100","1"]],"a":[["101","2"]],"u":1,"seq":1}}).to_string())).await.unwrap();
+        wait_for_seen(|| monitor.snapshot().is_ready()).await;
+        assert_eq!(monitor.snapshot().books_synchronized, 1);
+        assert_eq!(monitor.snapshot().observed_pairs, 1);
+        assert!(monitor.snapshot().last_event_at.is_some());
+        assert!(monitor.snapshot().connections[0].last_received_at.is_some());
+        stop.send(true).unwrap();
+        task.await.unwrap().unwrap();
+        assert!(!monitor.snapshot().is_ready());
+        assert_eq!(monitor.snapshot().books_synchronized, 0);
+    }
+
     /// Polls a handler-side condition until it holds or the timeout fires.
     async fn wait_for_seen(check: impl Fn() -> bool) {
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -4726,7 +5767,7 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (snapshot_tx, snapshot_rx) = oneshot::channel();
         let mut receivers = std::collections::HashMap::new();
-        receivers.insert("BTC-USDT".to_owned(), snapshot_rx);
+        receivers.insert("BTC-USDT".to_owned(), snapshot_rx.into());
         let pending_deltas = std::collections::HashMap::new();
         let feed_for_task = feed.clone();
 
@@ -5030,7 +6071,9 @@ mod tests {
             .remove(0);
         let (mut client, mut server) = duplex_session(ExchangeId::Gateio).await;
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        #[cfg(feature = "orderbook")]
         let receivers = std::collections::HashMap::new();
+        #[cfg(feature = "orderbook")]
         let pending_deltas = std::collections::HashMap::new();
 
         let session = tokio::spawn(async move {
@@ -5039,7 +6082,9 @@ mod tests {
                 plan,
                 shutdown_rx,
                 &mut client,
+                #[cfg(feature = "orderbook")]
                 receivers,
+                #[cfg(feature = "orderbook")]
                 pending_deltas,
             )
             .await

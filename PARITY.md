@@ -1,6 +1,6 @@
 # Python Baseline vs Rust Parity Checklist
 
-Last updated: 2026-10-08
+Last updated: 2026-10-10
 
 ## Goal
 
@@ -30,6 +30,39 @@ exchange documentation and sourced fixtures define protocol correctness.
   snapshot bootstrap, and clean shutdown.
 - [x] Back normalization assertions with sanitized, sourced official protocol
   references.
+
+## Usage alignment
+
+Phase 1 exposes product-qualified catalog discovery, explicit `*`/`?` selection,
+bulk symbol configuration, and the existing watch-signal shutdown via
+`FeedHandler`. Deterministic catalog tests cover ordering, overlaps, unmatched
+patterns, unsupported products, and typed configuration. Exchange/channel
+capabilities are unchanged. Managed runtime controls/readiness and opt-in
+[automatic directory reconciliation](docs/discovery.md) are implemented.
+[CandlePolicy](docs/candle-delivery.md) also supports confirmed-final or
+final/unknown delivery while preserving the all-update default.
+[Multiple handlers](docs/handlers.md) now execute serially with per-invocation
+timeout and catchable panic isolation; legacy primary setters remain compatible.
+[L2 recovery](docs/l2-recovery.md) adds opt-in full snapshots plus anchored
+updates and scoped invalidation; legacy broadcasts remain bounded/lossy.
+[RuntimeOptions](docs/runtime-options.md) exposes retry/connection/callback
+budgets, startup delay and receipt watchdog overrides/disable, preserving
+heartbeat and confirmation policies.
+[TransportConfig](docs/transport.md) shares explicit proxy routing across
+catalogs, REST book snapshots/resync and WS, with scoped caches and direct defaults.
+Unequal channel/symbol sets now share native connections, with exact request
+args, L2-only snapshot ownership and capacity-preserving rule slices.
+[Five-exchange sparse smoke](docs/reports/live-smoke-packing-2026-10-10.md) reached
+Ready on one Spot socket each; required endpoint/product splits remain asserted.
+[MarketInfo](docs/market-metadata.md) now exposes verified directory constraints
+and contract fields with exact Decimal/applicability rules and build-specific
+channel context. No event units or capability cell changed.
+[PublicRestClient](docs/public-rest.md) adds ticker/book snapshots with optional
+native times/IDs and shared HTTP-status backoff. [Funding history](docs/funding-history.md)
+adds bounded actual-settlement batches/cursors; trade/candle history remains pending.
+Scripted regressions cover listings/removals, native-name changes, empty/failing
+refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
+tracked in [the usage alignment plan](docs/python-usage-alignment.md).
 
 ## Capability Matrix
 
@@ -88,7 +121,7 @@ public perpetual liquidation subscription was acknowledged successfully;
 no liquidation event occurred in the 45-second window. Dated-product fan-out,
 other Bitget derivative categories, and Gate.io liquidation normalization
 remain offline-verified in this increment. See
-[the smoke report](docs/live-smoke-2026-10-08.md).
+[the smoke report](docs/reports/live-smoke-2026-10-08.md).
 
 ## Exchange Protocol Gates
 
@@ -268,14 +301,865 @@ cargo test -p cryptofeed-rs --test public_parity
   bounded resnapshot path is implemented and deterministically covered).
 - L3 order books: no public order-by-order depth stream across the five active
   exchanges (verified 2026-08-05); see
-  `docs/plan-advanced-public-channels.md` Section 2.2.
+  [the protocol baseline](docs/exchange-protocol-baseline.md#l3-order-book-scope).
 - Deeper full-session WebSocket/REST doubles and remaining checksum coverage.
 
 Funding and liquidations (Bitget v3, Bybit v5, OKX v5, Gate.io perpetual
 liquidations), open interest (Bitget, Bybit, OKX, Gate.io), index price
 (OKX explicit index/contract mapping, Binance derivative index-price stream,
 Bitget/Bybit/Gate.io derivative tickers), and L1 (all five active exchanges) are implemented for spot/contract scope. Options, MARGIN, and L3 are
-deferred. See `docs/plan-advanced-public-channels.md`. Further expansion
-requires a new explicit plan and current official protocol evidence. See
-`docs/current-exchanges-implementation-plan.md` for the detailed acceptance
-model and remaining release work.
+deferred. Further expansion requires a new explicit plan and current official
+protocol evidence. See [the harness guide](docs/harness.md) for acceptance
+criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
+
+## API currency review — 2026-10-09
+
+- Checked enabled endpoint families and subscription contracts against current
+  official sources; see `docs/exchange-protocol-baseline.md` for per-exchange links.
+- Migrated OKX public/business WebSockets to default TLS port 443 and Global
+  instrument discovery to the recommended REST domain; mixed-feed endpoint
+  parity and catalog identity regressions cover the corrections.
+- No exchange/channel capability expansion or legacy Python protocol fallback.
+
+## Catalog refresh alignment — 2026-10-09
+
+- `MarketCatalog::refresh` forces response/page fetches without changing the
+  capability matrix or wire protocol. Offline tests cover cache bypass, failed
+  refresh preservation, concurrent success/failure sharing, independent URLs,
+  cancellation recovery, and unsupported-product preflight.
+- No new live-service verification is claimed. Subscription hot updates,
+  connection sizing and snapshot concurrency budgets remain pending.
+
+## Per-channel subscription alignment — 2026-10-10
+
+- Channel-specific symbol sets compile into concrete groups before adapter
+  planning; unchanged protocol paths retain product/endpoint behavior.
+- Offline regressions verify all five exchange planners, global native identity,
+  mode/empty-set/product validation, feature boundaries and exact dispatch to
+  callbacks, broadcast counters and L2 state.
+- No exchange/channel capability expansion or new live-service evidence.
+
+## Connection/resource alignment — 2026-10-10
+
+- Native subscription budgets split concrete feeds after grouping and preserve
+  aligned mappings. Offline tests cover exact limits, overflow, topic aliases,
+  oversized instruments and aggregate connection counts.
+- Bybit spot request batching has inline parity plus sanitized send references.
+  Session doubles verify paced subscriptions coexist with reads, shutdown and
+  fresh Gate timestamps. Snapshot admission tests cover pacing/concurrency and
+  cancelled active/waiting work. No new live service/load claim is made.
+
+## Managed lifecycle alignment — 2026-10-10
+
+- Opt-in core runtime commands and source identity use existing exchange session
+  paths. Actor/public-API tests cover lifecycle, cancellation, invalid candidate
+  preservation, independent startup, fresh state, admission and scoped failure.
+- Raw model parity and feature gates remain intact. Public OKX smoke evidence
+  covers one add/replace/remove/close sequence, not the full exchange matrix.
+- Remote-ready state, automatic listing reconciliation and consumer/ecosystem
+  alignment remain unfinished under the full objective.
+
+## Readiness alignment — 2026-10-10
+
+- Explicit Binance subscription planning has public parity and sanitized control
+  references. Current Bybit/Gate IDs and Bitget/OKX arguments correlate replies.
+- Retained state tests reject stale/unknown/duplicate/unsent confirmation, revoke
+  readiness on reconnect/gap, and require local L2 initialization. A Bybit
+  session double verifies confirmation before book readiness.
+- Follow-up public spot Trade/L2 evidence reached Ready on all five exchanges;
+  this is not a new all-product, rare-channel or throughput certification.
+
+## Bounded candle history: Binance/Bybit — 2026-10-10
+
+- Added candle-feature query/result/scoped JSON continuation, backward time windows,
+  common 100-row/100-page caps and at most 200-day requests. Empty windows advance
+  within the budget; RangeBoundary means queried windows, not complete retention.
+- Current Spot/USD-M/COIN-M and Bybit v5 spot/linear/inverse routes reuse exact
+  catalog mappings. OHLCV stays Decimal, native volume units stay intact, Binance
+  count/end preserved, Bybit monthly ends use calendar UTC and inclusive 1ms ends.
+  Both REST surfaces have unknown finality; no clock-based close inference.
+- Offline tests cover normalization, boundaries, scope mutation, empty/duplicate/
+  malformed pages, leap-year months, JSON resume and cancellation. Coverage for
+  Bitget/OKX/Gate candle history and trade history remains pending.
+- Manual four-product public smoke: first and JSON resume each returned 10 bars
+  over 2 pages, no repeated open times, all BudgetReached with cursors; exit 0.
+  See [evidence](docs/reports/live-smoke-candle-history-2026-10-10.md).
+
+## Five-venue candle history — 2026-10-10
+
+- Extended current public candle-history queries to Bitget v3, OKX v5 and Gate
+  v4 Spot/perpetual. Gate delivery was initially omitted after an incomplete document inspection;
+  the later full-reference recheck restores its documented candle route/capability.
+- Bitget aligns native end boundaries, limits requests to 90 days and accepts
+  exactly one documented earlier overlap, counted against raw scan limits.
+  Gate sends the first legal bar open, second-valued from/to, no conflicting
+  limit; Spot base volume/completion and perpetual contracts stay distinct.
+- OKX calendar months/quarters use UTC+8, native confirm is preserved; Gate 30d
+  is a calendar month. Gate perpetual and Bitget finality stay unknown.
+- Offline regressions cover all new row families and JSON continuation, native
+  request routing/units, 90-day caps, UTC+8 quarters, completion/volume shapes,
+  Gate empty subsecond windows/delivery rejection and Bitget overlap continuity.
+- Final ten-product Spot/perpetual public first/resume smoke passed: 10+10 bars,
+  2+2 pages per product, no duplicate opens, BudgetReached/next=true; 40 pages
+  and 200 per-product records, exit 0. Earlier Gate/Bitget failures remain in
+  the [dated report](docs/reports/live-smoke-candle-history-2026-10-10.md).
+
+## Public recent trades — 2026-10-10
+
+- Added trade-feature PublicRestClient::recent_trades on five current public
+  routes, category/product-qualified and bounded by per-source/SDK row caps.
+  Invalid inputs fail before HTTP; no paging or completeness claim is made.
+- Prices/amounts use exact Decimal, signed Gate contract quantity becomes absolute
+  with explicit side, Binance maker flag converts to taker side. Native IDs stay
+  exact (including >2^53); Bitget uses execId, not execLinkId. Same-time executions
+  survive and sort stably by exact native time before model f64 conversion.
+- Recent Binance individual trade IDs are distinct from Python/Rust WS aggregate
+  IDs; the guide documents granularity and prohibits cross-namespace dedup claims.
+  Historical pagination/aggregate retrieval remains the next increment.
+- Offline tests cover five venue/product row families, both sides, caps/routing,
+  signed/numeric precision, explicit Gate seconds fallback, stable same-time IDs,
+  duplicates/malformed/oversized/mismatched payloads and pre-HTTP validation.
+- Public Spot/perpetual smoke passed for all five venues: 5 records/unique IDs per
+  product, ascending time and matching identity, ten queries/50 executions, exit 0.
+  See [evidence](docs/reports/live-smoke-recent-trades-2026-10-10.md).
+
+## Native trade-history continuation — 2026-10-10
+
+- Added explicit Aggregate/Individual queries/results, bounded raw scan/page
+  budgets, scope-bound JSON cursors and separate history-capability reporting.
+  Binance current aggregate time seeds advance via IDs, OKX time seeds switch
+  to native ID paging, Gate fixed ranges use current page/offset parameters.
+- Same-millisecond execution IDs survive continuation; no timestamp+1 skip.
+  Gate Spot/perpetual are pageable; delivery time ranges are one native page,
+  SourceLimit if full, without its retired last_id or an invented offset. Bybit/Bitget
+  current implemented public surfaces remain recent-only; no private fallback.
+- Corrected Gate contract create_time_ms to fractional seconds, distinct from
+  Spot millisecond counts. Matching capture and near-epoch regression prevent
+  magnitude inference. Recent smoke now verifies a five-minute age lower bound.
+- Tests cover native same-time ID progression, JSON scope edits, bounded empty
+  seeds/offset ceilings, precision/granularity, boundary filtering, stalls and
+  later-page cancellation. Source/budget/boundary/ceiling stops are explicit;
+  none guarantees complete retention or an exchange-atomic historical view.
+- Public six-product first/JSON-resume smoke passed: each batch 10 selected/
+  scanned records over two pages, unique IDs/range identity checked, all budget-
+  limited with further cursors. 24 pages/120 executions; earlier observations
+  are retained in [evidence](docs/reports/live-smoke-trade-history-2026-10-10.md).
+  Corrected ten-product recent smoke also passed with the added age lower bound.
+- Full Gate delivery documentation recheck corrected the earlier candle omission:
+  current USDT delivery candle path/capability and contract normalization now have
+  a focused offline regression. Historical delivery ranges are bounded one-page
+  queries, SourceLimit if full; no delivery live result is claimed.
+
+## Normalized recording/replay — 2026-10-11
+
+- Added opt-in recording feature: version-1 JSONL header/event/footer, contiguous
+  sequence and source feed/generation labels, preserved normalized models/Decimal
+  strings and original clocks. No transport/config/headers/raw/error text captured.
+- Bounded events/bytes/lines, footer reserve, size-limited encoding/read buffers,
+  five-second I/O deadlines and poisoned state after partial cancellation/failure.
+  Broadcast lag is explicit and produces no successful footer. Limited/stopped
+  prefixes are distinct from natural source closure; no fsync promise is made.
+- Offline replay invokes sequential callbacks with immediate or absolute recorded
+  timing, callback deadline and catchable panic/error handling. Cancellation/drop
+  cannot resume and skip a pending event. No network/live feed/cache mutation.
+- Focused tests cover all enabled categories, L2 snapshot/delta, committed format
+  reference/inline fixture, numeric precision, truncation/version/sequence/scope,
+  resource bounds, lag/quiet limits, false-stop signals, I/O deadlines/poisoning,
+  ordered timing, callback errors/panics and replay cancellation.
+- Normalized replay is one part of the larger objective; sanitized raw protocol
+  capture/replay, sinks/aggregation, NBBO and advanced resource policies remain.
+- Public OKX Spot workflow captured 20 identified normalized trades (6,738 bytes),
+  stopped the managed runtime, then replayed 20 models offline with source/model
+  identity and footer/count checks; exit 0. See [evidence](docs/reports/live-smoke-recording-2026-10-11.md).
+
+## Public raw WS observation boundary — 2026-10-11
+
+- Added recording-feature raw_capture_channel and exchange-builder attachment,
+  actual successful-connection/send/inbound-text/closure hooks on all five runtime
+  consumers. Observe input before heartbeat/readiness/control/market filtering.
+- Shared immutable public feed/session context includes native mappings, sparse
+  channel rules, policy and source labels, never transport URL/credentials/headers.
+  JSON numeric literals preserve precision; known credential/diagnostic fields
+  redact, private auth/topics reject, and non-JSON text is limited to ping/pong.
+- Bounded nonblocking queue/text/depth, sticky overflow/closed/private/malformed
+  failure, serialized global enqueue order and fresh reconnect session IDs.
+  Capture failure does not fail healthy feed processing. Receiver owns no sender.
+- WS normalization now reuses the exact text-read receipt clock. Narrow WS double
+  verifies capture before pong filtering; no native exchange timestamp changed.
+- Raw persisted file/HTTP bootstrap capture and complete parser/session/L2 replay
+  remain pending, distinct from the existing normalized JSONL workflow.
+- Public OKX smoke observed 20 market packets/24 observations and 20 normalized
+  trades, exact shared receipt clocks/sequence/source verified, exit 0; see
+  [evidence](docs/reports/live-smoke-raw-capture-2026-10-11.md).
+
+## Raw WS segment files — 2026-10-11
+
+- Added separate version-1 raw-ws JSONL writer/reader/stream capture, sharing
+  bounded encoding/line I/O with normalized recording. Explicit header/footer,
+  quotas, session ceiling and partial-I/O poison/deadline behavior are preserved.
+- Validate contiguous global observation order, monotonic elapsed time, finite
+  clocks, public mapping/sparse scopes, immutable context, fresh connection IDs
+  and Connected/Sent/Received/Closed lifecycle. Natural Complete requires closed
+  sessions; Stopped/LimitReached are deliberate prefixes with open sessions allowed.
+- Revalidate privacy on writes/reads: unsafe or private records fail rather than
+  becoming file output/callback input. Reader interns validated context. No native
+  parser or network is invoked by file validation; HTTP/L2 replay remains pending.
+- Tests cover exact JSON-number roundtrip, unsafe metadata/payload, truncation/
+  versions/gaps/extra records, frozen context/lifecycle, resource/session limits,
+  source queue failure, partial cancellation and I/O deadlines.
+- Public OKX capture accepted 24 observations/18 trade-channel packets/15,672 bytes,
+  shut down runtime, then validated the saved file offline; LimitReached, exit 0.
+  See [evidence](docs/reports/live-smoke-raw-recording-2026-10-11.md).
+
+## Offline native WS parser/state replay — 2026-10-11
+
+- Added fresh-reader raw replay API with Started/Market/Ended callbacks and
+  source/session/observation labels. Reuses existing runtime parsers, mapping,
+  scoped dispatch and CandlePolicy with local caches, no network/hydration/live
+  counters/recovery-store publication. Disabled channels fail at connection start.
+- Bybit ticker snapshot/delta and Bybit/OKX/Bitget WS-native book sync reset per
+  session; strict sequences/checksums/bridges remain unchanged. Binance/Gate L2
+  explicitly reject missing HTTP bootstrap instead of fetching live data.
+- Output batch/total budgets fail before partial model delivery from an oversized
+  frame. Sequential immediate/absolute-time callbacks retain original clocks;
+  error/panic/deadline/cancellation/drop cannot resume after skipping an input.
+- Tests cover five trade families, derivative/dated identity, sparse/candle policy,
+  ticker/book reset, valid/invalid WS sync and nonzero CRC, timing, output limits,
+  callbacks/poisoning and disabled/missing-HTTP preflight. Bitget's initially
+  mistaken gap test was corrected to a true disjoint [12,13] first bridge; no
+  native validator/expected output was relaxed.
+- Pure offline prior OKX file replay produced all 17 trade rows from 24 observations.
+  Five new Spot captures replayed 60 observations/93 models; every Trade exactly
+  matched live fields/clocks, exit 0. See [evidence](docs/reports/live-smoke-raw-replay-2026-10-11.md).
+- HTTP/bootstrap and Binance/Gate L2 replay, segment rotation/merge, sinks/
+  aggregation, NBBO and advanced resource policies remain under the full objective.
+
+## Consumed HTTP and causal L2 replay — 2026-10-11
+
+- New raw protocol v2 preserves v1 reading while adding explicit WS Processing
+  references and consumed HTTP snapshot/failure records. Received is not proof
+  of processing; native snapshot polling occurs between receive and processing.
+- Recording-only response slots retain safe JSON/original HTTP receipt time until
+  actual consumption. No URL/headers/error text enter snapshots. Safe categories/
+  status propagate for no-body failures; superseded/cancelled results are not dumped.
+- Binance/Gate raw L2 now reuses native processing/bootstrap/poll/reset/resnapshot
+  code, injecting recorded ready results. Offline schedules pending placeholders
+  with no spawned HTTP task. No bridge/gap/checksum rule was changed.
+- Regressions compare all native/replay models and originating observations,
+  id-less Gate anchoring, strict overlap resync, missing pending response/HTTP429,
+  causal/version corruption, unprocessed prefixes and legacy v1 behavior.
+- Public Spot L2: each profile captured 200 observations/2 HTTP snapshots/97
+  processing markers; Binance replayed 90 models, Gate 98, each exactly matching
+  live fields/clocks after network shutdown; exit 0. See [evidence](docs/reports/live-smoke-http-l2-replay-2026-10-11.md).
+- Generic catalogs/HTTP capture, rotation/merge, broader product/concurrency edge
+  audits, sinks/aggregation, NBBO and advanced resources remain active.
+
+## Physical connection state isolation — 2026-10-11
+
+- Fixed Bybit product and OKX public/business sparse feed projections: retained
+  channels, normalized/native symbol unions and exact rules now agree. Previously
+  stale rules could invalidate recorded session contexts.
+- Reconnect resets explicitly target owned L2 pairs. Preserved existing Binance
+  snapshot-route guards and Gate per-plan instrument scope; unrelated books stay
+  initialized and can consume subsequent increments.
+- Seven offline regressions cover projection, native-name alignment, raw file
+  roundtrips and cache ownership. No exchange protocol or fixture interpretation
+  changed; no new live smoke certification is claimed.
+- 615 all-feature workspace tests, strict Clippy/rustdoc, no-default and individual
+  category checks and fresh-resolution Rust 1.85 all-target/all-feature check passed.
+  Generic HTTP capture, rotation, broader replay audits,
+  sinks/aggregation, NBBO and advanced resource policies remain pending.
+
+## Sequential event sinks and JSONL adapter — 2026-10-11
+
+- Added EventSink/run_sink over identified normalized events, without a hidden
+  task/queue/retry or new dependency. Owned envelopes preserve source generations,
+  decimals and wire clocks; elapsed consumer time is a separate monotonic value.
+- Sequential writes and consuming finalization have configurable positive
+  five-second default deadlines and catchable panic handling. Lag/errors/uncertain
+  in-flight cancellation return errors and drop the sink without a success footer.
+  Shutdown between writes finalizes Stopped; source closure drains then Complete.
+- RecordingWriter implements the contract using the existing bounded JSONL format.
+  Summary counts reflect the actual accepted prefix, including an oversized input
+  rejected before writing and the exact event cap. Flush does not promise fsync.
+- Ten focused tests cover order, generations, precision, slow-consumer lag,
+  deadlines, errors, panics, stop/drop and bounded JSONL reader roundtrips.
+  Database/message-bus adapters, aggregation and NBBO remain pending.
+- Public OKX Spot sink smoke: 20 events/6,765 bytes, LimitReached, managed
+  shutdown then 20 offline replay callbacks; exit 0. Raw output stays temporary;
+  [sanitized report](docs/reports/live-smoke-sink-2026-10-11.md) records scope.
+- Final gates: 625 all-feature workspace tests, minimal trade/recording-trade
+  sink tests, no-default/every standalone feature, strict Clippy/rustdoc and
+  fresh-resolution Rust 1.85 all-feature/all-target check passed. CI now runs
+  the minimal sink feature tests. Cargo.lock/target are not committed.
+
+## Caller-clocked trade OHLCV — 2026-10-11
+
+- Added trade-feature Ohlcv/TradeBar, independent of candles/storage. Preserved
+  Python OHLCV arrival-order OHLC/amount-weighted VWAP semantics with explicit
+  monotonic, whole-second elapsed windows aligned to zero rather than wall time.
+- State is isolated by feed ID/generation/exchange/symbol and bounded to at most
+  4096 configured series. Timer advance closes windows without new trades; large
+  jumps skip empty bars; consuming finish returns an explicitly partial tail.
+- Native quantity units remain intact, including contracts. Checked Decimal
+  arithmetic keeps finite precision/rounding explicit; invalid inputs, backwards
+  consumer clocks, capacity and unrepresentable arithmetic/bounds fail atomically.
+- Twelve regressions cover OHLCV, precision, native units, source/generation
+  isolation, boundary/idle/late-clock behavior, limits, atomic failures and full
+  bar-field equality between direct input and normalized recording replay.
+- Throttle/Renko, custom aggregation, NBBO, broader storage adapters and remaining
+  recording/resource-policy scope stay active; this is not exchange candle parity.
+- Offline example over the earlier 20-trade public OKX recording produced 11
+  populated one-second bars (10 closed, 1 partial), with input/output counts and
+  native amount sums matching; exit 0. [Report](docs/reports/offline-ohlcv-2026-10-11.md).
+- Gates passed: 637 all-feature workspace tests, minimal trade and recording/trade
+  aggregation tests, no-default/every standalone feature, strict Clippy/rustdoc.
+  Fresh-resolution Rust 1.85 all-feature/all-target compilation also passed;
+  resolved dependencies match the tested set. CI now includes the minimal
+  aggregation feature tests.
+
+## Throttle and Python-rule Renko — 2026-10-11
+
+- Added feature-independent Throttle with a caller-owned monotonic clock, first
+  input acceptance and the Python strict-greater-than interval boundary. Dropped
+  input does not extend the interval; backwards clocks fail atomically.
+- Added trade-feature RenkoFixed/RenkoBrick with per-source/generation/exchange/
+  symbol extrema/anchors. Exact threshold triggers, continuations use prior close,
+  reversals use prior open, and gaps emit one current-price brick, as in Python.
+- Corrected the Python wrapper's delayed notification/initial empty emission in
+  Rust: return immediately on trigger and never emit an initial/partial brick.
+  Cap active series to 1..=4096 and expose explicit removal for lifecycle/gaps.
+- Eleven new tests (23 aggregation tests total) cover boundaries, large clocks,
+  decimal increments, both directions, gaps, source isolation, retirement, atomic
+  invalid input and full-brick/throttle-decision equality after recording replay.
+- Evaluated sibling Python RenkoFixed._agg for the documented ten-price sequence;
+  all five open/close/direction triples match the Rust golden assertions. This
+  uses only local source and synthetic prices, without wire fixture changes.
+- Custom aggregation, NBBO, broader storage adapters and the remaining recording/
+  resource-policy scope remain active. No new live validation is claimed.
+- Final gates: 648 all-feature workspace tests; no-data/trade/recording-trade
+  aggregation suites (3/21/23 tests); every standalone feature and no-default
+  compilation; strict Clippy/rustdoc; fresh-resolution Rust 1.85 all-target/all-
+  feature compilation. Resolved dependencies match the tested set. CI now also
+  tests no-data aggregation. Existing OHLCV source/tests moved byte-for-byte into
+  their own feature-gated submodule; no OHLCV behavior changed.
+
+## Scoped cross-exchange NBBO — 2026-10-11
+
+- Added orderbook-feature Nbbo over complete L1/reconstructed L2 tops: highest
+  bid/lowest ask, selected native sizes and configured-order ties. One exact
+  public symbol, at most 64 distinct feed IDs and pinned generations.
+- Explicit per-leg Base/Quote/Contracts labels retain native units without
+  aggregating or converting contract sizes; caller verifies price/unit metadata.
+  Cross-venue crossed quotes are flagged, invalid local snapshots rejected.
+- Separate source-observation and consumer clocks account for queued age. Inclusive
+  expiry produces fallback/last-source withdrawal, timer advance works without
+  packets, and errors leave state unchanged. Availability suspension blocks queued
+  input; newer-generation replacement rejects the old scope.
+- Twelve regressions cover prices/sizes, ties, expiry, availability, queued input,
+  replacement, product/unit scope, cross/invalid/clock/configuration boundaries
+  and all emitted fields after identical normalized-recording replay inputs.
+- Ran sibling Python NBBO._update on synthetic two-exchange books; Rust price,
+  selected size and source golden assertions match. No native protocol changed.
+- Caller owns L2 reconstruction/anchors, status signals, clock mapping and output
+  delivery. Normalized files alone do not prove live ingress-age/lifecycle replay.
+  Custom aggregation, broader storage and remaining recording/resource work stay active.
+- Public Binance/OKX Spot L1 smoke observed both sources and 20 best changes;
+  explicit source suspension produced the asserted final withdrawal before clean
+  managed shutdown/exit 0. [Report](docs/reports/live-smoke-nbbo-2026-10-11.md).
+- 660 all-feature workspace tests, minimal orderbook/recording-orderbook tests,
+  every standalone/no-default feature compilation, strict Clippy/rustdoc passed.
+  CI now includes the two minimal NBBO test combinations.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed; resolved
+  dependencies match the tested set. Source/protocol fixtures are unchanged and
+  Cargo.lock/target remain uncommitted. Current sibling guides now link the
+  implemented sinks/aggregation/NBBO instead of reporting them as wholly pending.
+
+## Typed custom window aggregation — 2026-10-11
+
+- Added feature-independent CustomAggregate/AggregateWindow with caller-defined
+  initialization/reduction over identified FeedEnvelope input. Fixed elapsed
+  [start,end) windows support subsecond clocks, timer closure, skipped empty output
+  and consuming partial tails without I/O/tasks/queues or automatic serialization.
+- Cap accepted inputs per window at configured 1..=1,000,000. Caller owns custom
+  state memory, group caps, source/units and calculation cost; no generic byte
+  bound or independent allocation can be inferred from arbitrary user state.
+- Invalid clocks/caps/bounds leave state unchanged. Initializer/reducer errors or
+  catchable panics poison further output, including finish, because rollback of
+  arbitrary mutable state/side effects is impossible. Pending prior windows are
+  not falsely certified after rollover failure; explicit advance can deliver a
+  completed window before reducing a later input.
+- Eleven tests cover no-data construction/empty resets, validation, subsecond
+  windows, source-preserving state, partial tails, callback errors/panics/poison,
+  cap resets and all custom state/window fields after deterministic recording replay.
+- Broader storage adapters and remaining recording/resource-policy work stay active.
+- Offline custom example over the earlier 20-trade OKX recording produced 10
+  closed/1 partial one-second windows; per-source buy/sell sums matched every
+  window and all 20 input events. [Report](docs/reports/offline-custom-aggregation-2026-10-11.md).
+- Gates passed: 671 all-feature workspace tests, no-data/trade/recording-trade
+  custom suites (4/10/11 tests), every standalone/no-default feature compilation,
+  strict Clippy/rustdoc. Existing CI aggregation jobs include the new helper.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
+  the custom replay example. Resolved dependencies match the tested set; no new
+  dependency/protocol/fixture or Cargo.lock policy change was introduced.
+
+## Raw series rotation and continuous replay — 2026-10-11
+
+- Added RawSeriesWriter/Reader/record_raw_series behind recording. Physical files
+  contain record-aligned fragments of one unchanged logical raw v2 stream, with
+  an ordered bounded manifest of byte counts/FNV-1a64 and logical footer summary.
+- Preserve global sequence/session metadata/Processing references/consumed HTTP
+  across boundaries. Reader lazily feeds the existing validator/native replay;
+  no per-part restart, online fallback or relaxed L2 bridge rule.
+- create_new reserves the manifest and each part, staging one record at a time.
+  Default 16 MiB parts, at most 1024; existing logical budgets apply globally.
+  Physical ceiling/I/O errors are terminal; logical cutoffs retain LimitReached.
+  Manifest finalizes after data flush; checksums are not authentication/fsync.
+- Ten regressions cover exact observations, ordered composition, missing/extra/
+  truncated/reordered/corrupt files, manifest/summary mismatch, limits, overwrite
+  protection, cancellation/error poisoning and native trade replay. A Binance
+  HTTP bootstrap/Processing/L2 scenario matches all single-file outputs/summary
+  across more than two parts.
+- Independent-capture merging, generic catalog/HTTP capture, broader replay audits
+  and advanced resource-policy work remain active.
+- Public OKX capture: 40 observations/23,676 logical bytes across 3 physical
+  files; managed shutdown then 17 offline trade models, validated manifest/footer,
+  exit 0. [Report](docs/reports/live-smoke-raw-series-2026-10-11.md). Captures stay temporary.
+- Gates passed: 681 all-feature workspace tests; recording-only/trade/orderbook
+  series suites (7/9/8); every standalone/no-default feature compilation and
+  strict Clippy/rustdoc. CI adds recording/orderbook series coverage alongside
+  existing recording-only/trade jobs. No new dependency/protocol fixture change.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
+  the public rotation example. Resolved dependencies match the tested set;
+  Cargo.lock/target and unsanitized capture artifacts remain uncommitted.
+
+## Public HTTP attempt/result recording — 2026-10-11
+
+- Added recording-feature HttpCapture/HttpObservation and bounded version-1
+  public-http JSONL codec over shared directory/REST/bootstrap GET entrypoints.
+  Request starts precede admission; matched results/safe failures and cancellation
+  retain invocation IDs despite reordered completion. No headers/proxy auth/error
+  bodies or successful status/HTTP wire bytes are captured.
+- Public endpoint/query gates, existing credential/diagnostic sanitation and file
+  revalidation preserve exact JSON numeric literals. Observer failures are sticky
+  and do not veto healthy queries. Catalog cache namespaces are capture-scoped,
+  shared by clones; proxy authentication rebuilding preserves the observer.
+- Complete requires every started request to finish/cancel. Explicit prefixes may
+  retain pending starts, never silently match them to later responses. HTTP
+  response injection/offline catalog/REST replay remains a separate active step.
+- Fixed HTTP and raw WS capture failure wakeup: rejected input without an enqueued
+  record now wakes an already waiting consumer, even while producers stay alive.
+  Nine new tests cover IDs/order/cancel, precision/redaction, strict codec/privacy/
+  lifecycle/bounds, URL scope, cache identity/proxy retention and both wakeups.
+- Public OKX workflow discovered 1,152 markets and returned ticker/book/recent
+  trades. Four attempts/four JSON results, zero failures/cancels, 8 observations/
+  1,252,409 bytes/Complete; offline ledger validation and exit 0. [Report](docs/reports/live-smoke-http-recording-2026-10-11.md).
+- Gates passed: 690 all-feature workspace tests, recording-only/trade/orderbook
+  HTTP tests and raw failure wakeup, every standalone/no-default feature checks,
+  strict Clippy/rustdoc. CI adds recording/orderbook HTTP coverage.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
+  the new public HTTP example. Resolved dependencies match the tested set; no new
+  dependency/native endpoint/protocol fixture or lockfile policy change occurred.
+
+## Offline HTTP payload injection — 2026-10-11
+
+- Added fresh-file into_replay/HttpReplay/HttpReplayReport and explicit transport
+  replay mode. Entire bounded ledger/privacy/footer validates before responses
+  are available. Keys are exact exchange/URL and outcomes follow invocation IDs,
+  even when completion reordered; cloned cursors are shared, instance caches isolated.
+- Existing directory/REST methods now work from archived payloads. Shared fetch
+  intercepts before HTTP admission/client access; HTTP client and WS entry guards
+  prevent fallback, including proxy authentication rebuilding. No live quota/cooldown
+  is consumed. Unknown/pending/exhausted/over-budget attempts consume nothing and
+  fail strict audit; unrelated keys remain usable.
+- Cancellations/configuration mismatches terminate the current catalog operation
+  rather than retrying or sharing it as completed HTTP work. A later explicit
+  call can consume its response; captured real transport failures still retry.
+- Twelve new regressions cover order, source/cursor/budget checks, pending starts, failures,
+  cancellation/retry boundaries, fresh-file validation, no-network entry guards,
+  cache isolation and existing catalog/ticker/book/recent-trade normalization.
+- This is immediate JSON payload injection; receive clocks are SDK execution time.
+  Original cache expiry, failure coalescing/scheduling and cancellation timers are
+  not simulated. Independent-capture merging and advanced resource work remain active.
+- HTTP file v2 adds optional permanent configuration-error classification, retaining
+  v1 read compatibility. Re-recording a replay cancellation must not lose its
+  terminal class and revive catalog retry. Tests also prove waiting callers do
+  not inherit cancelled work as an HTTP completion; genuine transient failures retry.
+- Archived public OKX data re-created 1,152 symbols, ticker, five bids/five asks
+  and five recent trades using normal SDK calls; 4/4 consumed, no unfinished/
+  cancelled/mismatched requests, exit 0. [Report](docs/reports/offline-http-sdk-replay-2026-10-11.md).
+  The synthetic v1 reference also passed the same offline CLI with one symbol/trade.
+- Gates passed: 702 all-feature workspace tests, recording-only/trade/orderbook
+  HTTP/replay suites plus the waiter test, every standalone/no-default compilation,
+  strict Clippy/rustdoc. CI now includes minimal waiter coverage.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed. Resolved
+  dependencies match the tested set; no new dependency, native endpoint or
+  normalization rule changed. Original receipt clocks/cache timers remain out of
+  this payload mode's claims; exact normalized tape replay is already separate.
+
+## Bounded directory retention — 2026-10-12
+
+- Replaced unbounded globally retained Value trees with serialized immutable byte
+  buffers. Process cache caps 256 responses/128 MiB JSON+key bytes and 32 MiB per
+  response; LRU touches, 24-hour boundary expiry and global sweeps bound old
+  capture/replay/proxy namespaces. Wall-clock rollback invalidates future entries.
+- Encoding is bounded; decoding runs outside the global lock and preserves exact
+  numeric JSON. Active reads and caller-owned catalog/feed snapshots survive
+  eviction. Failed fetch/envelope validation preserves eligible prior data;
+  uncacheable successful replacement invalidates the older same-key entry.
+- Replay remembers successful catalog fetches per transport namespace. A later
+  non-refresh cache miss fails without consuming a future archived refresh;
+  explicit refresh remains available. No unbounded second global cache is added.
+- Seven new regressions cover retention/accounting/LRU/TTL/rollback, reference
+  lifetime, precision, 10,000 namespaces and actual SDK replay eviction ordering.
+- Configurable/weighted/distributed quotas, minimum packing and independent-capture
+  merging remain under the overall alignment work. No new live run is claimed.
+- Gates passed: 709 all-feature workspace tests, no-default cache and minimal
+  recording replay tests, every standalone feature compilation, strict Clippy/
+  rustdoc. Existing failed-refresh/coalescing/replay suites passed. CI adds the
+  no-default cache regressions. No native endpoint/fixture/dependency changed.
+- The saved public HTTP tape also re-created 1,152 markets/ticker/five bid/ask
+  levels/five trades; an additional cached catalog load matched all symbols
+  without consuming another response. Four requests consumed, zero mismatches,
+  exit 0. This is offline use of earlier data, not a new exchange smoke run.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed, including
+  the updated offline cache-hit example. Resolved dependencies match the tested
+  set; Cargo.lock/target and old capture artifacts remain uncommitted.
+- Fresh dependency resolution updated cc 1.7.0→1.8.0 and serde_json
+  1.0.152→1.0.154. Re-ran all 709 workspace tests, strict Clippy/rustdoc,
+  no-default/standalone feature and minimal cache/replay checks on that exact
+  resolved set; all passed, including numeric precision regressions.
+
+## Caller-shared stricter resource scopes — 2026-10-12
+
+- Added ResourcePolicy/ResourceBudget and transport attachment. Clones share local
+  HTTP capacity/start clocks and per-exchange WS live/queued capacity/start clocks;
+  independent groups remain under unchanged process/native guards. Invalid or
+  weaker policy bounds fail during construction; policies stay immutable.
+- Composite admission checks/advances both clocks at actual SDK start, avoiding
+  bunched starts after global waiting. HTTP pacing releases network permits;
+  cancellation and session drop release both layers. Proxy auth keeps the group.
+- Known plans preflight scoped capacity. Managed admission reserves scope as well
+  as exchange: max old/new for same scope, both on scope/provider change until
+  drain. Excess add/replacement is rejected without stopping healthy feeds.
+- Offline HTTP bypasses both budgets and WS rejects before slot reservation.
+  Twelve new tests cover policy bounds/clones, composite pacing, exhaustion/drop/
+  cancel, planning, managed reservations/actors and offline guards.
+- Unit-cost/process-local policy is implemented; endpoint weights/native quota
+  codes, distributed coordination, minimum packing and independent capture merging
+  remain active. No protocol endpoint or normalization change occurred.
+- Public OKX trade/REST smoke rejected excess add, retained the healthy feed,
+  replaced on the same ID, removed/reused a live slot and completed directory/
+  ticker/book queries under one group; managed shutdown and exit 0. [Report](docs/reports/live-smoke-resource-budget-2026-10-12.md).
+- Gates passed: 721 all-feature workspace tests, no-default/scoped admission and
+  minimal recording/trade resource/actor tests, every standalone feature checks,
+  strict Clippy/rustdoc. CI adds minimal scope coverage. No new dependency/native
+  endpoint or protocol fixture change.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed. Resolution
+  updated syn 3.0.7→3.0.8; all 721 tests, strict Clippy/rustdoc and standalone/
+  minimal feature suites were repeated on that resolved set and passed. No
+  declared dependency or lockfile policy change; Cargo.lock/target stay uncommitted.
+
+## Native public REST quota cooldowns — 2026-10-12
+
+- Verified official Binance/Bybit/OKX/Bitget code forms and added exchange-scoped
+  successful-HTTP JSON recognition. Gate remains on HTTP 429; private order/WS
+  and convert labels are not guessed into public REST scope.
+- Preserve the original JSON/result semantics while deferring shared admission.
+  Prefer Retry-After, then valid future Bybit epoch-ms reset, else SDK 60-second
+  fallback; malformed/past hints fall back, existing longer waits never shorten.
+  No diagnostic ban text parsing, fabricated HTTP 429 or automatic REST retry.
+- Known quota envelopes fail before directory cache writes, including numeric
+  Binance errors. Standalone validators and bounded directory retry remain in
+  place; HTTP/scoped slots stay free during cooldown and other exchanges proceed.
+- Nine new deterministic regressions cover code/type/scope, reset/header timing,
+  body identity, fallback/extension, slot/isolation, no live cooldown during replay
+  and no cached native-error directory. No live throttling was intentionally induced.
+- Endpoint weights, native WS controls, distributed coordination, minimum packing
+  and independent capture merging remain active; no endpoint/normalization changed.
+- Gates passed: 730 all-feature workspace tests, no-default/recording/orderbook
+  native-rate suites and every standalone feature check, strict Clippy/rustdoc.
+  CI adds the no-default native-code classifier. COIN-M's current official error
+  page was verified via its redirect; no native endpoint or dependency was changed.
+- Fresh-resolution Rust 1.85 all-feature/all-target compilation passed; resolved
+  dependencies match the tested set. JSON/cache/recording codecs and native API
+  versions stay unchanged; Cargo.lock/target remain uncommitted.
+
+## Binance weighted HTTP admission — 2026-10-12
+
+- Verified current official Spot/USD-M/COIN-M public GET costs; current Spot
+  recent trades costs 25, derivative depth/klines use their own tiers, and USD-M
+  funding uses its separate request window. No endpoint or payload shape changed.
+- Process rolling windows enforce Spot 6000/60s, conservatively shared futures
+  2400/60s and USD-M funding 500/300s. Live directory minute limits only tighten.
+  ResourcePolicy can lower each bucket's threshold against total process usage.
+- Weights, scoped/global clocks and cooldowns compose at actual admission.
+  Waiting frees both slots; admitted work is charged even on failure/cancel,
+  waiting cancellation is free. Replay neither charges nor learns live limits.
+- Eleven new regressions; 741 all-feature workspace tests, strict Clippy/rustdoc,
+  no-default and each individual feature compile, and fresh-resolution Rust 1.85
+  all-target compilation passed. No live rate limit was intentionally triggered.
+- [Sources and boundaries](docs/http-weights.md): other venue weights, native WS
+  quotas, distributed coordination, minimum packing and independent capture
+  merging remain unfinished. No shared-IP guarantee or used-weight feedback.
+
+## Public WS frequency and service failures — 2026-10-12
+
+- Classified official OKX 60014/50011 and Bitget v3 429/30006/30007 as typed
+  RateLimited errors with an SDK 60-second retry floor. Unknown configuration
+  errors stay permanent; no text matching, type coercion or Bybit trading-code
+  promotion into public feeds.
+- OKX 64007/64008, Bitget 30033 and Gate integer service code 3 reconnect under
+  ordinary transient backoff. Failed attempts withdraw retained readiness.
+- Live WS quota extends shared per-exchange connection-start pacing across budget
+  groups; active healthy sessions remain. Queued WS capacity reservations release
+  on cancel; HTTP policy is separate. Both supervisors honor retry floors and
+  false shutdown updates cannot bypass the wait. Raw replay has no live side effects.
+- Ten new offline regressions and synthetic reference; official sources and
+  remaining handshake/close/adaptive-send scope are in [the guide](docs/ws-control-errors.md).
+  Distributed coordination, minimum packing and independent merging remain active.
+- Gates passed: 751 all-feature workspace tests, strict Clippy/rustdoc, no-default
+  and every isolated data/recording feature compile, minimal WS regressions and
+  fresh-resolution Rust 1.85 all-target check.
+
+## WS handshake status and scoped close failures — 2026-10-12
+
+- Direct/proxied upgrades and CONNECT rejection preserve HTTP status/Retry-After,
+  omitting untrusted reasons/headers/bodies; proxy 407 retains its configuration
+  failure. HTTP delay floors extend shared venue WS pacing and both retry APIs.
+- Shared unsigned/date parsing preserves zero/past dates; unusable quota hints
+  use SDK 60-second fallback, permanent statuses never install a cooldown.
+- Typed WebSocketClosed preserves numeric code/retryability. Known RFC and OKX
+  configuration closes fail fast, normal/unknown remote closes retry, and an
+  already requested shutdown remains clean. Venue codes are not cross-promoted.
+- Eleven new regressions include real loopback upgrade/CONNECT failures and
+  one-slot failure/reconnect reuse, plus paused/in-memory lifecycle coverage.
+  [Sources and scope](docs/ws-lifecycle-failures.md) separate protocol facts from
+  retry policy. Adaptive send/distributed quotas, minimum packing and independent
+  capture merging remain unfinished; no live rate limit was triggered.
+- Gates passed: 762 all-feature workspace tests, strict Clippy/rustdoc, no-default
+  and each isolated data/recording feature compile, minimal lifecycle regressions
+  and fresh-resolution Rust 1.85 all-target compilation.
+
+## Independent raw capture replay — 2026-10-12
+
+- Added replay_raw_merge and file/series inputs with caller-defined elapsed
+  offsets, stable input-order ties and explicit capture identity namespaces.
+  Native session IDs/sequences/model clocks are preserved, not renumbered.
+- Shared the existing native replay state machine while retaining independent
+  parser/book/ticker/HTTP pending state per capture. Reconnect and v2 Processing
+  causality remain local; no transport/catalog/network fallback is constructed.
+- Bounded to 16 inputs, one head each, aggregate observation/logical byte/model
+  budgets and existing per-source validation. Every prefix/manifest EOF must
+  certify; errors/shutdown consume inputs, and streaming effects are not rolled back.
+- Twelve new offline regressions cover five families, identical session/book IDs,
+  Binance/Gate consumed HTTP causality, clocks/ties, prefix ends, rotation, budgets,
+  late corruption, overflow and cancellation/callback failures. Added an offline
+  CLI example and [usage guide](docs/raw-merge.md). Broader replay edge audits,
+  minimum packing and adaptive/distributed quotas remain unfinished.
+- Gates passed: 774 all-feature workspace tests, strict Clippy/rustdoc, no-default,
+  every isolated data/recording feature and recording/data combination compile,
+  minimal merge tests and fresh-resolution Rust 1.85 all-target check.
+- Offline CLI smoke replayed the same sanitized v2 Binance reference under two
+  capture IDs with a five-second offset: 14 observations, 6 L2 models, 7052 logical
+  bytes and both EOFs certified. This is synthetic composition evidence, not two
+  independent live captures or a throughput test.
+
+## Route-first connection capacity planning — 2026-10-12
+
+- Four regressions reproduced avoidable 4-socket plans: a heavy route's symbol
+  slicing duplicated a small endpoint. Projecting exact pairs by native adapter
+  route before capacity slicing now uses 3 sockets in each case, their lower bound.
+- Covered Binance public/market, OKX public/business, Bybit linear/inverse and
+  Gate settlement routes; Bitget/small-feed paths retain existing ordering.
+  No exchange URL, wire payload or budget constant changed.
+- Logical union hydration is unchanged; concrete groups retain per-route channel/
+  symbol order, native mappings, handlers, transport/resource scope and exact
+  membership. A 3-slot OKX scope now accepts the candidate.
+- Legacy low-level connection_feeds also rejects mixed product kinds before
+  projection. Single-symbol overflow still rejects the entire candidate.
+- Seven new regressions and [synthetic allocation evidence](docs/connection-planning.md#route-first-capacity-planning--2026-10-12).
+  Global minimum variable-size packing, adaptive/distributed quotas and broader
+  replay edge audits remain unfinished.
+- Final gates passed: 781 all-feature workspace tests, strict Clippy/rustdoc,
+  default/no-default and every isolated category/recording feature compile,
+  minimal route regressions and Rust 1.85 all-target compilation against fresh
+  dependency resolution. No live load or rate-limit test was performed.
+
+## Optional proven minimum connection planning — 2026-10-12
+
+- Added RuntimeOptions::minimum_connections(Some(evaluation_budget)); None preserves
+  default planning. Success proves minimum physical connections for one logical
+  feed under existing fixed routes, atomic instruments and native/SDK budgets.
+- Native demand/envelope lower bounds, disjoint-cost GCD bounds, greedy upper
+  bounds and iterative exhaustive search retain shared aliases. Additive remainder
+  pruning finds a real SDK case that greedy misses: Bitget 98 args/49 per socket,
+  contiguous/first-fit 3 versus proven 2. No silent approximation on exhaustion.
+- Async compilation is offloaded with two process-wide worker permits; caller
+  cancellation signals cooperative stop and permits stay with running jobs.
+  Invalid/unproved replacements preserve the healthy old feed and identity.
+- Fourteen focused regressions include independent exhaustive oracles, all five
+  native budget families, alias isolation, exact membership/native mappings,
+  budget/overflow/cancellation, worker admission and managed preservation.
+  [Scope and example](docs/minimum-connections.md) distinguish the fixed SDK model
+  from alternate APIs/across-logical-feed sharing. Adaptive/distributed quotas,
+  other venue weights and broader replay edge audits remain unfinished.
+- Final gates passed: 795 all-feature workspace tests, strict Clippy/rustdoc,
+  default/no-default and each isolated data/recording feature compile, minimum
+  tests in minimal/recording combinations and fresh-resolution Rust 1.85
+  all-target compilation. Offline example verified 3 -> 2 with args [49,49].
+  No live exchange load or rate limit was triggered.
+
+## Replay clock/cache/concurrency contract audit — 2026-10-12
+
+- Replaced directory completed-time comparisons with distinct process operation
+  epochs, avoiding dependence on clock tick resolution for later refreshes.
+  Sharing, terminal-error exclusions and weak request-gate retention remain intact.
+- Five new regressions cover same-tick epoch ordering, retained completed cohorts,
+  leader/waiter cancellation, 32 concurrent SDK HTTP calls consuming one archive
+  exactly once without admission, and execution receipt time versus virtual time/
+  SystemTime catalog retention. Existing OKX native-time assertions were strengthened.
+- [Audit table](docs/replay-contract-audit.md) maps published normalized/raw/HTTP/
+  merged replay clocks, cache bounds, no-network rules, cursor/cancellation/EOF
+  and state isolation to current executable evidence. Original HTTP wire/cache/
+  admission scheduling remains an explicitly unsupported simulation, not inferred.
+- No exchange endpoint, market parser, normalized model or captured schema changed.
+  The new Binance no-native-time fixture was rechecked against official Spot docs.
+  Remaining resource coordination/other venue weight/adaptive quota work stays active.
+- Gates passed: 800 all-feature workspace tests, strict Clippy/rustdoc, default/
+  no-default and each isolated feature compile, minimal recording/ticker audit
+  tests and fresh-resolution Rust 1.85 all-target check. No live load test.
+
+## Public HTTP count-limit audit — 2026-10-12
+
+- Audited all current non-Binance public directory/REST/history/L2-bootstrap
+  routes against official Bybit v5, Bitget v3, OKX v5 and Gate v4 rules. These
+  publish request-count budgets; no Binance-style endpoint weights are inferred.
+- Existing process-wide one-second HTTP admission is stricter than all audited
+  budgets. This closes the generic other-venue-weight investigation at current
+  pacing; new routes or relaxed pacing must reopen endpoint-window accounting.
+- Added a paused-clock regression with 40 concurrent mixed-venue requests and
+  independent resource groups, verifying shared admission spacing and release.
+  [Audit](docs/public-http-frequency-audit.md) lists routes, limits and sources.
+- Header usage feedback and adaptive WS send quotas remain open; distributed
+  quota coordination remains explicitly deferred. No live traffic was generated.
+- Validation: 801 all-feature workspace tests passed, plus strict Clippy/rustdoc,
+  no-default workspace compilation, formatting and diff checks. Production
+  behavior/dependencies are unchanged; no new live or fresh MSRV run is claimed.
+
+## Binance minute used-weight feedback — 2026-10-12
+
+- Live shared HTTP responses now apply validated X-MBX-USED-WEIGHT-1M feedback
+  before status/body validation. Spot/data-host and futures retain separate
+  buckets; USD-M bookTicker explicitly ignores its documented inaccurate header.
+  USD-M funding keeps its independent five-minute request-count semantics.
+- An independent 60-second receipt-time floor only tightens local rolling usage;
+  later admissions charge both. Smaller/equal/duplicate/malformed feedback cannot
+  refund or prolong the floor. Expiry retains unexpired local ledger entries.
+  This conservative SDK policy does not claim server-reset synchronization.
+- Eight new focused regressions cover scoped ceilings, later requests, monotonic
+  samples, expiry, local-ledger survival, types/scopes/maxima, futures isolation,
+  failed responses, permit release, cancellation and other-venue progress.
+- [Guide](docs/http-weights.md#minute-used-weight-feedback--2026-10-12) and
+  sanitized synthetic references record current official semantics. No live
+  load or shared-IP guarantee; adaptive WS send quotas remain open and
+  distributed coordination stays explicitly deferred.
+- Final validation passed: 809 all-feature workspace tests, strict Clippy/rustdoc,
+  default/no-default compilation, minimal focused regressions and fresh-resolution
+  Rust 1.85 all-target check. Fresh resolution updated unicode-ident 1.0.26 to
+  1.0.27; full tests/lints/docs were repeated successfully on that dependency set.
+  Cargo.lock remains ignored. Formatting, diff and synthetic JSONL checks passed.
+
+## Traffic-aware WS send windows — 2026-10-12
+
+- Shared all text admissions (subscriptions, heartbeats and direct low-level
+  sends) under existing 250 ms SDK pacing. Per-session rolling frame windows
+  reserve Pong headroom and adapt deadlines to actual starts; verified Bitget
+  240/hour and OKX 480/hour control windows are now enforced.
+- Queue waits preserve reads, heartbeat, idle/ack deadlines and shutdown. Pong
+  writes now have a bounded timeout; exhausted server-ping bursts return a
+  retryable transport failure before flushing an over-budget automatic Pong.
+- Eight new regressions cover native windows, bounded state, exact operation
+  classification, no burst credit, uncharged waits/cancellation, heartbeat
+  exclusions, connection isolation and actual duplex Pong/market/stop behavior.
+  The idle-disabled synthetic heartbeat assertion now accounts for text pacing.
+- [Guide](docs/ws-send-budgets.md) separates official rules from conservative SDK
+  choices. No remote capacity learning, private feed or historical send-schedule
+  replay is claimed. Distributed coordination remains explicitly deferred.
+- Gates passed: 817 all-feature workspace tests, 24 focused no-default-feature
+  tests, strict Clippy/rustdoc, default/no-default compilation and fresh-resolution
+  Rust 1.85 all-target check. Fresh dependency resolution matches the tested set.
+  Formatting/diff and synthetic JSONL checks passed; no live traffic was used.
+
+## Requirement audit and CI workflow repair — 2026-10-12
+
+- [Requirement map](docs/python-alignment-audit.md) ties the existing phases to
+  source and focused tests. Overall completion is explicitly unproven: Python
+  crossed-L2 checking and maximum delivered depth remain missing. Native depth
+  subscriptions and recovery do not substitute for these policies.
+- The plan now names both required follow-ups with fail-before-publication and
+  correct top-N promotion/deletion criteria; no new exclusion was introduced.
+  Optional ecosystem and explicitly deferred distributed scope remain separate.
+- Found invalid workflow YAML in two unquoted Rust test-filter commands ending
+  `::` before a space. Local parsing reproduces the committed failure and passes
+  after quoting both commands. Five CI jobs are retained; new entries cover the
+  recent session/weight feedback tests under minimal and recording-only builds.
+- All ten isolated feature checks/boundary tests and no-default test compilation
+  passed locally; 50 targeted minimal/recording regression executions passed.
+  Previous implementation baseline remains 817 full-feature tests plus strict
+  Clippy/rustdoc and fresh Rust 1.85. No production behavior changed this step.
+- Remote prior run failed without jobs/logs; the workflow repair needs a new
+  remote execution before claiming GitHub CI green.
+
+## Optional crossed-L2 policy and receipt-clock codec repair — 2026-10-12
+
+- Implemented orderbook-feature l2_book_cross_check(true), disabled by default.
+  Exact best bid >= best ask checks the complete reconstructed state after
+  native sync/filtering, before handlers/counters/broadcast/recovery publication.
+  Rejection clears the affected local/native state and recovery/readiness, then
+  propagates recoverable MalformedData through all five dispatch/session paths.
+- Native raw metadata records the enabled boolean; old/default-false records
+  retain their shape and default false. Replay restores the policy and rejects
+  crossed native deltas before model emission, without online fallback.
+- Nine focused regressions cover precision, equality, empty/deleted/unsorted
+  sides, sparse planning, default compatibility, all venues, publication fences,
+  recovery/epochs, symbol/feed isolation, retries and native Bybit replay.
+- Previous repaired CI ran five jobs: package/security/MSRV passed, while
+  quality/features exposed f64 timestamp roundtrip drift in HTTP/raw recording.
+  A fixed actual-codec test reproduces one-bit loss locally. Enabling
+  serde_json/float_roundtrip preserves exact bits alongside arbitrary_precision;
+  the new and existing exact assertions remain strict.
+- [Policy](docs/book-cross-check.md), source references, synthetic examples and
+  [requirement audit](docs/python-alignment-audit.md) are updated. Maximum
+  delivered depth remains required; no overall completion or live run is claimed.
+- Gates passed: 827 all-feature workspace tests, strict Clippy/rustdoc, default/
+  no-default and all ten isolated feature builds/boundary tests, focused minimal
+  orderbook/recording policy and fixed-clock tests, and fresh Rust 1.85 all-target
+  compilation. Fresh dependency resolution matches the tested set. Formatting,
+  diff, YAML and synthetic JSONL checks passed; remote rerun remains necessary.
+
+## Maximum delivered L2 depth and final core acceptance — 2026-10-12
+
+- Implemented orderbook-feature l2_book_max_depth(N), with zero/omission keeping
+  unlimited delivery. Native depth and complete sync/checksum/cross-check state
+  stay separate. Bounded snapshot copies and previous-view diffs produce correct
+  removals, promotions and displaced levels, not truncated delta arrays.
+- Callbacks, both broadcasts, normalized recording and recovery consume the same
+  projected event. Deep-only updates retain empty deltas/clocks/revisions; quantity
+  scale changes are preserved. Resync/connection/fresh-generation invalidation
+  clears views; a delta cannot create an initialized view or revive recovery.
+- Native raw metadata/replay preserve the optional positive delivery limit; old
+  records default unlimited and explicit zero metadata is rejected. Ten focused
+  tests include independent consumer-state oracles, sparse/native-depth isolation,
+  lifecycle/cross-check interactions and actual native Bybit replay.
+- [Depth contract](docs/book-delivery-depth.md) and [requirement audit](docs/python-alignment-audit.md)
+  now cover the two final book-policy requirements. Corrected stale public guide
+  statuses and synchronized AGENTS/CLAUDE architecture and policy invariants.
+- Local gates passed: 837 all-feature and 732 default workspace tests, strict
+  Clippy/rustdoc, default/no-default builds, all ten isolated features with
+  boundary tests, minimal/recording depth tests and no-default test compilation.
+  Fresh-resolution Rust 1.85 all-target check passed on identical dependencies.
+  Formatting/diff/YAML/JSONL checks passed; no lockfile or build output is tracked.
+- Final implementation ad9f22a passed all five remote CI jobs (run 38241618238):
+  quality, features, MSRV, package and security. Necessary core alignment is
+  accepted within the original agreed scope; no live exchange traffic was generated.

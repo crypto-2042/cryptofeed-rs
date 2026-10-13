@@ -23,4 +23,4 @@ crates.io publication or registry dependency verification.
 Protocol changes must use the current official exchange documentation and
 update the corresponding inline parity assertion, sanitized fixture, and
 `docs/exchange-protocol-baseline.md` together. Live validation must be recorded
-in a dated `docs/live-smoke-YYYY-MM-DD.md` report without credentials.
+in a dated `docs/reports/live-smoke-YYYY-MM-DD.md` report without credentials.

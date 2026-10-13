@@ -16,6 +16,48 @@ L1 and derivative ticker fields, Gate.io public perpetual liquidations, and
 OKX contract-to-index subscription mapping. Earlier live observations retain
 their original dates; documentation verification is not a live smoke result.
 
+## API currency review — 2026-10-09
+
+The enabled REST/JSON WebSocket surfaces were compared with current official
+references. API version numbers are product-specific: Binance `/fapi/v1` and
+`/dapi/v1` are not obsolete merely because Spot uses `/api/v3`. New optional
+SBE/RPI services do not invalidate supported stable JSON channels. This review
+covers selected enabled endpoints and subscription contracts, not every optional
+field or all products offered by each exchange. No Python protocol constants
+were introduced by the usage-alignment work; MarketCatalog reuses Rust's catalog
+fetchers.
+
+| Exchange | Enabled API selection | Official references / result |
+| --- | --- | --- |
+| Binance | Spot REST v3/combined streams; USD-M fapi plus public/market split; COIN-M dapi/dstream | [Spot streams](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/ws-streams/~), [USD-M public](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/public), [USD-M market](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/market), [COIN-M connection guide](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/websocket-market-streams/Connect). Existing product routes remain documented; no guessed OI stream or polling fallback. |
+| Bitget | REST `/api/v3/market/instruments`; `/v3/ws/public`; v3 `instType/topic/symbol` envelopes | [Guide](https://www.bitget.com/docs/uta/quick-start), [instruments](https://www.bitget.com/docs/catalog/market-market-data/market-instruments), [depth](https://www.bitget.com/docs/uta/websocket/public/Order-Book-Channel), [ticker](https://www.bitget.com/docs/uta/websocket/public/Tickers-Channel), [candles](https://www.bitget.com/docs/uta/websocket/public/Candlesticks-Channel). Current v3 surfaces, not v1/v2 subscriptions. |
+| Bybit | REST v5 instruments; v5 spot/linear/inverse WS; allLiquidation and derivative tickers | [Connect](https://bybit-exchange.github.io/docs/v5/ws/connect), [instruments](https://bybit-exchange.github.io/docs/v5/market/instrument), [all liquidation](https://bybit-exchange.github.io/docs/v5/websocket/public/all-liquidation), [ticker](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker). Retired funding topics remain parser references only. |
+| OKX | REST v5 instruments; WS v5 public/business | [Changelog](https://www.okx.com/docs-v5/log_en/): use recommended `openapi.okx.com` REST domain and default WS TLS port 443; migration details below. |
+| Gate.io | REST v4; spot/perpetual/delivery WS v4; public liquidation topic | [Spot REST](https://www.gate.com/docs/developers/apiv4/en/spot/), [spot WS](https://www.gate.com/docs/developers/apiv4/ws/), [futures WS](https://www.gate.com/docs/developers/futures/ws/), [delivery WS](https://www.gate.com/docs/developers/delivery/ws/en/). Current v4 service paths; public liquidations are distinct from private liquidates. |
+
+### OKX endpoint migration and catalog boundary
+
+- The 2026-09-30 [official port announcement](https://www.okx.com/en-us/help/okx-websocket-port-8443-discontinuation-announcement)
+  says port 8443 stops accepting WS connections on 2026-10-31. Port 443 already
+  works. Rust public/business URLs now omit `:8443`; host and v5 paths are
+  unchanged. An offline parity regression covers both mixed-feed connections.
+- The 2026-05-20 official changelog recommends `https://openapi.okx.com` for
+  Global REST. `www.okx.com` remains supported and is explicitly not deprecated.
+  Rust instrument discovery now uses the recommended domain; this is a host
+  migration, not a new REST protocol version.
+- A current SPOT directory response contained eight `state: preopen` rows with
+  empty base/quote fields. This is a dated service observation, not a claim that
+  all preopen records omit identity. Rust now filters non-live OKX spot rows as
+  it already did for derivatives. Any remaining empty spot identity fails with
+  MalformedData before constructing Symbol, instead of panicking or guessing
+  currencies from instId. Inline unit regressions and the sanitized REST
+  reference preserve both the preopen and malformed-live cases.
+
+Older option endpoints and legacy standalone funding/index parser references
+are not enabled subscriptions. Capability preflight remains authoritative;
+Coinbase/Kraken builders do not imply active runtimes. The Python sibling itself
+has local protocol updates, so its entire checkout should not be labeled old.
+
 ## Evidence and change rule
 
 For protocol work, use this order of authority:
@@ -104,7 +146,7 @@ The historical index-price/L1/depth observations above follow the long-stable
 USD-M/COIN-M market-stream contract and the 2026-08-04 baseline. The current
 Binance developer docs site is client-rendered and was unreachable for
 re-verification on 2026-08-06; a live smoke run is the acceptance evidence for
-these cells (see `docs/live-smoke-2026-08-04.md` for the previous run).
+these cells (see `docs/reports/live-smoke-2026-08-04.md` for the previous run).
 - Historical Binance option fixtures remain parser migration references, but
   the legacy `nbstream` endpoint returned 404 and no current endpoint has
   passed live validation. Capability preflight therefore rejects Binance
@@ -474,6 +516,16 @@ Official references:
   buffered WebSocket delta before consuming it; the first delta and timestamp
   check provide the required bridge. Never accept an unanchored snapshot.
 
+## L3 order-book scope
+
+The 2026-08-05 scope review found no public order-by-order (L3) depth stream
+across the five active exchanges. Their public books expose price levels:
+Binance `@depth`, Bybit `orderbook.*`, OKX and Bitget `books*`, and Gate.io
+`order_book_update`. L3 remains outside the capability matrix. Reopening it
+requires a verified official public L3 source and a new implementation plan.
+This preserves the scope decision from the retired implementation plan; it is
+not a new live-service verification.
+
 ## Manual live-smoke acceptance
 
 After offline gates pass, run an unauthenticated short smoke for spot and one
@@ -487,3 +539,314 @@ liquidations, funding, or a one-minute candle during a short window. A live
 failure is actionable when the exchange returns a protocol error, the parser
 rejects a documented message, the connection uses a wrong endpoint, or an
 active high-frequency channel remains silent while raw traffic is present.
+
+## Connection/resource verification — 2026-10-10
+
+Current official connection documents were rechecked for native-stream counts,
+Bybit's distinct per-request/per-connection args limits, Bitget recommendations,
+and OKX subscription length. [The connection guide](connection-planning.md)
+records the exact sources and separates service limits from SDK conservative
+policies; no undocumented Gate limit is invented. Current wire shapes remain
+unchanged; Bybit spot can send multiple ten-arg subscribe frames and Gate queued
+requests refresh their time at send. Topic aliases are counted after deduplication.
+
+## Managed confirmation/readiness — 2026-10-10
+
+Managed sessions now bind current official confirmation evidence: Binance
+explicit SUBSCRIBE id/result-null on existing combined routed endpoints,
+Bybit req_id, Gate id/channel, and Bitget/OKX requested argument identity.
+Classic Binance URL subscriptions remain unchanged. [The readiness guide](readiness.md)
+records exact primary sources, timeout/correlation rules and local-book criteria.
+Synthetic control references and inline assertions were updated together;
+manual observations remain separate from protocol fixtures.
+
+## Catalog eligibility review — 2026-10-10
+
+Directory reconciliation uses the current official status fields, rather than
+Python-era endpoints or order-permission assumptions. Binance Spot/USD-M
+`status` and COIN-M `contractStatus` retain `TRADING`; Bybit queries explicitly
+request `status=Trading` and filter pending/non-Trading rows. Bitget v3 retains
+`online/limit_open/limit_close` for public data and excludes unavailable/restricted
+API states. Gate spot retains `tradable/buyable/sellable`, excluding `untradable`.
+Existing OKX `live` and Gate derivative delisting filters are unchanged. Missing
+optional status in minimal references retains compatibility; explicit invalid
+status types fail. Full market metadata and order eligibility are not implied.
+Official sources and synthetic mixed-status references are recorded in
+[fixture provenance](../sample_data/SOURCES.md#2026-10-10-catalog-eligibility),
+with matching inline markets regressions. This review changes catalog filtering,
+not market-data wire normalization or enabled coverage.
+
+## Sparse subscription planning review — 2026-10-10
+
+The active five-exchange adapters now select exact configured channel/symbol
+pairs before serializing existing native topics. Current official subscription
+shapes and Binance USD-M public/market, OKX public/business and Gate derivative
+product routing were rechecked; sources and request references are recorded in
+[fixture provenance](../sample_data/SOURCES.md#2026-10-10-sparse-subscription-packing).
+This changes SDK packing, not wire formats, market models, sequence rules or
+capability cells. L2 REST URL lists and readiness/cache ownership contain only
+subscribed L2 symbols; venue-scoped topics still rely on exact dispatch filters.
+The separate dated Spot smoke reached Ready on all five exchanges with one
+physical connection each; it does not certify global optimal packing.
+
+## Typed market metadata review — 2026-10-10
+
+Existing directory payloads now populate typed metadata beside exact symbol
+identity. Current primary field tables were verified: Binance filterType lookup
+and separate precision, Bitget v3 multiplier/count applicability, Bybit Spot's
+deprecated minimum quantity versus current amount minimum, OKX independent
+contract value/currency/multiplier, and Gate precision versus explicit derivative
+price rounding. The [metadata guide](market-metadata.md) records source mappings,
+optional/zero/error semantics and unit limitations. Sanitized HTTP references and
+inline helper/decoder assertions were added together; public event parser/model
+semantics and capability cells are unchanged. Metadata does not enable trading.
+
+## Public REST snapshot review — 2026-10-10
+
+Current primary ticker/book endpoints were verified for the five active
+exchanges' existing routing profiles. Binance Spot uses the recommended market-
+data-only host; futures book ticker remains v1 in current documentation (v2
+last-price ticker is a different service). Bitget uses v3; Bybit/OKX v5 and Gate
+v4 retain product-qualified routing. [Public REST](public-rest.md) records exact
+methods, limits, timestamp fields, native IDs and missing-time behavior.
+
+Gate Spot book `current`/`update` use milliseconds; derivative fields use seconds.
+The new parser was corrected from a live-observed unit error with product-based
+assertions and sanitized reference updates. No native sequence/bridge rule was
+relaxed. Shared HTTP admission/status/Retry-After behavior is SDK resource policy,
+not an exchange-weight quota guarantee. Public REST snapshots add no private,
+trading, OI-polling or new instrument capability.
+
+## Funding-history review — 2026-10-10
+
+Current public funding-history surfaces were verified before implementation:
+Binance fapi/dapi fundingRate uses ascending inclusive millisecond bounds;
+Bitget v3 history-fund-rate uses cursor/resultList rather than v2 pageNo/data;
+Bybit v5 supports end-time continuation; OKX v5 after is earlier-than and
+realizedRate is actual while fundingRate is predicted; Gate v4 uses seconds t/r.
+[Funding history](funding-history.md) records normalized range/cursor semantics,
+retention/termination limits and sources. Captures and narrow assertions were
+added together. No next settlement is inferred, prediction is not relabeled as
+actual, and source exhaustion is not proof of complete retention coverage.
+
+## Candle-history increment — 2026-10-10
+
+Current official Binance Spot/UM/CM klines and Bybit v5 kline documentation was
+checked for the [candle-history API](candle-history.md). Binance returns 12-element
+rows with native close time and trade count; Bybit returns seven-element rows,
+reverse-ordered by start time, with native symbol/category in result. Both omit
+an explicit completion flag. Bybit inverse volume is quote currency and Binance
+COIN-M volume is contracts. CM start/end ranges cannot exceed 200 days. Rust uses
+bounded backward windows and a common 100-row cap, not a copied Python API path.
+At this earlier milestone the other venues were pending; their implemented
+contracts are recorded in the following dated section and [candle guide](candle-history.md).
+
+## Remaining candle-history APIs — 2026-10-10
+
+Verified current primary sources linked in [candle history](candle-history.md).
+Bitget uses v3 history-candles, maximum 100 rows/90-day request range and seven
+fields; its documented extra earlier interval was observed even with aligned
+start when the newest bar was unavailable. EndTime at a cycle boundary avoids
+shifting one older interval compared with boundary-minus-1ms.
+
+OKX history-candles accepts after (earlier) and before (newer), 300 rows maximum;
+nine-field rows carry confirm. Unsuffixed 6H/12H/day/week/month/quarter bars open
+in UTC+8. Gate Spot/perpetual range parameters conflict with limit and use seconds.
+Observed nonaligned from returned six 1m bars for a five-minute span; the first
+legal aligned open returned five. Current Spot rows have base volume and a close
+flag (eight fields); the seven-field example lacks base quantity and is rejected.
+Perpetual t accepts exact numeric seconds, v is contracts and completion is absent.
+Gate documentation calls 30d a calendar month. The full delivery reference also documents `/delivery/{settle}/candlesticks`;
+the earlier incomplete inspection missed it. Rust now implements its existing
+USDT delivery profile using the documented path and contract-volume row shape.
+
+Gate weekly boundary verification: current Spot `7d` bars open Monday (epoch
+remainder four days), while perpetual `7d` bars are epoch-aligned, as documented
+for futures. Request rounding uses the product-specific anchor. Public September
+2026 probes confirmed both grids and UTC-midnight daily opens. Monthly Spot and
+perpetual `30d` probes each returned the September 1 UTC open. These observations
+are separate from the ten-product 1m smoke; offline tests assert both week grids.
+
+## Recent public trade APIs — 2026-10-10
+
+Current official sources linked in [recent trades](recent-trades.md) were checked
+before implementation. Binance current Spot/UM/CM /trades returns individual
+id/price/qty/time/isBuyerMaker rows (1000 cap); aggregated /aggTrades is distinct.
+Bitget v3 /market/fills uses execId/price/size/side/ts (100 cap, explicit category),
+not older v1/v2 tradeId shapes. Bybit v5 /market/recent-trade returns a category
+and list of symbol/execId/price/size/side/time, Spot capped at 60 and contracts 1000.
+OKX v5 /market/trades has instId/tradeId/px/sz/side/ts (500 cap).
+Gate v4 Spot/futures/delivery trades use current product/settlement routes; Spot
+amount/side differs from signed contract size. Spot create_time_ms counts milliseconds, while derivative create_time_ms is
+second-valued with fractional precision in current public responses; create_time
+is seconds for both. The futures field description specifies precision rather
+than an epoch-millisecond unit. Gate Spot maximum
+is 1000; derivative parameter tables omit a numeric limit, so Rust's 1000 is a
+bounded SDK policy. No private history API or archived download is substituted.
+
+## Historical trade pagination and Gate clocks — 2026-10-10
+
+Current sources linked in [trade history](trade-history.md) confirm Binance
+aggregate fromId inclusive and derivative time ranges less than one hour, 48h
+retention, and a warning against combining IDs/time parameters. Rust uses time
+seeds followed by ID+1. OKX history-trades uses type=2 timestamp after, then type=1
+tradeId after (100 rows, last three months); before does not support timestamp
+paging. Gate Spot page and perpetual offset were verified with fixed from/to
+ranges to return distinct IDs even at the same millisecond. Old last_id is not
+used; delivery declares it no longer supported and has no current offset/page.
+
+Public Gate probes returned Spot create_time_ms as millisecond counts with
+fractions and perpetual create_time_ms as fractional seconds. The earlier trade
+clock assumption was corrected in parser/capture/tests, with no magnitude guess.
+The recent manual smoke's added age bound now detects thousand-fold clock errors.
+An initial urllib OKX history probe returned HTTP403; a separate curl request
+returned the documented public payload. No obsolete host/private fallback added.
+
+Full Gate delivery reference recheck: public candlesticks are documented at
+/delivery/{settle}/candlesticks with second bounds, limit/range incompatibility,
+contract volume and 7d epoch alignment. Candle capability/reporting and request
+planning now include this profile; a narrow offline native-route/normalization
+regression replaces the earlier unsupported preflight. Historical delivery
+trades have from/to but no current offset/page; range queries stop with explicit
+SourceLimit on a full page, rather than guessing retired last_id.
+
+## Raw parser replay source review — 2026-10-11
+
+Existing normalized/parity wire contracts are reused without adapter changes.
+Current official Bybit trade/book, Bitget depth/UTA upgrade mapping, Binance stream
+and OKX/Gate public guides were checked for replay regressions. Bybit allows up to
+1024 trades per message, matching the default output cap. Bitget's first update
+bridge includes snapshot seq within [pseq,seq]; a disjoint interval must fail.
+The older New-Trades Bitget docs link now redirects to ticker docs; UTA upgrade
+still names publicTrade, and this increment's live v3 capture/replay exactly matched
+56 current normalized Trade models. No v2/Python protocol fallback was introduced.
+See [native raw replay](raw-replay.md) and its bounded/remaining replay scope.
+
+## Consumed HTTP/L2 replay — 2026-10-11
+
+Current official Binance Spot depth and Gate public order-book surfaces remain
+unchanged. Raw v2 adds SDK-side consumption/processing markers, not new native
+API versions. HTTP JSON/original receipt time feed the existing snapshot parsers;
+Gate optional IDs/time anchoring and Binance depth/sequence bridges are not
+relaxed. Fresh public Spot capture replay exactly matched native L2 models on both
+venues with two consumed snapshots each. See [scope](http-l2-replay.md).
+
+
+### 2026-10-11 public HTTP replay fixture recheck
+
+Rechecked the current [OKX v5 guide](https://app.okx.com/docs-v5/en/) for the
+synthetic offline SDK fixtures: instruments retain base/quote, live status and
+explicit tick/lot fields; ticker uses bid/ask prices and millisecond time; REST
+books document four-item levels and integer seqId; public trades retain native
+IDs, price, quantity, taker side and millisecond time. Spot quantities are base
+amounts. All examples substitute values; no adapter endpoint or normalization
+rule changed. The HTTP replay is a payload source, not a wire/timer simulation.
+
+
+### 2026-10-12 native REST quota code verification
+
+[Native rate handling](native-rate-limits.md) records current official error
+references and SDK timing decisions separately. Binance integer -1003, Bybit
+integer 10006, OKX string 50011 and Bitget v3 string 429 are recognized in their
+own public GET result contexts. Bybit's reset header is epoch milliseconds.
+Gate's convert-only label and private order/WS codes are excluded; existing HTTP
+429 remains authoritative. JSON is preserved, not converted into a fake status.
+The 60-second missing-hint delay is an SDK fallback, not a protocol window.
+The current [COIN-M error page](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/error-code)
+was located through the official redirect and also confirms -1003; the guessed
+coin-m-futures page path was not authoritative. No endpoint changed.
+
+### 2026-10-12 Binance REST cost verification
+
+[Binance HTTP weights](http-weights.md) records current official Spot/derivative
+sources, endpoint tiers and SDK window choices. Spot recent trades is weight 25;
+USD-M funding has a separate 500-request/5-minute scope, while COIN-M funding
+is weight 1. Directory minute limits only tighten compiled ceilings. No endpoint
+or normalized payload shape changed. Synthetic references and inline costs were
+updated together; shared futures usage is conservative SDK policy, not a claim
+about native pool sharing.
+
+### 2026-10-12 public WS control verification
+
+[Public WS errors](ws-control-errors.md) records current official public
+frequency/service codes, exact string versus integer envelopes and Bybit
+order-entry exclusions. The runtime now distinguishes known transient responses
+from permanent subscription rejection; no market wire shape or endpoint changes.
+Inline regressions and the synthetic control reference were added together.
+SDK retry floors/shared process cooldown are policy, not exchange reset hints.
+
+### 2026-10-12 WS handshake and close verification
+
+[WS lifecycle failure rules](ws-lifecycle-failures.md) cite RFC 6455 close meanings,
+RFC 9110/6585 HTTP delay semantics and the current OKX close-frame table. Native
+close codes are scoped to their venue; SDK retry decisions are stated separately.
+No endpoints or market normalization changed. Synthetic lifecycle references and
+inline assertions were added together; local HTTP/CONNECT tests do not contact
+exchange services or prove a live quota threshold.
+
+### 2026-10-12 route-first allocation
+
+[Route-first planning](connection-planning.md#route-first-capacity-planning--2026-10-12)
+uses existing adapter routes and subscription budgets without changing wire
+contracts, endpoints or native limits. Synthetic allocation references and inline
+assertions document SDK behavior, not newly discovered exchange instruments or
+quota guarantees. Product homogeneity is enforced before logical projection.
+
+### 2026-10-12 minimum packing model
+
+[Minimum packing](minimum-connections.md) measures existing generated native
+subscriptions and preserves all previously documented limits/routes. Count
+demand and JSON-argument byte demand exclude only the fixed envelope/reserve
+used by current SDK budget checks. Aliases retain their native deduplication.
+The proof is for fixed SDK routes and atomic instruments; it is not a new venue
+limit or an alternate subscription API. Synthetic references and native tests
+were updated together; no market parser or normalized payload changed.
+
+### 2026-10-12 replay receipt-clock audit
+
+Current [Binance Spot bookTicker response](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#symbol-order-book-ticker)
+was rechecked: it supplies public bid/ask prices/quantities without a native
+response timestamp. The synthetic SDK replay test preserves None on the optional
+native timestamp and uses execution receipt time only for the compatibility model
+fallback. Existing OKX native-time assertions remain separate. No parser or wire
+shape changed; [the audit](replay-contract-audit.md) distinguishes clock domains.
+
+## Public HTTP frequency verification — 2026-10-12
+
+[Route audit](public-http-frequency-audit.md) records current official public
+request-count budgets for Bybit v5, Bitget v3, OKX v5 and Gate v4. Existing
+process-wide one-second HTTP admission is stricter; Binance endpoint weights
+remain a separate model. No protocol payload or parser change was needed.
+
+## Binance minute used-weight verification — 2026-10-12
+
+[Weight guide](http-weights.md#minute-used-weight-feedback--2026-10-12) records
+verified Spot/USD-M/COIN-M IP used-weight header semantics and the explicit
+USD-M bookTicker inaccurate-header exception. The SDK retains an independent
+conservative 60-second floor alongside its local rolling ledger; this retention
+is SDK policy, not a claimed server reset. Synthetic references and focused
+assertions were updated together. No market-data schema or parser changed.
+
+## WS send quota verification — 2026-10-12
+
+[Send guide](ws-send-budgets.md) links official Spot five/second, Binance futures
+10/second, Bitget v3 10/second + 240 subscription requests/hour, and OKX
+480 control requests/hour. Conservative SDK windows reserve Pong headroom and
+retain 250 ms text spacing; native limits are not auto-raised. Spot server Ping
+cadence is 20 seconds; Binance futures retain three minutes. Synthetic references
+and focused assertions were added together; market schemas remain unchanged.
+
+## Optional crossed-L2 policy — 2026-10-12
+
+[Guide](book-cross-check.md) separates the Python best-bid >= best-ask semantic
+check from native sequence/checksum rules. The new Bybit synthetic replay case
+uses the currently verified official snapshot/delta fields and zero-size delete
+contract; equality is a deliberate SDK-policy test, not live exchange evidence.
+No native parser, endpoint or bridge rule changed.
+
+## Delivered L2 depth policy — 2026-10-12
+
+[Delivered depth](book-delivery-depth.md) is a local semantic policy after native
+sync/crossed-book checks, not a native channel/depth change. Full book state is
+retained; synthetic snapshot/delete/promote examples and Bybit replay assertions
+were added together. No official payload, parser or sequence expectation changed.

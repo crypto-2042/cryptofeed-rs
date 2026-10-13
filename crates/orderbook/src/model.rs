@@ -99,6 +99,14 @@ pub struct L2BookState {
 }
 
 impl L2BookState {
+    /// Whether both sides exist and the best bid is at or above the best ask.
+    pub fn is_crossed(&self) -> bool {
+        match (self.bids.last_key_value(), self.asks.first_key_value()) {
+            (Some((bid, _)), Some((ask, _))) => bid >= ask,
+            _ => false,
+        }
+    }
+
     pub fn new(symbol: Symbol) -> Self {
         Self {
             symbol,
@@ -155,11 +163,39 @@ impl L2BookState {
         exchange_ts: f64,
         received_ts: f64,
     ) -> L2BookSnapshot {
+        self.to_snapshot_with_depth(exchange, exchange_ts, received_ts, usize::MAX)
+    }
+
+    /// Copy at most `maximum` best levels per side without trimming this state.
+    pub fn to_snapshot_with_depth(
+        &self,
+        exchange: ExchangeId,
+        exchange_ts: f64,
+        received_ts: f64,
+        maximum: usize,
+    ) -> L2BookSnapshot {
         L2BookSnapshot {
             exchange,
             symbol: self.symbol.clone(),
-            bids: self.bids(),
-            asks: self.asks(),
+            bids: self
+                .bids
+                .iter()
+                .rev()
+                .take(maximum)
+                .map(|(price, amount)| PriceLevel {
+                    price: *price,
+                    amount: *amount,
+                })
+                .collect(),
+            asks: self
+                .asks
+                .iter()
+                .take(maximum)
+                .map(|(price, amount)| PriceLevel {
+                    price: *price,
+                    amount: *amount,
+                })
+                .collect(),
             exchange_ts,
             received_ts,
         }
@@ -181,6 +217,98 @@ mod tests {
     use super::{L2Book, L2BookDelta, L2BookSnapshot, L2BookState, PriceLevel};
     use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
     use rust_decimal::Decimal;
+
+    #[test]
+    fn l2_cross_check_preserves_decimal_precision_and_handles_empty_unsorted_deleted_sides() {
+        let symbol = Symbol::spot("BTC", "USDT");
+        let level = |price: &str, amount: &str| PriceLevel {
+            price: Decimal::from_str_exact(price).unwrap(),
+            amount: Decimal::from_str_exact(amount).unwrap(),
+        };
+        let mut state = L2BookState::new(symbol.clone());
+        assert!(!state.is_crossed());
+        state.apply(L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Okx,
+            symbol: symbol.clone(),
+            bids: vec![level("99", "1"), level("100.000000000000000000000001", "1")],
+            asks: vec![
+                level("101", "1"),
+                level("100.000000000000000000000002", "1"),
+            ],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(!state.is_crossed());
+        state.apply(L2Book::Delta(L2BookDelta {
+            exchange: ExchangeId::Okx,
+            symbol: symbol.clone(),
+            bids: vec![level("100.000000000000000000000002", "1")],
+            asks: vec![],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(state.is_crossed());
+        state.apply(L2Book::Delta(L2BookDelta {
+            exchange: ExchangeId::Okx,
+            symbol: symbol.clone(),
+            bids: vec![level("100.000000000000000000000002", "0")],
+            asks: vec![],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(!state.is_crossed());
+        state.apply(L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Okx,
+            symbol: symbol.clone(),
+            bids: vec![level("102", "1")],
+            asks: vec![],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(!state.is_crossed());
+        state.apply(L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Okx,
+            symbol,
+            bids: vec![],
+            asks: vec![level("101", "1")],
+            exchange_ts: 1.0,
+            received_ts: 2.0,
+        }));
+        assert!(!state.is_crossed());
+    }
+
+    #[test]
+    fn l2_delivery_depth_snapshot_copy_is_sorted_bounded_and_never_trims_internal_state() {
+        let mut state = L2BookState::new(Symbol::spot("BTC", "USDT"));
+        let level = |price: i64| PriceLevel {
+            price: Decimal::from(price),
+            amount: Decimal::ONE,
+        };
+        state.apply(L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Okx,
+            symbol: Symbol::spot("BTC", "USDT"),
+            bids: vec![level(98), level(100), level(99)],
+            asks: vec![level(103), level(101), level(102)],
+            exchange_ts: 1.25,
+            received_ts: 2.5,
+        }));
+        let top = state.to_snapshot_with_depth(ExchangeId::Okx, 1.25, 2.5, 2);
+        assert_eq!(top.bids, [level(100), level(99)]);
+        assert_eq!(top.asks, [level(101), level(102)]);
+        assert_eq!(top.exchange_ts, 1.25);
+        assert_eq!(top.received_ts, 2.5);
+        assert!(
+            state
+                .to_snapshot_with_depth(ExchangeId::Okx, 1.25, 2.5, 0)
+                .bids
+                .is_empty()
+        );
+        assert_eq!(state.bids().len(), 3);
+        assert_eq!(
+            state.to_snapshot_with_depth(ExchangeId::Okx, 1.25, 2.5, usize::MAX),
+            state.to_snapshot(ExchangeId::Okx, 1.25, 2.5)
+        );
+    }
 
     #[test]
     fn snapshot_initializes_state() {

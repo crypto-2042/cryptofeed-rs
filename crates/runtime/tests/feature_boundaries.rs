@@ -166,3 +166,29 @@ fn index_only_parses_binance_mark_price_index() {
             .any(|event| matches!(event, BinanceEvent::IndexPrice(_)))
     );
 }
+
+#[test]
+fn channel_subscription_preflight_honors_each_feature_boundary() {
+    use cryptofeed_rs::prelude::*;
+    for (channel, enabled) in [
+        (Channel::Trade, cfg!(feature = "trade")),
+        (Channel::Ticker, cfg!(feature = "ticker")),
+        (Channel::L2Book, cfg!(feature = "orderbook")),
+        (Channel::L1Book, cfg!(feature = "orderbook")),
+        (Channel::Candles, cfg!(feature = "candles")),
+        (Channel::Funding, cfg!(feature = "funding")),
+        (Channel::Liquidations, cfg!(feature = "liquidations")),
+        (Channel::OpenInterest, cfg!(feature = "openinterest")),
+        (Channel::Index, cfg!(feature = "index")),
+        (Channel::MarkPrice, cfg!(feature = "markprice")),
+    ] {
+        let feed = Bybit::new()
+            .subscription(channel, ["BTC-USDT-PERP"])
+            .build();
+        assert_eq!(
+            cryptofeed_rs::markets::validate_feed(&feed).is_ok(),
+            enabled,
+            "{channel:?}"
+        );
+    }
+}

@@ -1,9 +1,16 @@
+pub use crate::catalog::MarketCatalog;
 pub use crate::exchange::{
     ExchangeFeed, ExchangeFeedBuilder, binance::Binance, bitget::Bitget, bybit::Bybit,
     coinbase::Coinbase, gateio::Gateio, kraken::Kraken, okx::Okx,
 };
 pub use crate::feed::{EventCounters, FeedEvent, FeedHandler, FeedStatus};
+pub use cryptofeed_core::{
+    exchange::{Channel, ExchangeId},
+    symbol::{InstrumentKind, Symbol},
+};
 
+#[cfg(feature = "candles")]
+pub use crate::exchange::CandlePolicy;
 #[cfg(feature = "candles")]
 pub use cryptofeed_candles::{Candle, CandleHandler};
 
@@ -32,3 +39,85 @@ pub use cryptofeed_ticker::{Ticker, TickerHandler};
 
 #[cfg(feature = "trade")]
 pub use cryptofeed_trade::{Side, Trade, TradeHandler};
+
+pub use crate::feed::control::{
+    ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot, FeedState,
+    RuntimeControl,
+};
+
+pub use crate::discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};
+
+#[cfg(feature = "orderbook")]
+pub use crate::books::{
+    BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle,
+};
+
+pub use crate::options::{IdlePolicy, RuntimeOptions};
+
+pub use crate::transport::TransportConfig;
+
+pub use crate::market_info::MarketInfo;
+pub use crate::resources::{ResourceBudget, ResourcePolicy};
+
+#[cfg(feature = "orderbook")]
+pub use crate::nbbo::{Nbbo, NbboLeg, NbboQuantityUnit, NbboQuote, NbboSource, NbboUpdate};
+
+#[cfg(feature = "trade")]
+pub use crate::aggregate::{Ohlcv, RenkoBrick, RenkoDirection, RenkoFixed, TradeBar};
+
+pub use crate::aggregate::{AggregateWindow, CustomAggregate, Throttle};
+
+pub use crate::sink::{EventSink, SinkEnd, SinkOptions, SinkWrite, run_sink};
+
+pub use crate::rest::{PublicRestClient, RestSnapshot};
+
+#[cfg(feature = "funding")]
+pub use crate::rest::{FundingHistory, FundingHistoryCursor, FundingHistoryQuery, HistoryStop};
+
+#[cfg(feature = "candles")]
+pub use crate::rest::{CandleHistory, CandleHistoryCursor, CandleHistoryQuery, CandleHistoryStop};
+
+#[cfg(feature = "trade")]
+pub use crate::rest::{
+    TradeHistory, TradeHistoryCursor, TradeHistoryKind, TradeHistoryQuery, TradeHistoryStop,
+};
+
+#[cfg(feature = "recording")]
+pub use crate::recording::{
+    RecordedEvent, RecordingEnd, RecordingLimits, RecordingReader, RecordingSummary,
+    RecordingWriter, ReplayOptions, ReplayTiming, record_stream,
+};
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::{
+    RawCaptureHandle, RawCaptureReceiver, RawFeedInfo, RawObservation, RawObservationKind,
+    RawPayload, RawSessionInfo, raw_capture_channel,
+};
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::{
+    RawRecordingLimits, RawRecordingReader, RawRecordingWriter, record_raw_stream,
+};
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::{
+    RawMergeInput, RawMergeItem, RawMergeOptions, RawMergeSummary, RawReplayEvent, RawReplayItem,
+    RawReplayOptions, RawReplaySummary, replay_raw_merge,
+};
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::RawSnapshotFailure;
+
+#[cfg(feature = "recording")]
+pub use crate::recording::raw::{
+    RawSeriesLimits, RawSeriesReader, RawSeriesWriter, record_raw_series,
+};
+
+#[cfg(feature = "recording")]
+pub use crate::recording::http::{
+    HttpCaptureHandle, HttpCaptureReceiver, HttpObservation, HttpObservationKind, HttpOutcome,
+    HttpRecordingReader, HttpRecordingWriter, http_capture_channel, record_http_stream,
+};
+
+#[cfg(feature = "recording")]
+pub use crate::recording::http::{HttpReplay, HttpReplayReport};

@@ -3,3 +3,27 @@ https://fapi.binance.com/fapi/v1/exchangeInfo -> 1710000001.200000: {"symbols":[
 https://dapi.binance.com/dapi/v1/exchangeInfo -> 1710000001.300000: {"symbols":[{"symbol":"BTCUSD_PERP","baseAsset":"BTC","quoteAsset":"USD","contractType":"PERPETUAL","status":"TRADING"},{"symbol":"BTCUSD_240628","baseAsset":"BTC","quoteAsset":"USD","contractType":"CURRENT_QUARTER","status":"TRADING"}]}
 https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=1000 -> 1710000001.500000: {"lastUpdateId":100,"bids":[["64999.10","1.25"]],"asks":[["65000.20","0.75"]]}
 configuration: {"spot":{"l2_book":["ETH-BTC"],"ticker":["ETH-BTC"],"trades":["ETH-BTC"],"candles":["ETH-BTC"]},"usdt_perp":{"l2_book":["BTC-USDT-PERP"],"ticker":["BTC-USDT-PERP"],"trades":["BTC-USDT-PERP"]},"coin_perp":{"l2_book":["BTC-USD-PERP"],"ticker":["BTC-USD-PERP"],"trades":["BTC-USD-PERP"]},"delivery":{"l2_book":["BTC-USD-240628"],"ticker":["BTC-USD-240628"],"trades":["BTC-USD-240628"]}}
+
+https://api.binance.com/api/v3/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING"},{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","status":"HALT"}]}
+https://fapi.binance.com/fapi/v1/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","contractType":"PERPETUAL","status":"TRADING"},{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","contractType":"PERPETUAL","status":"SETTLING"}]}
+https://dapi.binance.com/dapi/v1/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","contractType":"PERPETUAL","contractStatus":"TRADING","status":"SETTLING"},{"symbol":"OLDUSDT","baseAsset":"OLD","quoteAsset":"USDT","contractType":"PERPETUAL","contractStatus":"SETTLING"}]}
+
+https://api.binance.com/api/v3/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSDT","baseAsset":"BTC","quoteAsset":"USDT","status":"TRADING","filters":[{"filterType":"LOT_SIZE","stepSize":"0.001","minQty":"0.001"},{"filterType":"PRICE_FILTER","tickSize":"0.05"}]}]}
+
+https://dapi.binance.com/dapi/v1/exchangeInfo -> 1791580000.000000: {"symbols":[{"symbol":"BTCUSD_PERP","baseAsset":"BTC","quoteAsset":"USD","contractType":"PERPETUAL","contractStatus":"TRADING","contractSize":100,"marginAsset":"BTC","filters":[{"filterType":"PRICE_FILTER","tickSize":"0.1"},{"filterType":"LOT_SIZE","stepSize":"1","minQty":"1"}]}]}
+
+https://data-api.binance.vision/api/v3/ticker/bookTicker?symbol=BTCUSDT -> 1710000001.500000: {"symbol":"BTCUSDT","bidPrice":"100.01","askPrice":"101.02"}
+
+https://data-api.binance.vision/api/v3/depth?symbol=BTCUSDT&limit=20 -> 1710000001.500000: {"lastUpdateId":9007199254740993,"bids":[["99","2"],["100","1"]],"asks":[["102","2"],["101","1"]]}
+
+https://dapi.binance.com/dapi/v1/ticker/bookTicker?symbol=BTCUSD_PERP -> 1710000001.500000: [{"symbol":"BTCUSD_PERP","bidPrice":"100","askPrice":"101","time":1710000000000,"lastUpdateId":9007199254740993}]
+
+https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=2&startTime=1000&endTime=9999 -> 1710000001.500000: [{"symbol":"BTCUSDT","fundingTime":1000,"fundingRate":"-0.0001","markPrice":"100","rateType":"Regular"},{"symbol":"BTCUSDT","fundingTime":2000,"fundingRate":"-0.0001","markPrice":"100","rateType":"Regular"}]
+
+https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=100&startTime=0&endTime=9999 -> 1710000001.500000: [{"symbol":"BTCUSDT","fundingTime":1000,"fundingRate":-0.1234567890123456789012345678}]
+
+https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=2&startTime=0&endTime=119999 -> 1710000001.500000: [[60000,"100.0000000000000000000000001","102","99","101","3.25",119999,"328",7,"1","101","0"]]
+
+https://data-api.binance.vision/api/v3/trades?symbol=BTCUSDT&limit=1 -> 1710000001.500000: [{"id":9007199254740993,"price":"100.01","qty":"0.25","time":1001,"isBuyerMaker":true}]
+
+https://fapi.binance.com/fapi/v1/aggTrades?symbol=BTCUSDT&limit=2&startTime=1000&endTime=1999 -> 1710000001.500000: [{"a":9007199254740994,"p":"100.01","q":"0.25","T":1500,"m":true,"f":9007199254740994,"l":9007199254740994},{"a":9007199254740993,"p":"100.01","q":"0.25","T":1500,"m":true,"f":9007199254740993,"l":9007199254740993}]

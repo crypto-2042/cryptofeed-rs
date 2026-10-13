@@ -1,0 +1,14 @@
+{"url": "https://api.binance.com/api/v3/exchangeInfo", "cost": 20, "bucket": "spot"}
+{"url": "https://data-api.binance.vision/api/v3/trades?symbol=BTCUSDT", "cost": 25, "bucket": "spot"}
+{"url": "https://api.binance.com/api/v3/depth?limit=1001", "cost": 250, "bucket": "spot"}
+{"url": "https://api.binance.com/api/v3/aggTrades", "cost": 4, "bucket": "spot"}
+{"url": "https://api.binance.com/api/v3/klines", "cost": 2, "bucket": "spot"}
+{"url": "https://api.binance.com/api/v3/ticker/bookTicker", "cost": 4, "bucket": "spot"}
+{"url": "https://fapi.binance.com/fapi/v1/exchangeInfo", "cost": 1, "bucket": "futures"}
+{"url": "https://fapi.binance.com/fapi/v1/trades", "cost": 5, "bucket": "futures"}
+{"url": "https://fapi.binance.com/fapi/v1/aggTrades", "cost": 20, "bucket": "futures"}
+{"url": "https://fapi.binance.com/fapi/v1/ticker/bookTicker", "cost": 5, "bucket": "futures"}
+{"url": "https://dapi.binance.com/dapi/v1/depth?limit=1000", "cost": 20, "bucket": "futures"}
+{"url": "https://dapi.binance.com/dapi/v1/klines?limit=1001", "cost": 10, "bucket": "futures"}
+{"url": "https://fapi.binance.com/fapi/v1/fundingRate", "cost": 1, "bucket": "usd_funding"}
+{"url": "https://dapi.binance.com/dapi/v1/fundingRate", "cost": 1, "bucket": "futures"}

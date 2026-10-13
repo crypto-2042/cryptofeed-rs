@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Retained `RuntimeControl::state` snapshots with connection epochs, confirmation
+  counts, L2 readiness and observation diagnostics; Copy registry metadata remains
+  compatible. Managed Binance subscriptions now use matching explicit acks.
+- Reconnect/resync withdraw readiness and clear only connection-owned books;
+  scoped status publication preserves stopping order. Initial invalid configured
+  IDs remain queryable and replaceable.
+- Five-exchange `readiness_public` observation example and dated service evidence.
+
+- Opt-in managed runtime control for add/remove/replace/list/shutdown, stable
+  logical feed IDs and configuration generations, identified event envelopes,
+  independent initial startup and scoped lifecycle/failure states. Invalid
+  candidates preserve old feeds; removals drain/cancel asynchronous children.
+- Subscription receivers can be created after initial feed registration.
+- Public `managed_public` example exercises OKX add/replace/remove and shutdown.
+
+- Native-topic/message-budget connection sharding, Bybit ten-arg spot request
+  batches, paced session-owned subscription queues and process-local connection
+  admission. Market reads/heartbeats/shutdown continue during queued sends.
+- Shared, cancellable Binance/Gate snapshot HTTP admission with four concurrent
+  requests and paced starts; clients are reused and existing sequence rules stay
+  intact. Official limits and SDK conservative policies are documented separately.
+
+- Per-channel symbol configuration via `.subscription` and
+  `.subscription_instruments`. Identical symbol sets share a concrete feed
+  group; runtime hydration preserves global native mapping checks and dispatch
+  filters exact channel/symbol pairs. Existing shared-symbol builders remain
+  supported; capacity-based sharding and optimized packing remain pending.
+
+- `MarketCatalog::refresh` bypasses cached instrument responses, including
+  paginated discovery. Concurrent same-URL requests share in-flight results;
+  discovery reuses an HTTP client and failed fetches preserve cached responses.
+
+- Product-qualified `MarketCatalog` discovery and explicit normalized-symbol
+  pattern selection (`*`/`?`), bulk `.symbols` / `.instruments` builders, and
+  a `FeedHandler::run_with_shutdown` facade for service-owned shutdown.
+- Source-backed Python usage gap inventory and a phased improvement plan.
+
 - Bitget v3 spot/contract L1 and derivative ticker Funding/OpenInterest/Index/
   MarkPrice; Gate.io public perpetual liquidations; OKX contract index mapping
   and shared-index fan-out. Sourced fixtures, per-feature regressions, and a
@@ -28,6 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CHANGELOG.md.
 
 ### Fixed
+
+- OKX v5 WebSockets use default TLS port 443 ahead of the announced 8443
+  shutdown; discovery uses the recommended Global REST domain. Non-live spot
+  directory records are filtered, and empty spot identity returns an error
+  instead of panicking.
 
 - Binance Index uses documented mark-price `i/E` fields, with a deduplicated
   1s topic when Index is requested; native COIN-M contract identities are retained.

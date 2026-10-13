@@ -1,0 +1,10 @@
+{"header":{"format":"cryptofeed-rs.public-http","version":1}}
+{"observation":{"record":{"sequence":1,"elapsed_ns":1,"observed_ts":100.0,"kind":{"request":{"request_id":1,"exchange":"Okx","url":"https://openapi.okx.com/api/v5/public/instruments?instType=SPOT"}}}}}
+{"observation":{"record":{"sequence":2,"elapsed_ns":2,"observed_ts":100.0,"kind":{"finished":{"request_id":1,"outcome":{"json":{"value":{"code":"0","msg":"","data":[{"instType":"SPOT","instId":"BTC-USDT","baseCcy":"BTC","quoteCcy":"USDT","state":"live","tickSz":"0.01","lotSz":"0.0001"}]},"redacted":false}}}}}}}
+{"observation":{"record":{"sequence":3,"elapsed_ns":3,"observed_ts":100.0,"kind":{"request":{"request_id":2,"exchange":"Okx","url":"https://openapi.okx.com/api/v5/market/ticker?instId=BTC-USDT"}}}}}
+{"observation":{"record":{"sequence":4,"elapsed_ns":4,"observed_ts":100.0,"kind":{"finished":{"request_id":2,"outcome":{"json":{"value":{"code":"0","msg":"","data":[{"instId":"BTC-USDT","bidPx":"100.01","askPx":"100.02","ts":"1000"}]},"redacted":false}}}}}}}
+{"observation":{"record":{"sequence":5,"elapsed_ns":5,"observed_ts":100.0,"kind":{"request":{"request_id":3,"exchange":"Okx","url":"https://openapi.okx.com/api/v5/market/books?instId=BTC-USDT&sz=5"}}}}}
+{"observation":{"record":{"sequence":6,"elapsed_ns":6,"observed_ts":100.0,"kind":{"finished":{"request_id":3,"outcome":{"json":{"value":{"code":"0","msg":"","data":[{"bids":[["100.01","2","0","1"]],"asks":[["100.02","3","0","1"]],"ts":"1000","seqId":7}]},"redacted":false}}}}}}}
+{"observation":{"record":{"sequence":7,"elapsed_ns":7,"observed_ts":100.0,"kind":{"request":{"request_id":4,"exchange":"Okx","url":"https://openapi.okx.com/api/v5/market/trades?instId=BTC-USDT&limit=5"}}}}}
+{"observation":{"record":{"sequence":8,"elapsed_ns":8,"observed_ts":100.0,"kind":{"finished":{"request_id":4,"outcome":{"json":{"value":{"code":"0","msg":"","data":[{"instId":"BTC-USDT","tradeId":"1","px":"100.01","sz":"0.2","side":"buy","ts":"1000"}]},"redacted":false}}}}}}}
+{"end":{"events":8,"reason":"complete"}}

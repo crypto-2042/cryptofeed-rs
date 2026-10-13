@@ -98,6 +98,13 @@ impl BitgetAdapter {
                     .map(bitget_instrument_type)
                     .unwrap_or("spot");
                 feed.channels.iter().filter_map(move |channel| {
+                    if !feed
+                        .symbols
+                        .get(index)
+                        .is_some_and(|symbol| feed.subscribes(*channel, symbol))
+                    {
+                        return None;
+                    }
                     let topic = match channel {
                         Channel::Candles => "kline",
                         Channel::Ticker => "ticker",
@@ -373,7 +380,7 @@ impl BitgetAdapter {
     }
 }
 
-fn bitget_instrument_type(symbol: &Symbol) -> &'static str {
+pub(crate) fn bitget_instrument_type(symbol: &Symbol) -> &'static str {
     if symbol.kind() == InstrumentKind::Spot {
         return "spot";
     }

@@ -1,0 +1,10 @@
+{"exchange": "okx", "payload": {"event": "error", "code": "60014"}, "expected": "rate_limited", "sdk_retry_seconds": 60}
+{"exchange": "okx", "payload": {"event": "error", "code": "50011"}, "expected": "rate_limited", "sdk_retry_seconds": 60}
+{"exchange": "bitget", "payload": {"event": "error", "code": "429"}, "expected": "rate_limited", "sdk_retry_seconds": 60}
+{"exchange": "bitget", "payload": {"event": "error", "code": "30006"}, "expected": "rate_limited", "sdk_retry_seconds": 60}
+{"exchange": "bitget", "payload": {"event": "error", "code": "30007"}, "expected": "rate_limited", "sdk_retry_seconds": 60}
+{"exchange": "okx", "payload": {"event": "error", "code": "64007"}, "expected": "transient_service"}
+{"exchange": "okx", "payload": {"event": "error", "code": "64008"}, "expected": "transient_service"}
+{"exchange": "bitget", "payload": {"event": "error", "code": "30033"}, "expected": "transient_service"}
+{"exchange": "gateio", "payload": {"event": "subscribe", "error": {"code": 3}}, "expected": "transient_service"}
+{"exchange": "bybit", "payload": {"op": "subscribe", "retCode": 10429}, "expected": "not_public_ws_quota"}

@@ -58,6 +58,7 @@ pub struct BinanceConnectionPlan {
     pub product: BinanceProduct,
     pub websocket_url: String,
     pub streams: Vec<String>,
+    /// REST URLs for L2-subscribed instruments only, in their instrument order.
     pub snapshot_urls: Vec<String>,
     /// Partial-depth width (5/10/20) when the feed requested a bounded L2
     /// book; `None` means the full-depth `@depth` stream with a 1000-level
@@ -129,6 +130,26 @@ impl BinanceAdapter {
         "wss://stream.binance.com:9443/stream?streams="
     }
 
+    /// Builds the initial explicit subscription on a combined-stream endpoint.
+    /// The response must be matched to id 1; callers handle control responses
+    /// separately from market data. URL-based planning remains available.
+    pub fn explicit_subscription(plan: &BinanceConnectionPlan) -> Result<(String, String)> {
+        let mut url = url::Url::parse(&plan.websocket_url)
+            .map_err(|error| Error::InvalidConfiguration(error.to_string()))?;
+        let streams: Vec<_> = url
+            .query_pairs()
+            .find(|(key, _)| key == "streams")
+            .map(|(_, streams)| streams.split('/').map(str::to_owned).collect())
+            .ok_or_else(|| {
+                Error::InvalidConfiguration("Binance stream plan is missing topics".to_owned())
+            })?;
+        url.set_query(None);
+        Ok((
+            url.to_string(),
+            serde_json::json!({"method":"SUBSCRIBE","params":streams,"id":1}).to_string(),
+        ))
+    }
+
     pub fn connection_plans(feed: &ExchangeFeed) -> Result<Vec<BinanceConnectionPlan>> {
         let instruments = Self::instruments(feed)?;
         if feed.channels.contains(&Channel::Candles)
@@ -139,7 +160,6 @@ impl BinanceAdapter {
                 feed.candle_interval
             )));
         }
-        let candle_interval = feed.candle_interval.as_str();
         let l2_book_interval = feed.l2_book_interval.as_deref().unwrap_or("100ms");
         let mut plans = Vec::new();
 
@@ -201,9 +221,7 @@ impl BinanceAdapter {
                         &product_instruments,
                         &public_channels,
                         "wss://fstream.binance.com/public/stream?streams=",
-                        candle_interval,
-                        feed.l2_book_depth,
-                        l2_book_interval,
+                        feed,
                     ));
                 }
                 if !market_channels.is_empty() {
@@ -212,9 +230,7 @@ impl BinanceAdapter {
                         &product_instruments,
                         &market_channels,
                         "wss://fstream.binance.com/market/stream?streams=",
-                        candle_interval,
-                        feed.l2_book_depth,
-                        l2_book_interval,
+                        feed,
                     ));
                 }
             } else {
@@ -223,13 +239,12 @@ impl BinanceAdapter {
                     &product_instruments,
                     &feed.channels,
                     Self::websocket_url_for(product),
-                    candle_interval,
-                    feed.l2_book_depth,
-                    l2_book_interval,
+                    feed,
                 ));
             }
         }
 
+        plans.retain(|plan| !plan.streams.is_empty());
         Ok(plans)
     }
 
@@ -313,14 +328,18 @@ impl BinanceAdapter {
     fn streams_for_instruments(
         instruments: &[BinanceInstrument],
         channels: &[Channel],
-        candle_interval: &str,
-        l2_book_depth: Option<u16>,
-        l2_book_interval: &str,
+        feed: &ExchangeFeed,
     ) -> Vec<String> {
+        let candle_interval = feed.candle_interval.as_str();
+        let l2_book_depth = feed.l2_book_depth;
+        let l2_book_interval = feed.l2_book_interval.as_deref().unwrap_or("100ms");
         let mut streams = Vec::new();
         for instrument in instruments {
             let exchange_symbol = instrument.exchange_symbol.to_ascii_lowercase();
             for channel in channels {
+                if !feed.subscribes(*channel, &instrument.symbol) {
+                    continue;
+                }
                 let mut stream = if instrument.product == BinanceProduct::Option {
                     option_stream_name(&exchange_symbol, *channel, candle_interval)
                 } else {
@@ -335,7 +354,10 @@ impl BinanceAdapter {
                 // The documented mark-price payload carries the per-contract
                 // index price for both USD-M and COIN-M. Share its 1s stream
                 // when Index is requested, avoiding guessed native index topics.
-                if channels.contains(&Channel::Index) && stream.ends_with("@markPrice") {
+                if channels.contains(&Channel::Index)
+                    && feed.subscribes(Channel::Index, &instrument.symbol)
+                    && stream.ends_with("@markPrice")
+                {
                     stream.push_str("@1s");
                 }
                 if !stream.is_empty() && !streams.contains(&stream) {
@@ -351,17 +373,19 @@ impl BinanceAdapter {
         instruments: &[BinanceInstrument],
         channels: &[Channel],
         websocket_base: &str,
-        candle_interval: &str,
-        l2_book_depth: Option<u16>,
-        l2_book_interval: &str,
+        feed: &ExchangeFeed,
     ) -> BinanceConnectionPlan {
-        let streams = Self::streams_for_instruments(
-            instruments,
-            channels,
-            candle_interval,
-            l2_book_depth,
-            l2_book_interval,
-        );
+        let instruments: Vec<_> = instruments
+            .iter()
+            .filter(|instrument| {
+                channels
+                    .iter()
+                    .any(|channel| feed.subscribes(*channel, &instrument.symbol))
+            })
+            .cloned()
+            .collect();
+        let streams = Self::streams_for_instruments(&instruments, channels, feed);
+        let l2_book_depth = feed.l2_book_depth;
         let snapshot_urls = if channels.contains(&Channel::L2Book) {
             // Partial depth streams (`@depth5@100ms` etc.) must be bootstrapped
             // from a snapshot of the same width; the full-depth default uses
@@ -369,6 +393,7 @@ impl BinanceAdapter {
             let limit = l2_book_depth.unwrap_or(1000);
             instruments
                 .iter()
+                .filter(|instrument| feed.subscribes(Channel::L2Book, &instrument.symbol))
                 .map(|instrument| Self::snapshot_url(instrument, limit))
                 .collect()
         } else {
@@ -380,7 +405,7 @@ impl BinanceAdapter {
             streams,
             snapshot_urls,
             l2_book_depth,
-            instruments: instruments.to_vec(),
+            instruments,
         }
     }
 
@@ -745,7 +770,7 @@ fn channel_name(channel: Channel) -> &'static str {
     }
 }
 
-fn product_from_normalized(symbol: &Symbol) -> Result<BinanceProduct> {
+pub(crate) fn product_from_normalized(symbol: &Symbol) -> Result<BinanceProduct> {
     if symbol.kind() == InstrumentKind::Option {
         return Ok(BinanceProduct::Option);
     }

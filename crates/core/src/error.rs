@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 #[non_exhaustive]
 pub enum Error {
     #[error("unsupported exchange: {0}")]
@@ -19,8 +19,20 @@ pub enum Error {
     Protocol(String),
     #[error("subscription error: {0}")]
     Subscription(String),
+    #[error("rate limited ({code}); retry after {retry_after:?}")]
+    RateLimited {
+        code: String,
+        retry_after: std::time::Duration,
+    },
+    #[error("WebSocket closed (code {code:?}, retryable {retryable})")]
+    WebSocketClosed { code: Option<u16>, retryable: bool },
     #[error("malformed market data: {0}")]
     MalformedData(String),
+    #[error("HTTP status {status} (Retry-After: {retry_after:?})")]
+    HttpStatus {
+        status: u16,
+        retry_after: Option<std::time::Duration>,
+    },
     #[error("transport error: {0}")]
     Transport(String),
     #[error("parse error: {0}")]

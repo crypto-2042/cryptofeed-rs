@@ -1604,7 +1604,7 @@ fn gateio_l2_book_matches_public_baseline() {
 fn gateio_rest_book_bootstrap_is_a_snapshot() {
     let message = json!({
         "id": 100u64,
-        "current": 1710000001.5,
+        "current": 1710000001500u64,
         "bids": [["64999.10", "1.25"]],
         "asks": [["65000.20", "0.75"]]
     });
@@ -1613,6 +1613,8 @@ fn gateio_rest_book_bootstrap_is_a_snapshot() {
         .expect("REST snapshot");
 
     assert_eq!(snapshot.last_update_id, Some(100));
+    assert_eq!(snapshot.generated_ts, 1710000001.5);
+    assert_eq!(snapshot.book.exchange_ts, 1710000001.5);
     assert_eq!(snapshot.book.symbol.as_str(), "BTC-USDT");
     assert_eq!(
         snapshot.book.bids[0].amount,
@@ -2381,4 +2383,263 @@ fn binance_contract_index_uses_documented_mark_price_stream() {
         );
         assert_eq!(index.exchange_ts, 1562305380.0);
     }
+}
+
+#[test]
+fn okx_uses_current_tls_endpoints_for_public_and_business_channels() {
+    use cryptofeed_rs::exchange::{okx::Okx, okx::adapter::OkxAdapter};
+    let feed = Okx::new().ticker().candles().symbol("BTC-USDT").build();
+    assert_eq!(
+        OkxAdapter::subscription_urls(&feed),
+        vec![
+            "wss://ws.okx.com/ws/v5/public".to_owned(),
+            "wss://ws.okx.com/ws/v5/business".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn bybit_spot_subscription_batches_respect_per_request_arg_limit() {
+    use cryptofeed_rs::{
+        bybit::{Bybit, adapter::BybitAdapter},
+        exchange::ExchangeFeedBuilder,
+    };
+    let mut builder: ExchangeFeedBuilder = Bybit::new().trade();
+    for i in 0..11 {
+        builder = builder.symbol(&format!("S{i}-USDT"));
+    }
+    let messages = BybitAdapter::subscription_messages(&builder.build()).unwrap();
+    let args: Vec<Vec<String>> = messages
+        .iter()
+        .map(|message| {
+            let payload: serde_json::Value = serde_json::from_str(message).unwrap();
+            assert_eq!(payload["op"], "subscribe");
+            payload["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap().to_owned())
+                .collect()
+        })
+        .collect();
+    assert_eq!(args.iter().map(Vec::len).collect::<Vec<_>>(), [10, 1]);
+    assert_eq!(
+        args.into_iter().flatten().collect::<Vec<_>>(),
+        (0..11)
+            .map(|i| format!("publicTrade.S{i}USDT"))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn binance_explicit_subscription_preserves_planned_topics_and_route() {
+    use cryptofeed_rs::binance::{Binance, adapter::BinanceAdapter};
+    let feed = Binance::new().trade().l2_book().symbol("BTC-USDT").build();
+    let plan = BinanceAdapter::connection_plans(&feed).unwrap().remove(0);
+    let (url, message) = BinanceAdapter::explicit_subscription(&plan).unwrap();
+    assert_eq!(url, "wss://stream.binance.com:9443/stream");
+    let message: serde_json::Value = serde_json::from_str(&message).unwrap();
+    assert_eq!(
+        message,
+        serde_json::json!({"method":"SUBSCRIBE","params":["btcusdt@aggTrade","btcusdt@depth@100ms"],"id":1})
+    );
+    let derivative = Binance::new()
+        .trade()
+        .l2_book()
+        .symbol("BTC-USDT-PERP")
+        .build();
+    let routes: Vec<_> = BinanceAdapter::connection_plans(&derivative)
+        .unwrap()
+        .iter()
+        .map(|plan| BinanceAdapter::explicit_subscription(plan).unwrap().0)
+        .collect();
+    assert_eq!(
+        routes,
+        [
+            "wss://fstream.binance.com/public/stream",
+            "wss://fstream.binance.com/market/stream"
+        ]
+    );
+}
+
+#[test]
+fn sparse_subscriptions_pack_only_requested_native_topics() {
+    use cryptofeed_rs::prelude::*;
+    use cryptofeed_rs::{
+        binance::adapter::BinanceAdapter, bitget::adapter::BitgetAdapter,
+        bybit::adapter::BybitAdapter, gateio::adapter::GateioAdapter, okx::adapter::OkxAdapter,
+    };
+    for exchange in [
+        ExchangeId::Binance,
+        ExchangeId::Bitget,
+        ExchangeId::Bybit,
+        ExchangeId::Okx,
+        ExchangeId::Gateio,
+    ] {
+        let native = match exchange {
+            ExchangeId::Okx => ["BTC-USDT", "ETH-USDT"],
+            ExchangeId::Gateio => ["BTC_USDT", "ETH_USDT"],
+            _ => ["BTCUSDT", "ETHUSDT"],
+        };
+        let feed = ExchangeFeedBuilder::new(exchange)
+            .subscription(Channel::Trade, ["BTC-USDT", "ETH-USDT"])
+            .subscription(Channel::L2Book, ["BTC-USDT"])
+            .exchange_symbol(native[0])
+            .exchange_symbol(native[1])
+            .build();
+        let plans = feed.connection_feeds().unwrap();
+        assert_eq!(plans.len(), 1);
+        let feed = &plans[0];
+        match exchange {
+            ExchangeId::Binance => {
+                let plans = BinanceAdapter::connection_plans(feed).unwrap();
+                assert_eq!(plans.len(), 1);
+                assert_eq!(
+                    plans[0].streams,
+                    [
+                        "btcusdt@aggTrade",
+                        "btcusdt@depth@100ms",
+                        "ethusdt@aggTrade"
+                    ]
+                );
+                assert_eq!(plans[0].snapshot_urls.len(), 1);
+                assert!(plans[0].snapshot_urls[0].contains("symbol=BTCUSDT"));
+            }
+            ExchangeId::Bitget => {
+                let payload: serde_json::Value =
+                    serde_json::from_str(&BitgetAdapter::subscription_message(feed)).unwrap();
+                assert_eq!(
+                    payload["args"],
+                    serde_json::json!([
+                    {"instType":"spot","topic":"publicTrade","symbol":"BTCUSDT"},
+                    {"instType":"spot","topic":"books","symbol":"BTCUSDT"},
+                    {"instType":"spot","topic":"publicTrade","symbol":"ETHUSDT"}])
+                );
+            }
+            ExchangeId::Bybit => {
+                let payload: serde_json::Value =
+                    serde_json::from_str(&BybitAdapter::subscription_message(feed)).unwrap();
+                assert_eq!(
+                    payload["args"],
+                    serde_json::json!([
+                        "publicTrade.BTCUSDT",
+                        "orderbook.50.BTCUSDT",
+                        "publicTrade.ETHUSDT"
+                    ])
+                );
+            }
+            ExchangeId::Okx => {
+                let payload: serde_json::Value =
+                    serde_json::from_str(&OkxAdapter::subscription_message(feed)).unwrap();
+                assert_eq!(
+                    payload["args"],
+                    serde_json::json!([
+                    {"channel":"trades","instId":"BTC-USDT"}, {"channel":"books","instId":"BTC-USDT"}, {"channel":"trades","instId":"ETH-USDT"}])
+                );
+            }
+            ExchangeId::Gateio => {
+                let plans = GateioAdapter::connection_plans(feed).unwrap();
+                assert_eq!(plans.len(), 1);
+                assert_eq!(plans[0].snapshot_urls.len(), 1);
+                let topics: Vec<_> = plans[0]
+                    .subscription_messages
+                    .iter()
+                    .map(|text| {
+                        let value: serde_json::Value = serde_json::from_str(text).unwrap();
+                        (
+                            value["channel"].as_str().unwrap().to_owned(),
+                            value["payload"].clone(),
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    topics,
+                    vec![
+                        ("spot.trades".into(), serde_json::json!(["BTC_USDT"])),
+                        (
+                            "spot.order_book_update".into(),
+                            serde_json::json!(["BTC_USDT", "100ms"])
+                        ),
+                        ("spot.trades".into(), serde_json::json!(["ETH_USDT"]))
+                    ]
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn sparse_packing_preserves_required_product_and_endpoint_separation() {
+    use cryptofeed_rs::prelude::*;
+    use cryptofeed_rs::{
+        binance::adapter::BinanceAdapter,
+        gateio::adapter::{GateioAdapter, GateioProduct},
+        okx::adapter::OkxAdapter,
+    };
+    let feed = Binance::new()
+        .subscription(Channel::Trade, ["ETH-USDT-PERP"])
+        .subscription(Channel::L2Book, ["BTC-USDT-PERP"])
+        .exchange_symbol("ETHUSDT")
+        .exchange_symbol("BTCUSDT")
+        .build();
+    assert_eq!(feed.connection_feeds().unwrap().len(), 1);
+    let plans = BinanceAdapter::connection_plans(&feed).unwrap();
+    assert_eq!(plans.len(), 2);
+    let public = plans
+        .iter()
+        .find(|plan| plan.websocket_url.contains("/public/"))
+        .unwrap();
+    let market = plans
+        .iter()
+        .find(|plan| plan.websocket_url.contains("/market/"))
+        .unwrap();
+    assert_eq!(public.streams, ["btcusdt@depth@100ms"]);
+    assert_eq!(public.instruments.len(), 1);
+    assert_eq!(public.snapshot_urls.len(), 1);
+    assert_eq!(market.streams, ["ethusdt@aggTrade"]);
+    assert_eq!(market.instruments.len(), 1);
+    assert!(market.snapshot_urls.is_empty());
+    let feed = Gateio::new()
+        .subscription(Channel::Trade, ["BTC-USD-PERP"])
+        .subscription(Channel::L2Book, ["ETH-USDT-PERP"])
+        .exchange_symbol("BTC_USD")
+        .exchange_symbol("ETH_USDT")
+        .build();
+    let plans = GateioAdapter::connection_plans(&feed).unwrap();
+    assert_eq!(plans.len(), 2);
+    let books = plans
+        .iter()
+        .find(|plan| plan.product == GateioProduct::UsdtPerpetual)
+        .unwrap();
+    let trades = plans
+        .iter()
+        .find(|plan| plan.product == GateioProduct::BtcPerpetual)
+        .unwrap();
+    assert_eq!(books.subscription_messages.len(), 1);
+    assert_eq!(books.snapshot_urls.len(), 1);
+    assert_eq!(trades.subscription_messages.len(), 1);
+    assert!(trades.snapshot_urls.is_empty());
+    let book_request: serde_json::Value =
+        serde_json::from_str(&books.subscription_messages[0]).unwrap();
+    assert_eq!(book_request["channel"], "futures.order_book_update");
+    assert_eq!(
+        book_request["payload"],
+        serde_json::json!(["ETH_USDT", "100ms", "100"])
+    );
+    let trade_request: serde_json::Value =
+        serde_json::from_str(&trades.subscription_messages[0]).unwrap();
+    assert_eq!(trade_request["channel"], "futures.trades");
+    assert_eq!(trade_request["payload"], serde_json::json!(["BTC_USD"]));
+    let feed = Okx::new()
+        .subscription(Channel::Trade, ["BTC-USDT"])
+        .subscription(Channel::Candles, ["ETH-USDT"])
+        .build();
+    assert_eq!(OkxAdapter::subscription_urls(&feed).len(), 2);
+    let value: serde_json::Value =
+        serde_json::from_str(&OkxAdapter::subscription_message(&feed)).unwrap();
+    assert_eq!(
+        value["args"],
+        serde_json::json!([{"channel":"trades","instId":"BTC-USDT"},{"channel":"candle1m","instId":"ETH-USDT"}])
+    );
 }

@@ -1,0 +1,37 @@
+{
+  "kind": "synthetic-sdk-allocation",
+  "cases": [
+    {
+      "exchange": "Binance",
+      "heavy_route": "usd-m/public",
+      "light_route": "usd-m/market",
+      "before": 4,
+      "after": 3
+    },
+    {
+      "exchange": "OKX",
+      "heavy_route": "public",
+      "light_route": "business",
+      "before": 4,
+      "after": 3
+    },
+    {
+      "exchange": "Bybit",
+      "heavy_route": "linear",
+      "light_route": "inverse",
+      "before": 4,
+      "after": 3
+    },
+    {
+      "exchange": "Gateio",
+      "heavy_route": "usdt",
+      "light_route": "btc",
+      "before": 4,
+      "after": 3
+    }
+  ],
+  "scope": {
+    "okx_capacity": 3,
+    "accepted": true
+  }
+}
