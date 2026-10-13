@@ -613,11 +613,12 @@ New CEX integrations must use the latest stable official exchange API rather tha
   protocol. The Python project is a semantic migration reference, not the
   protocol source of truth.
 - **Repository**: https://github.com/crypto-2042/cryptofeed-rs.
-- **License**: this workspace currently declares XFree86-1.1 (see `LICENSE`).
-  The maintainer must confirm licensing and ownership before the first formal
-  release. This declaration is not a claim that the current Python
-  upstream has the same license; any reused material needs provenance tied
-  to its exact source revision.
-- **Maturity**: experimental public-market-data release. The API surface and
-  the supported exchange scope are still evolving; `PROGRESS.md` tracks the
-  current implementation state and the remaining release work.
+- **License**: MIT. Commercial use, modification, closed-source integration and
+  redistribution are permitted; retain the copyright and license notice. See
+  [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
+- **Maturity**: a public-market-data 0.1 release candidate. Publication and a
+  sustained-run qualification have not yet completed. Supported behavior and
+  patch-version compatibility commitments are defined in
+  [the compatibility policy](docs/compatibility.md); the
+  [release verification guide](docs/release-validation.md) defines the remaining
+  checks and the sustained-run plan.

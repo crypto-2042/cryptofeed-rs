@@ -140,7 +140,10 @@ jobs:
             files="$(cargo package --list -p "$package")"
             grep -qx LICENSE <<<"$files"
             grep -qx README.md <<<"$files"
+            grep -qx THIRD_PARTY_NOTICES.md <<<"$files"
           done
+      - name: Verify publishable workspace builds
+        run: cargo publish --workspace --dry-run --all-features
 
   security:
     runs-on: ubuntu-latest

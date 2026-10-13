@@ -195,7 +195,9 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Confirmed GitHub repository: https://github.com/crypto-2042/cryptofeed-rs.
   Rust authorship is unset rather than attributed to the Python author;
   GitHub private vulnerability reporting was enabled and verified on
-  2026-10-08. License/provenance remains pending for a formal release;
+  2026-10-08. On 2026-10-13 the maintainer authorized unrestricted commercial
+  use: Rust project licensing is MIT, with the exact Python reference license
+  retained in THIRD_PARTY_NOTICES.md;
   source submission to GitHub was explicitly authorized by the maintainer.
 
 ## Near-Term Priorities
@@ -204,7 +206,9 @@ Project-specific memory for `rust/cryptofeed-rs`.
   fixtures before expanding it.
 - Use `PARITY.md` as the source of truth for verified capabilities.
 - Add deeper deterministic session doubles and remaining checksum coverage.
-- Complete release/license metadata before publishing.
+- Verify actual packaged builds and consumer use before publishing; follow
+  docs/release-validation.md and docs/compatibility.md. Sustained-run acceptance
+  and registry ownership/publication remain separate release gates.
 - Coinbase/Kraken and additional public channel families require a new explicit
   plan before implementation.
 

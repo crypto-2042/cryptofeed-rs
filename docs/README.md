@@ -6,6 +6,15 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Dependency transport validation](reports/dependency-transport-smoke-2026-10-13.md):
   bounded HTTPS/WSS observations and compatibility checks for the HTTP/WS upgrades.
 
+## Release preparation
+
+- [Release-package verification](reports/release-package-verification-2026-10-13.md):
+  eleven real package builds, extracted consumers/tests, security and license evidence.
+
+- [Compatibility policy](compatibility.md): 0.1 API, MSRV, feature and data contracts.
+- [Release verification and sustained-run plan](release-validation.md): packaging,
+  independent consumer checks and measurable live acceptance criteria.
+
 ## Reference and contribution guides
 
 - [Exchange protocol baseline](exchange-protocol-baseline.md): official wire

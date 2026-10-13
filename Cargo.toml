@@ -16,7 +16,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-license = "XFree86-1.1"
+license = "MIT"
 version = "0.1.0"
 repository = "https://github.com/crypto-2042/cryptofeed-rs"
 readme = "README.md"

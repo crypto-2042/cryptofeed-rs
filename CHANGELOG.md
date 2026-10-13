@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Release preparation
+
+- Adopt MIT licensing for the Rust project; retain the exact Python reference
+  notice in root and per-crate third-party notices.
+- Define 0.1 patch compatibility, release verification and sustained-run criteria.
+- Require rustls >= 0.23.45 within the 0.23 series.
+
 ### Added
 
 - Retained `RuntimeControl::state` snapshots with connection epochs, confirmation

@@ -10,6 +10,19 @@ futures products. Product-qualified symbol discovery, capability preflight,
 heartbeats, reconnect, feed isolation, batch delivery, and product-aware L2
 recovery are in place.
 
+## Release preparation (2026-10-13)
+
+- Maintainer authorized unrestricted commercial use; project license is MIT.
+  Root and per-crate licenses/notices retain the Python reference provenance.
+- Defined 0.1 patch compatibility commitments and the sustained-run plan;
+  compiler/toolchain versions and Rust 1.85 MSRV remain unchanged.
+- Actual workspace publish dry-run passed for all 11 crates. Extracted-package
+  tests (837), isolated default/minimal/all-feature consumers, strict runtime
+  Clippy/rustdoc, fresh Rust 1.85 all-target compilation and security audit passed;
+  see docs/reports/release-package-verification-2026-10-13.md. CI now checks real
+  publish dry-run builds. These checks are separate from live qualification.
+- Sustained 24–72 hour acceptance and crates.io ownership/publication are pending.
+
 ## Completed
 
 - 2026-10-08 public-channel completion: Bitget spot/contract L1 and derivative
@@ -95,7 +108,7 @@ recovery are in place.
   accepted. Binance `@openInterest` produced no messages on 2026-08-07
   (three windows, >21 min) while REST returned data; the unverified WebSocket
   capability is now rejected by preflight.
-- Repository license material (`LICENSE`, XFree86-1.1) and README origin,
+- Repository license material (`LICENSE`, MIT; updated 2026-10-13) and README origin,
   license, and maturity sections.
 - Gate.io bootstrap-failure forensics: the resnapshot path logs the failing
   snapshot id and the complete buffered `U/u` sequence at `warn` level so a
