@@ -98,7 +98,7 @@ impl TransportConfig {
         if let Some(header) = &authorization {
             proxy = proxy.custom_http_auth(header.clone());
         }
-        let client = reqwest::Client::builder()
+        let client = http_client_builder()
             .no_proxy()
             .proxy(proxy)
             .build()
@@ -235,7 +235,7 @@ impl TransportConfig {
         static CLIENT: OnceLock<std::result::Result<reqwest::Client, String>> = OnceLock::new();
         CLIENT
             .get_or_init(|| {
-                reqwest::Client::builder()
+                http_client_builder()
                     .no_proxy()
                     .build()
                     .map_err(|error| error.to_string())
@@ -360,6 +360,24 @@ async fn tunnel<S: AsyncRead + AsyncWrite + Unpin>(
             None => return Err(Error::Transport("invalid HTTP proxy CONNECT status".into())),
         }
     }
+}
+
+// Keep the existing static WebPKI roots and ring provider without changing the
+// embedding application's global crypto provider. SDK admission owns retries.
+fn http_client_builder() -> reqwest::ClientBuilder {
+    let roots = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("ring supports default TLS versions")
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    reqwest::Client::builder()
+        .tls_backend_preconfigured(tls)
+        .retry(reqwest::retry::never())
 }
 
 #[cfg(test)]
