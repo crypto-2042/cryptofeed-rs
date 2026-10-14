@@ -15,6 +15,11 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Release verification and sustained-run plan](release-validation.md): packaging,
   independent consumer checks and measurable live acceptance criteria.
 
+- [Issue #3 remediation evidence](reports/issue-3-event-stream-2026-10-14.md):
+  retained Linux failure, bounded-stream changes and deterministic regression scope.
+- [Event delivery and receiver diagnostics](event-streams.md): shared retention,
+  explicit lag, configurable event rings, backlog and final drain accounting.
+
 ## Reference and contribution guides
 
 - [Exchange protocol baseline](exchange-protocol-baseline.md): official wire

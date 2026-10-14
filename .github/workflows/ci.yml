@@ -76,6 +76,10 @@ jobs:
           cargo test -p cryptofeed-orderbook l2_cross_check
           cargo test -p cryptofeed-rs --lib l2_cross_check --no-default-features --features orderbook
           cargo test -p cryptofeed-rs --lib l2_cross_check --no-default-features --features recording,orderbook
+      - name: Check event receiver diagnostics independently
+        run: |
+          cargo test -p cryptofeed-rs --lib feed::subscription --no-default-features --features trade
+          cargo test -p cryptofeed-rs --lib feed::subscription --no-default-features --features recording,trade
       - name: Check delivered book depth independently
         run: |
           cargo test -p cryptofeed-orderbook l2_delivery_depth

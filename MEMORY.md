@@ -1011,3 +1011,16 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   alignment is accepted; optional ecosystem and explicitly deferred scopes remain
   as recorded in the public requirement audit. Do not infer new missing core
   requirements from older dated milestone pending lists.
+
+## Linux acceptance / event delivery (2026-10-14)
+
+- Issue #3: bounded identified stream lagged 1403 envelopes on SDK 3851298;
+  parser loss, channel attribution and the precise host trigger are not established.
+- Event broadcast retention is shared across feeds, default 1024, configurable
+  with FeedHandler::with_event_capacity; status/recovery capacities remain fixed.
+  Opt-in identified diagnostics count actual receive/lag and sampled cursor backlog.
+- Never silently increase a frozen ring budget or weaken zero-lag acceptance.
+  Avoid JSON/report construction under harness shared stats locks. Quiesce SDK
+  publishers, drain receivers and retain final counters independently of sampling.
+- Historical FAIL and NOT RUN stay unchanged; issue closure requires Linux root
+  evidence and a complete new frozen 72-hour suite, not local deterministic tests.

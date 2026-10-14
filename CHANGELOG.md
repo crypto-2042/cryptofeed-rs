@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Event delivery
+
+- Configurable event broadcast retention without changing the 1024 default or
+  existing receiver APIs; opt-in identified receiver delivery/lag/backlog diagnostics.
+- Recovery-ring backlog diagnostics and explicit overflow/final-drain guidance
+  following Linux acceptance issue #3. Full 72-hour acceptance remains pending.
+
 ### Release preparation
 
 - Adopt MIT licensing for the Rust project; retain the exact Python reference

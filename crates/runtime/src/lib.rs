@@ -44,7 +44,9 @@ pub mod transport;
 
 pub use catalog::MarketCatalog;
 pub use exchange::*;
-pub use feed::{EventCounters, FeedHandler, FeedStatus};
+pub use feed::{
+    EventCounters, FeedHandler, FeedStatus, IdentifiedSubscription, SubscriptionDiagnostics,
+};
 
 pub use crate::feed::control::{
     ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot, FeedState,

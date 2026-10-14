@@ -1,4 +1,5 @@
 pub mod control;
+mod subscription;
 use crate::exchange::ExchangeFeed;
 pub use control::{
     ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot, FeedState,
@@ -25,6 +26,7 @@ use cryptofeed_ticker::Ticker;
 use cryptofeed_trade::Trade;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+pub use subscription::{IdentifiedSubscription, SubscriptionDiagnostics};
 use tokio::sync::broadcast;
 
 /// A normalized event delivered through the `FeedHandler` event stream.
@@ -220,6 +222,7 @@ impl EventCounters {
 }
 
 pub struct FeedHandler {
+    event_capacity: usize,
     #[cfg(feature = "orderbook")]
     book_store: Option<Arc<crate::books::BookStore>>,
     feeds: Vec<ExchangeFeed>,
@@ -240,6 +243,7 @@ impl Default for FeedHandler {
 impl FeedHandler {
     pub fn new() -> Self {
         Self {
+            event_capacity: 1024,
             #[cfg(feature = "orderbook")]
             book_store: None,
             feeds: Vec::new(),
@@ -252,13 +256,30 @@ impl FeedHandler {
         }
     }
 
+    /// Sets the requested retention of each normalized/identified broadcast ring.
+    /// Tokio rounds up to a power of two. This is shared retention, not a private
+    /// queue per subscriber or a lossless/backpressured delivery guarantee.
+    /// Status (64) and L2 recovery (1024) rings are unchanged.
+    pub fn with_event_capacity(capacity: usize) -> cryptofeed_core::error::Result<Self> {
+        if capacity == 0 || capacity > usize::MAX / 2 {
+            return Err(cryptofeed_core::error::Error::InvalidConfiguration(
+                "event capacity must be positive and at most usize::MAX / 2".into(),
+            ));
+        }
+        Ok(Self {
+            event_capacity: capacity,
+            ..Self::new()
+        })
+    }
+
     /// Subscribes to the normalized event stream, including feeds already
-    /// registered. Returns a bounded broadcast receiver (capacity 1024 per subscriber). Calling `subscribe` again
+    /// registered. Returns a bounded broadcast receiver (shared retention 1024
+    /// by default; see `with_event_capacity`). Calling `subscribe` again
     /// returns an additional receiver on the same stream — the first
     /// receiver keeps working and feeds added in between are not orphaned.
     pub fn subscribe(&mut self) -> broadcast::Receiver<FeedEvent> {
         if self.event_sender.is_none() {
-            let (sender, _) = broadcast::channel(1024);
+            let (sender, _) = broadcast::channel(self.event_capacity);
             for feed in &mut self.feeds {
                 feed.event_sender = Some(sender.clone());
             }
@@ -329,13 +350,22 @@ impl FeedHandler {
 
     /// Tagged broadcast stream with the same bounded/lossy delivery as subscribe.
     pub fn subscribe_identified(&mut self) -> broadcast::Receiver<FeedEnvelope> {
+        let capacity = self.event_capacity;
         let sender = self
             .envelope_sender
-            .get_or_insert_with(|| broadcast::channel(1024).0);
+            .get_or_insert_with(|| broadcast::channel(capacity).0);
         for feed in &mut self.feeds {
             feed.envelope_sender = Some(sender.clone());
         }
         sender.subscribe()
+    }
+
+    /// Identified broadcast with receiver-local delivered/lagged counts and
+    /// sampled backlog. No additional subscription, forwarding task or queue.
+    /// Errors are returned unchanged; callers must handle every Lagged result.
+    pub fn subscribe_identified_with_diagnostics(&mut self) -> IdentifiedSubscription {
+        let capacity = self.event_capacity.next_power_of_two();
+        IdentifiedSubscription::new(self.subscribe_identified(), capacity)
     }
 
     fn control_context(&self) -> control::ControlContext {

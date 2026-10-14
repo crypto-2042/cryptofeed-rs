@@ -1,6 +1,18 @@
 # Progress
 
-Last updated: 2026-10-13
+Last updated: 2026-10-14
+
+## Linux acceptance issue #3 (2026-10-14)
+
+- Baseline on SDK 3851298 failed after about 5.16 hours with 1403 subscriber-lost
+  envelopes; the 72-hour suite stopped. Four later stages remain NOT RUN.
+- Broadcast contracts remain bounded/lossy. Added explicit event capacity and
+  opt-in identified receiver diagnostics; defaults and overflow semantics unchanged.
+- Harness metrics now release shared stats locks before formatting; optional
+  minimal counter, lock/backlog diagnostics and final drain/accounting added.
+- Deterministic regressions cover overflow, isolation and retained loss evidence;
+  actual Linux root-cause attribution and complete 72-hour requalification remain
+  pending. This work does not close issue #3 or overwrite its historical failures.
 
 ## Current State
 

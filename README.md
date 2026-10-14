@@ -602,6 +602,15 @@ New CEX integrations must use the latest stable official exchange API rather tha
 - When adding or updating an exchange adapter, verify the current official REST and WebSocket documentation before implementing.
 - If an older API version already exists in the Python codebase, treat it as migration reference only, not as the Rust source of truth.
 
+## Event delivery and overload
+
+Event broadcasts retain 1024 messages across all feeds by default and may lose
+old messages when a subscriber falls behind. `FeedHandler::with_event_capacity`
+configures retention; `subscribe_identified_with_diagnostics` adds receiver-local
+counts and sampled backlog without changing legacy subscriptions. Capacity is
+not a throughput or lossless guarantee. See [delivery and recovery](docs/event-streams.md)
+for executor/lock isolation, overflow handling and final drain semantics.
+
 ## Origin, License, and Maturity
 
 - **Origin**: `cryptofeed-rs` is a ground-up Rust workspace modeled on the

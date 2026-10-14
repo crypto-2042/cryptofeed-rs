@@ -46,6 +46,13 @@ pub struct BookUpdates {
     symbol: Symbol,
 }
 impl BookUpdates {
+    /// Unconsumed positions in the shared recovery ring, including unrelated
+    /// feeds and overwritten entries. This is diagnostic backlog, not the
+    /// number of available updates for this identity/symbol.
+    pub fn pending(&self) -> usize {
+        self.receiver.len()
+    }
+
     pub async fn recv(&mut self) -> Result<BookUpdate, broadcast::error::RecvError> {
         loop {
             let update = self.receiver.recv().await?;

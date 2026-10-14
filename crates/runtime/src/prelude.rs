@@ -3,7 +3,10 @@ pub use crate::exchange::{
     ExchangeFeed, ExchangeFeedBuilder, binance::Binance, bitget::Bitget, bybit::Bybit,
     coinbase::Coinbase, gateio::Gateio, kraken::Kraken, okx::Okx,
 };
-pub use crate::feed::{EventCounters, FeedEvent, FeedHandler, FeedStatus};
+pub use crate::feed::{
+    EventCounters, FeedEvent, FeedHandler, FeedStatus, IdentifiedSubscription,
+    SubscriptionDiagnostics,
+};
 pub use cryptofeed_core::{
     exchange::{Channel, ExchangeId},
     symbol::{InstrumentKind, Symbol},
