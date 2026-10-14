@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Gateio L2 recovery
+
+- Accept valid order_book_update overlapping sequence coverage; reject unanchored
+  snapshots/deltas and prevent partial bootstrap commits or stale quantity rollback.
+- Bound successful-bootstrap/gap loops across a physical session; poll pending
+  HTTP work safely without waiting for another market message. Preserve replay
+  clock isolation and expose epoch-qualified per-book recovery evidence.
+- Document issue #4 failure and synthetic/native regression scope; Linux 72-hour
+  qualification remains incomplete.
+
 ### Event delivery
 
 - Configurable event broadcast retention without changing the 1024 default or

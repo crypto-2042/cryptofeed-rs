@@ -103,3 +103,13 @@ initialization/resync, reconnect/stale epochs, concurrent stop publication,
 connection-local cache reset, status lag recovery, initial-failure repair and a
 full Bybit WebSocket double that confirms before synchronizing its book.
 See the [dated manual observations](reports/live-smoke-readiness-2026-10-10.md).
+
+## Gateio per-symbol recovery diagnostics (2026-10-15)
+
+`FeedSnapshot.book_sync` adds epoch-qualified recovery evidence for Gateio L2:
+first continuous unsynchronized time, scheduled snapshot counts, REST IDs/clocks,
+last U/u and actual gap context, plus static failure codes. Reconnects preserve
+continuous unsynced time and generation totals; stale epoch updates are ignored.
+The latest error is historical within that epoch and may remain after recovery.
+Other exchanges currently return an empty vector. This evidence does not alter
+Ready semantics. See [recovery rules and budgets](gateio-book-recovery.md).

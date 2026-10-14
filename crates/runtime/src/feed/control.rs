@@ -42,6 +42,54 @@ pub struct FeedInfo {
     pub exchange: ExchangeId,
 }
 
+/// Bounded per-symbol Gateio L2 evidence for the current connection epoch.
+/// Errors/gap IDs retain the latest failure even after a later recovery.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct BookSyncDiagnostic {
+    pub symbol: String,
+    pub connection: u64,
+    pub epoch: u64,
+    pub synchronized: bool,
+    pub unsynchronized_since: Option<std::time::SystemTime>,
+    pub snapshot_requests: u32,
+    /// Cumulative within this configuration generation, across reconnects.
+    pub total_snapshot_requests: u64,
+    pub last_reason: String,
+    pub last_error: Option<String>,
+    pub last_snapshot_id: Option<u64>,
+    pub last_snapshot_generated_at: Option<std::time::SystemTime>,
+    pub last_snapshot_updated_at: Option<std::time::SystemTime>,
+    pub last_delta_first: Option<u64>,
+    pub last_delta_last: Option<u64>,
+    pub last_gap_anchor: Option<u64>,
+    pub last_gap_first: Option<u64>,
+    pub last_gap_last: Option<u64>,
+}
+impl BookSyncDiagnostic {
+    pub(crate) fn new(symbol: String, connection: u64, epoch: u64) -> Self {
+        Self {
+            symbol,
+            connection,
+            epoch,
+            synchronized: false,
+            unsynchronized_since: Some(std::time::SystemTime::now()),
+            snapshot_requests: 0,
+            total_snapshot_requests: 0,
+            last_reason: "initializing".into(),
+            last_error: None,
+            last_snapshot_id: None,
+            last_snapshot_generated_at: None,
+            last_snapshot_updated_at: None,
+            last_delta_first: None,
+            last_delta_last: None,
+            last_gap_anchor: None,
+            last_gap_first: None,
+            last_gap_last: None,
+        }
+    }
+}
+
 /// Authoritative current-generation lifecycle and connection evidence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -53,6 +101,8 @@ pub struct FeedSnapshot {
     pub connections: Vec<ConnectionInfo>,
     pub books_expected: usize,
     pub books_synchronized: usize,
+    /// Gateio per-book recovery evidence; other exchanges currently return empty.
+    pub book_sync: Vec<BookSyncDiagnostic>,
     pub observed_pairs: usize,
     pub observed_events: u64,
     pub last_event_at: Option<std::time::SystemTime>,

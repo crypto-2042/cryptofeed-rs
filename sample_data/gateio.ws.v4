@@ -37,3 +37,7 @@ send: {"time":1791580000,"channel":"futures.trades","event":"subscribe","payload
 send: {"time":1791580000,"channel":"futures.order_book_update","event":"subscribe","payload":["ETH_USDT","100ms","100"]}
 
 2.000000: {"channel":"spot.trades","event":"update","result":{"id":1,"currency_pair":"BTC_USDT","side":"buy","price":"100.01","amount":"0.25","create_time_ms":"1000"}}
+
+# Synthetic issue #4 regression, official order_book_update range schema; not failed-run capture.
+wss://fx-ws.gateio.ws/v4/ws/usdt -> 2.200000: {"channel":"futures.order_book_update","event":"update","result":{"s":"BTC_USDT","t":1000,"U":100,"u":102,"b":[{"p":"100","s":"3"}],"a":[]}}
+wss://fx-ws.gateio.ws/v4/ws/usdt -> 3.000000: {"channel":"futures.order_book_update","event":"update","result":{"s":"BTC_USDT","t":1000,"U":104,"u":105,"b":[{"p":"100","s":"3"}],"a":[]}}

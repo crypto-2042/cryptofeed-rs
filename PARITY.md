@@ -1,6 +1,6 @@
 # Python Baseline vs Rust Parity Checklist
 
-Last updated: 2026-10-10
+Last updated: 2026-10-15
 
 ## Goal
 
@@ -8,6 +8,15 @@ Last updated: 2026-10-10
 `cryptofeed` while using the current official protocols for Binance, Bitget,
 Bybit, OKX, and Gate.io. Python remains a semantic migration reference; official
 exchange documentation and sourced fixtures define protocol correctness.
+
+## Linux release qualification boundary (2026-10-15)
+
+Issue #4 reports zero identified lag but Gateio perpetual L2 recovery failure on
+f6d0f6b after 10.30 hours; the full 72-hour suite remains incomplete. Current
+synthetic/native regression gates cover corrected v1 range bridges, fail-closed
+missing IDs, bounded recovery and per-book diagnostics. Exchange/channel support
+below is unchanged; a checked implementation gate is not sustained-run acceptance.
+See [Gateio remediation evidence](docs/reports/issue-4-gateio-recovery-2026-10-15.md).
 
 ## Verified Baseline
 

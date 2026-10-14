@@ -32,7 +32,7 @@ pub(crate) struct RawParserSession {
     #[cfg(feature = "orderbook")]
     binance_resnapshots: std::collections::HashMap<String, u32>,
     #[cfg(feature = "orderbook")]
-    gateio_resnapshots: std::collections::HashMap<String, u32>,
+    gateio_resnapshots: std::collections::HashMap<String, super::GateioResnapshotBudget>,
     bybit_tickers: std::collections::HashMap<String, serde_json::Map<String, Value>>,
 }
 impl RawParserSession {
@@ -235,6 +235,7 @@ impl RawParserSession {
                     received_ts,
                     &mut self.gateio_receivers,
                     &mut self.gateio_pending,
+                    &mut self.gateio_resnapshots,
                 )
                 .await?;
                 #[cfg(not(feature = "orderbook"))]

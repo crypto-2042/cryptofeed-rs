@@ -479,3 +479,22 @@ assert these transitions and an independent consumer-state oracle. Python siblin
 remains independent. Bybit snapshot/delta/delete fields follow its current
 [official orderbook contract](https://bybit-exchange.github.io/docs/v5/websocket/public/orderbook).
 No observed exchange behavior or native parser expectation was changed.
+
+## 2026-10-15 Gateio sequence regression (issue #4)
+
+The appended Gateio HTTP/WS records are explicitly **synthetic regressions**, not
+recordings of the failed Linux stream. Inline assertion:
+`gateio_perpetual_sequence_bridge_uses_ids_not_timestamp_guesses`.
+Current official [Spot order_book_update](https://www.gate.com/docs/developers/apiv4/ws/en/)
+and [Futures order_book_update](https://www.gate.com/docs/developers/futures/ws/)
+require an ID bridge and treat U > current+1 as missing updates. The
+[Futures REST with_id contract](https://www.gate.com/docs/developers/apiv4/en/futures/)
+provides the sequence ID. Missing ID is an intentional negative response;
+timestamps do not establish a sequence anchor. V2/obu strict sequencing is not
+copied onto order_book_update.
+
+The positive Gateio HTTP causal replay/independent-merge fixtures now include
+`id:100`, as required by with_id, while retaining their exact three-event output
+assertions. A separate negative raw-replay regression proves an idless snapshot
+publishes nothing and a subsequent valid-ID snapshot recovers. No failed-run
+payload or expected numerical value was rewritten to conceal a failure.

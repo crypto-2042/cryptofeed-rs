@@ -51,72 +51,27 @@ impl GateioBookSync {
     /// deltas) so callers can dispatch handler events that reflect the
     /// buffered updates.
     ///
-    /// The current REST `order_book` response no longer carries a book `id`
-    /// (measured 2026-08-06), so the snapshot sequence is anchored through
-    /// the buffered deltas: the snapshot must be fresh enough to cover the
-    /// state before the first buffered delta (`update_ts >= first.ts`), and
-    /// the first delta is anchored at `first_update_id - 1`. The legacy
-    /// `id`-carrying response keeps the stricter id bridge check.
+    /// A REST snapshot must carry its sequence id (`with_id=true`). Neither
+    /// timestamps nor the first buffered range prove the snapshot's anchor.
+    /// Failed bootstrap does not publish or partially mutate the current book.
     pub fn bootstrap(
         &mut self,
         snapshot: GateioBookSnapshot,
         buffered: Vec<GateioDepthDelta>,
     ) -> Result<Vec<L2Book>> {
+        let snapshot_id = snapshot.last_update_id.ok_or_else(|| {
+            Error::Parse("gateio snapshot missing sequence id; cannot prove bootstrap".into())
+        })?;
+        let mut next = Self::new(snapshot.book.symbol.clone());
+        next.reset_with_snapshot(snapshot.book.clone(), snapshot_id);
         let mut events = Vec::with_capacity(buffered.len() + 1);
-        let mut buffered = buffered.into_iter();
-        let first = buffered.next();
-
-        match (snapshot.last_update_id, first) {
-            (Some(snapshot_id), Some(first)) => {
-                self.state.apply(L2Book::Snapshot(snapshot.book.clone()));
-                self.last_update_id = Some(snapshot_id);
-                events.push(L2Book::Snapshot(snapshot.book.clone()));
-                let book = self.apply_delta(first)?;
-                if let Some(book) = book {
-                    events.push(book);
-                }
-                // Buffered replay tolerates deltas whose range straddles the
-                // current anchor (a later fetch may already have covered the
-                // earliest buffered range), so `apply_delta` (range-inclusive
-                // bridge) applies here; the strict `apply_next_delta` stays
-                // for the live stream only.
-                for delta in buffered {
-                    if let Some(book) = self.apply_delta(delta)? {
-                        events.push(book);
-                    }
-                }
-            }
-            (None, Some(first)) => {
-                if snapshot.update_ts < first.ts {
-                    return Err(Error::Parse(
-                        "gateio snapshot predates the buffered deltas".to_owned(),
-                    ));
-                }
-                self.state.apply(L2Book::Snapshot(snapshot.book.clone()));
-                self.last_update_id = Some(first.first_update_id - 1);
-                events.push(L2Book::Snapshot(snapshot.book.clone()));
-                let book = self.apply_delta(first)?;
-                if let Some(book) = book {
-                    events.push(book);
-                }
-                for delta in buffered {
-                    if let Some(book) = self.apply_delta(delta)? {
-                        events.push(book);
-                    }
-                }
-            }
-            (Some(snapshot_id), None) => {
-                self.state.apply(L2Book::Snapshot(snapshot.book.clone()));
-                self.last_update_id = Some(snapshot_id);
-                events.push(L2Book::Snapshot(snapshot.book));
-            }
-            (None, None) => {
-                self.state.apply(L2Book::Snapshot(snapshot.book.clone()));
-                self.last_update_id = None;
-                events.push(L2Book::Snapshot(snapshot.book));
+        events.push(L2Book::Snapshot(snapshot.book));
+        for delta in buffered {
+            if let Some(book) = next.apply_delta(delta)? {
+                events.push(book);
             }
         }
-
+        *self = next;
         Ok(events)
     }
 
@@ -135,52 +90,32 @@ impl GateioBookSync {
     }
 
     pub fn apply_delta(&mut self, delta: GateioDepthDelta) -> Result<Option<L2Book>> {
-        match self.last_update_id {
-            None => {
-                // No snapshot anchor (no REST id and no buffered deltas when
-                // the snapshot arrived): the first delta is accepted and
-                // anchors the sequence.
-                self.last_update_id = Some(delta.last_update_id);
-                let book = L2Book::Delta(delta.book);
-                self.state.apply(book.clone());
-                Ok(Some(book))
-            }
-            Some(current) => {
-                if delta.last_update_id <= current {
-                    return Ok(None);
-                }
-
-                let expected_next = current + 1;
-                if delta.first_update_id <= expected_next && delta.last_update_id >= expected_next {
-                    self.last_update_id = Some(delta.last_update_id);
-                    let book = L2Book::Delta(delta.book);
-                    self.state.apply(book.clone());
-                    return Ok(Some(book));
-                }
-
-                Err(Error::Parse(
-                    "gateio initial delta does not bridge snapshot".to_owned(),
-                ))
-            }
-        }
+        self.apply_sequence_delta(delta, "gateio initial delta does not bridge snapshot")
     }
 
     pub fn apply_next_delta(&mut self, delta: GateioDepthDelta) -> Result<Option<L2Book>> {
-        let Some(current) = self.last_update_id else {
-            self.last_update_id = Some(delta.last_update_id);
-            let book = L2Book::Delta(delta.book);
-            self.state.apply(book.clone());
-            return Ok(Some(book));
-        };
+        self.apply_sequence_delta(delta, "gateio book sequence gap detected")
+    }
 
+    fn apply_sequence_delta(
+        &mut self,
+        delta: GateioDepthDelta,
+        gap: &str,
+    ) -> Result<Option<L2Book>> {
+        if delta.first_update_id > delta.last_update_id {
+            return Err(Error::Parse("gateio invalid update sequence range".into()));
+        }
+        let current = self
+            .last_update_id
+            .ok_or_else(|| Error::Parse("gateio book has no sequence anchor".into()))?;
         if delta.last_update_id <= current {
             return Ok(None);
         }
-
-        if delta.first_update_id != current + 1 {
-            return Err(Error::Parse("gateio book sequence gap detected".to_owned()));
+        // order_book_update (not obu/V2): overlap is valid when it covers
+        // the next id. Absolute quantities replace levels; true gaps fail.
+        if delta.first_update_id > current + 1 {
+            return Err(Error::Parse(gap.into()));
         }
-
         self.last_update_id = Some(delta.last_update_id);
         let book = L2Book::Delta(delta.book);
         self.state.apply(book.clone());
@@ -283,40 +218,95 @@ mod tests {
     }
 
     #[test]
-    fn bootstraps_without_rest_id_via_timestamp_anchor() {
-        // Current REST `order_book` responses carry no `id` (measured
-        // 2026-08-06): the snapshot is anchored at the first buffered
-        // delta's `first_update_id - 1` when the snapshot is fresh enough.
-        let mut sync = GateioBookSync::new(Symbol::spot("btc", "usdt"));
-        let events = sync
-            .bootstrap(
-                gateio_snapshot(None, 1.0),
-                vec![delta(102, 103, 1.0, vec![level("64999.10", "0")], vec![])],
-            )
-            .expect("timestamp-anchored bootstrap");
-
-        assert_eq!(events.len(), 2);
-        assert_eq!(sync.last_update_id(), Some(103));
-        assert_eq!(sync.state().bids().len(), 0);
+    fn idless_snapshots_never_replay_old_quantities_or_guess_an_anchor() {
+        for ts in [0.5, 1.0, 2.0] {
+            let mut sync = GateioBookSync::new(Symbol::spot("btc", "usdt"));
+            let mut newer = gateio_snapshot(None, ts);
+            newer.book.bids[0].amount = Decimal::from(2);
+            let result = sync.bootstrap(
+                newer,
+                vec![delta(100, 101, 1.0, vec![level("64999.10", "1")], vec![])],
+            );
+            assert!(
+                matches!(result,Err(Error::Parse(message)) if message.contains("missing sequence id"))
+            );
+            assert_eq!(sync.last_update_id(), None);
+            assert!(sync.state().bids().is_empty());
+        }
     }
 
     #[test]
-    fn timestamp_anchor_rejects_stale_snapshot() {
+    fn unanchored_deltas_and_idless_empty_bootstrap_are_rejected() {
         let mut sync = GateioBookSync::new(Symbol::spot("btc", "usdt"));
-        // The snapshot (update_ts 1.0) predates the buffered delta (ts 2.0):
-        // updates between them would be lost, so the bootstrap must fail and
-        // trigger a resnapshot.
-        let err = sync
-            .bootstrap(
-                gateio_snapshot(None, 1.0),
-                vec![delta(102, 103, 2.0, vec![level("64999.10", "0")], vec![])],
-            )
-            .expect_err("stale snapshot should fail");
+        assert!(sync.bootstrap(gateio_snapshot(None, 2.0), vec![]).is_err());
+        assert!(
+            sync.apply_delta(delta(100, 101, 1.0, vec![], vec![]))
+                .is_err()
+        );
+        assert!(
+            sync.apply_next_delta(delta(100, 101, 1.0, vec![], vec![]))
+                .is_err()
+        );
+        assert_eq!(sync.last_update_id(), None);
+    }
 
-        match err {
-            Error::Parse(message) => assert!(message.contains("predates")),
-            _ => panic!("unexpected error variant"),
+    #[test]
+    fn live_range_overlap_stale_adjacent_and_true_gap() {
+        for (first, last, applied) in [
+            (100, 102, Some(true)),
+            (90, 100, Some(false)),
+            (101, 102, Some(true)),
+            (102, 103, None),
+        ] {
+            let mut sync = GateioBookSync::new(Symbol::spot("btc", "usdt"));
+            sync.bootstrap(gateio_snapshot(Some(100), 1.0), vec![])
+                .unwrap();
+            let result = sync.apply_next_delta(delta(
+                first,
+                last,
+                2.0,
+                vec![level("64999.10", "2")],
+                vec![],
+            ));
+            match applied {
+                Some(expected) => assert_eq!(result.unwrap().is_some(), expected),
+                None => assert!(result.is_err()),
+            }
+            assert_eq!(
+                sync.last_update_id(),
+                Some(if applied == Some(true) { last } else { 100 })
+            );
+            assert_eq!(
+                sync.state().bids()[0].amount,
+                if applied == Some(true) {
+                    Decimal::from(2)
+                } else {
+                    Decimal::from_str_exact("1.25").unwrap()
+                }
+            );
         }
+    }
+
+    #[test]
+    fn bootstrap_failure_does_not_commit_a_partial_book() {
+        let mut sync = GateioBookSync::new(Symbol::spot("btc", "usdt"));
+        sync.bootstrap(gateio_snapshot(Some(100), 1.0), vec![])
+            .unwrap();
+        assert!(
+            sync.bootstrap(
+                gateio_snapshot(Some(200), 2.0),
+                vec![
+                    delta(201, 202, 2.0, vec![level("64999.10", "2")], vec![]),
+                    delta(204, 205, 2.0, vec![], vec![])
+                ]
+            )
+            .is_err()
+        );
+        assert_eq!(sync.last_update_id(), Some(100));
+        assert_eq!(
+            sync.state().bids()[0].amount,
+            Decimal::from_str_exact("1.25").unwrap()
+        );
     }
 
     #[test]

@@ -225,6 +225,21 @@ impl ExchangeFeed {
         }
     }
 
+    #[cfg(feature = "orderbook")]
+    pub(crate) fn record_book_sync(
+        &self,
+        symbol: &str,
+        update: impl FnOnce(&mut crate::feed::control::BookSyncDiagnostic),
+    ) {
+        if let (Some(monitor), Some(tracker), Some(epoch)) = (
+            &self.monitor,
+            &self.connection_tracker,
+            self.connection_epoch,
+        ) {
+            monitor.record_book_sync(tracker.id, epoch, symbol, update);
+        }
+    }
+
     pub(crate) fn book_synchronized(&self, symbol: &str) {
         if let (Some(monitor), Some(tracker), Some(epoch)) = (
             &self.monitor,

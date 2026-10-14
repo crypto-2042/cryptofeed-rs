@@ -48,7 +48,7 @@ async fn consumed_http_snapshot_and_ws_processing_barrier_match_native_outputs()
         let payload = if exchange == ExchangeId::Binance {
             json!({"lastUpdateId":100,"bids":[["100","2"]],"asks":[["101","1"]]})
         } else {
-            json!({"current":1710000002000u64,"update":1710000002000u64,"bids":[["100","2"]],"asks":[["101","1"]]})
+            json!({"id":100,"current":1710000002000u64,"update":1710000002000u64,"bids":[["100","2"]],"asks":[["101","1"]]})
         };
         let first_text = serde_json::to_string(&first).unwrap();
         let second_text = serde_json::to_string(&second).unwrap();
@@ -126,6 +126,7 @@ async fn consumed_http_snapshot_and_ws_processing_barrier_match_native_outputs()
                 1710000002.2,
                 &mut receivers,
                 &mut pending,
+                &mut Default::default(),
             )
             .await
             .unwrap();
@@ -163,6 +164,7 @@ async fn consumed_http_snapshot_and_ws_processing_barrier_match_native_outputs()
                 1710000003.0,
                 &mut receivers,
                 &mut pending,
+                &mut Default::default(),
             )
             .await
             .unwrap();

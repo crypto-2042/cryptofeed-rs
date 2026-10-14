@@ -1,3 +1,4 @@
+use crate::feed::control::BookSyncDiagnostic;
 use crate::feed::{ConnectionInfo, FeedIdentity, FeedSnapshot, FeedState, FeedStatus};
 use cryptofeed_core::{
     error::{Error, Result},
@@ -30,6 +31,7 @@ struct State {
     observed: HashMap<Channel, HashSet<Symbol>>,
     events: u64,
     last_event: Option<std::time::SystemTime>,
+    book_sync: HashMap<String, BookSyncDiagnostic>,
 }
 
 pub(crate) struct FeedMonitor {
@@ -62,6 +64,7 @@ impl FeedMonitor {
                 observed: HashMap::new(),
                 events: 0,
                 last_event: None,
+                book_sync: HashMap::new(),
             }),
         }
     }
@@ -195,6 +198,7 @@ impl FeedMonitor {
                 .collect(),
             books_expected: state.books.len(),
             books_synchronized: state.synced.len(),
+            book_sync: state.book_sync.values().cloned().collect(),
             observed_pairs: state.observed.values().map(HashSet::len).sum(),
             observed_events: state.events,
             last_event_at: state.last_event,
@@ -229,6 +233,27 @@ impl FeedMonitor {
             id,
         }
     }
+    #[cfg(feature = "orderbook")]
+    pub fn record_book_sync(
+        &self,
+        id: u64,
+        epoch: u64,
+        symbol: &str,
+        update: impl FnOnce(&mut BookSyncDiagnostic),
+    ) {
+        let mut state = self.state.lock().expect("feed monitor lock");
+        if state
+            .connections
+            .get(&id)
+            .is_some_and(|r| r.info.epoch == epoch && r.books.contains(symbol))
+        {
+            let entry = state
+                .book_sync
+                .entry(symbol.to_owned())
+                .or_insert_with(|| BookSyncDiagnostic::new(symbol.to_owned(), id, epoch));
+            update(entry);
+        }
+    }
     pub fn book_synced(&self, id: u64, epoch: u64, symbol: &str) {
         self.update(|state| {
             if state.connections.get(&id).is_some_and(|record| {
@@ -236,6 +261,10 @@ impl FeedMonitor {
             }) && state.books.contains(symbol)
             {
                 state.synced.insert(symbol.to_owned(), (id, epoch));
+                if let Some(diagnostic) = state.book_sync.get_mut(symbol) {
+                    diagnostic.synchronized = true;
+                    diagnostic.unsynchronized_since = None;
+                }
             }
         });
     }
@@ -247,6 +276,16 @@ impl FeedMonitor {
             }
             if state.synced.get(symbol) == Some(&(id, epoch)) {
                 state.synced.remove(symbol);
+            }
+            if let Some(diagnostic) = state
+                .book_sync
+                .get_mut(symbol)
+                .filter(|d| d.connection == id && d.epoch == epoch)
+            {
+                diagnostic.synchronized = false;
+                diagnostic
+                    .unsynchronized_since
+                    .get_or_insert_with(std::time::SystemTime::now);
             }
         });
     }
@@ -293,6 +332,19 @@ impl ConnectionTracker {
             #[cfg(feature = "orderbook")]
             if let Some(books) = &self.monitor.books {
                 books.begin(self.monitor.identity, self.id, epoch, &record.books);
+            }
+            for symbol in &record.books {
+                if self.monitor.exchange == ExchangeId::Gateio {
+                    let previous = state.book_sync.get(symbol);
+                    let mut diagnostic = BookSyncDiagnostic::new(symbol.clone(), self.id, epoch);
+                    if let Some(previous) = previous {
+                        diagnostic.total_snapshot_requests = previous.total_snapshot_requests;
+                        diagnostic.unsynchronized_since = previous
+                            .unsynchronized_since
+                            .or(diagnostic.unsynchronized_since);
+                    }
+                    state.book_sync.insert(symbol.clone(), diagnostic);
+                }
             }
             state.synced.retain(|_, owner| owner.0 != self.id);
         });
@@ -579,6 +631,17 @@ impl ConnectionAttempt {
             }
             if error.is_some() {
                 record.info.last_error = error;
+            }
+            for diagnostic in state
+                .book_sync
+                .values_mut()
+                .filter(|d| d.connection == self.tracker.id && d.epoch == self.epoch)
+            {
+                diagnostic.synchronized = false;
+                diagnostic
+                    .unsynchronized_since
+                    .get_or_insert_with(std::time::SystemTime::now);
+                diagnostic.last_reason = "disconnected".into();
             }
             state.synced.retain(|_, owner| owner.0 != self.tracker.id);
         });
@@ -930,5 +993,47 @@ mod tests {
             assert_eq!(monitor.snapshot().connections[0].subscriptions_confirmed, 1);
             assert!(!monitor.snapshot().is_ready());
         }
+    }
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn gateio_diagnostics_reject_stale_epochs_and_preserve_total_attempts() {
+        let monitor = std::sync::Arc::new(FeedMonitor::new(
+            crate::feed::FeedIdentity {
+                id: crate::feed::FeedId::allocate(),
+                generation: 1,
+            },
+            ExchangeId::Gateio,
+            None,
+        ));
+        monitor.configure(1, vec!["BTC-USDT-PERP".into()]);
+        monitor.lifecycle(FeedState::Started);
+        let tracker = monitor.register(
+            "wss://fx-ws.gateio.ws/v4/ws/usdt".into(),
+            vec!["BTC-USDT-PERP".into()],
+        );
+        let first = tracker.begin();
+        first.connected();
+        monitor.record_book_sync(tracker.id, first.epoch, "BTC-USDT-PERP", |d| {
+            d.snapshot_requests = 3;
+            d.total_snapshot_requests = 3;
+            d.last_error = Some("snapshot_bridge_rejected".into());
+        });
+        let since = monitor.snapshot().book_sync[0].unsynchronized_since;
+        let second = tracker.begin();
+        second.connected();
+        monitor.record_book_sync(tracker.id, first.epoch, "BTC-USDT-PERP", |d| {
+            d.snapshot_requests = 999;
+        });
+        drop(first);
+        let d = monitor.snapshot().book_sync.remove(0);
+        assert_eq!(d.epoch, second.epoch);
+        assert_eq!(d.snapshot_requests, 0);
+        assert_eq!(d.total_snapshot_requests, 3);
+        assert_eq!(d.unsynchronized_since, since);
+        assert!(d.last_error.is_none());
+        monitor.book_synced(tracker.id, second.epoch, "BTC-USDT-PERP");
+        let d = monitor.snapshot().book_sync.remove(0);
+        assert!(d.synchronized);
+        assert!(d.unsynchronized_since.is_none());
     }
 }

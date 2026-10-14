@@ -233,6 +233,12 @@ impl WsConnection {
     }
 }
 
+pub(crate) enum SessionRead {
+    Text(String),
+    Poll,
+    Closed,
+}
+
 pub struct Session<S> {
     #[cfg(feature = "recording")]
     raw: Option<crate::recording::raw::RawSession>,
@@ -390,21 +396,37 @@ where
         &mut self,
         shutdown: &mut watch::Receiver<bool>,
     ) -> Result<Option<String>> {
-        let result = self.next_text_inner(shutdown).await;
-        #[cfg(feature = "recording")]
-        if !matches!(result, Ok(Some(_))) {
-            if let Some(raw) = &mut self.raw {
-                raw.close(matches!(result, Ok(None)));
+        loop {
+            match self.next_event_or_shutdown(shutdown, None).await? {
+                SessionRead::Text(text) => return Ok(Some(text)),
+                SessionRead::Closed => return Ok(None),
+                SessionRead::Poll => {}
             }
         }
-        if matches!(result, Ok(Some(_))) {
+    }
+
+    /// Poll inside the session's read select, never by cancelling a whole
+    /// heartbeat/subscription/Pong write future from an outer timer.
+    pub(crate) async fn next_event_or_shutdown(
+        &mut self,
+        shutdown: &mut watch::Receiver<bool>,
+        poll_at: Option<Instant>,
+    ) -> Result<SessionRead> {
+        let result = self.next_text_inner(shutdown, poll_at).await;
+        #[cfg(feature = "recording")]
+        if matches!(result, Err(_) | Ok(SessionRead::Closed)) {
+            if let Some(raw) = &mut self.raw {
+                raw.close(matches!(result, Ok(SessionRead::Closed)));
+            }
+        }
+        if matches!(result, Ok(SessionRead::Text(_))) {
             self.subscribed();
         }
         if let Some(readiness) = &self.readiness {
             match &result {
                 Err(error) => readiness.disconnected(Some(error.to_string())),
-                Ok(None) => readiness.disconnected(None),
-                Ok(Some(_)) => {}
+                Ok(SessionRead::Closed) => readiness.disconnected(None),
+                _ => {}
             }
         }
         result
@@ -413,11 +435,12 @@ where
     async fn next_text_inner(
         &mut self,
         shutdown: &mut watch::Receiver<bool>,
-    ) -> Result<Option<String>> {
+        poll_at: Option<Instant>,
+    ) -> Result<SessionRead> {
         loop {
             if *shutdown.borrow() {
                 self.close().await;
-                return Ok(None);
+                return Ok(SessionRead::Closed);
             }
 
             let idle_deadline = self
@@ -446,7 +469,7 @@ where
                         Ok(()) if !*shutdown.borrow() => continue,
                         Ok(()) | Err(_) => {
                             self.close().await;
-                            return Ok(None);
+                            return Ok(SessionRead::Closed);
                         }
                     }
                 }
@@ -479,6 +502,9 @@ where
                 _ = tokio::time::sleep_until(acknowledgement_deadline.unwrap_or_else(Instant::now)), if acknowledgement_deadline.is_some() => {
                     return Err(Error::Transport("subscription acknowledgement timed out".to_owned()));
                 }
+                _ = tokio::time::sleep_until(poll_at.unwrap_or_else(Instant::now)), if poll_at.is_some() => {
+                    return Ok(SessionRead::Poll);
+                }
                 message = self.stream.next() => {
                     match message {
                         Some(Ok(Message::Text(text))) => {
@@ -502,7 +528,7 @@ where
                                     }
                                 }
                             }
-                            return Ok(Some(text));
+                            return Ok(SessionRead::Text(text));
                         }
                         Some(Ok(Message::Ping(payload))) => {
                             self.last_received = Instant::now();
@@ -517,12 +543,12 @@ where
                             if let Some(readiness) = &self.readiness { readiness.received(); }
                         }
                         Some(Ok(Message::Close(frame))) => {
-                            if *shutdown.borrow() { return Ok(None); }
+                            if *shutdown.borrow() { return Ok(SessionRead::Closed); }
                             let exchange = self.exchange.or_else(|| self.readiness.as_ref().map(|attempt| attempt.exchange()));
                             return Err(super::quota::close_error(exchange, frame.map(|frame| u16::from(frame.code))));
                         }
                         None => {
-                            if *shutdown.borrow() { return Ok(None); }
+                            if *shutdown.borrow() { return Ok(SessionRead::Closed); }
                             return Err(super::quota::close_error(self.exchange, None));
                         }
                         Some(Err(error)) => return Err(Error::Transport(error.to_string())),

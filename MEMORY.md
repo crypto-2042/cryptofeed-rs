@@ -120,8 +120,8 @@ Project-specific memory for `rust/cryptofeed-rs`.
   sequence at the push's `u` (announcements 44678/44722, mainnet
   2026-05-06); deltas before the push are superseded by it.
 - Gate.io reconnects must regenerate subscription `time`; subscribe responses
-  are successful only when `error` is null. An id-less REST book snapshot is
-  not consumed until a WebSocket delta is buffered to provide an anchor.
+  are successful only when `error` is null. REST books requested with_id=true must have an ID for live bootstrap.
+  A buffered delta or matching timestamp cannot supply a missing snapshot anchor.
 - Binance spot partial-depth pushes (`@depth5/10/20`) carry only
   `{lastUpdateId,bids,asks}` — no `e`/`s`/`U`/`u`; the instrument lives in
   the combined-stream `stream` name and each push replaces the top-N book.
@@ -1024,3 +1024,18 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   publishers, drain receivers and retain final counters independently of sampling.
 - Historical FAIL and NOT RUN stay unchanged; issue closure requires Linux root
   evidence and a complete new frozen 72-hour suite, not local deterministic tests.
+
+## Gateio recovery issue #4 (2026-10-15)
+
+- f6d0f6b Linux baseline failed after 10.30 hours on Gateio perpetual L2 readiness;
+  final identified counts matched (59,137,296), lag=0. Do not conflate with #3.
+- Official order_book_update accepts overlapping coverage; V2/obu strict adjacency
+  is a different contract. Missing REST ID cannot be inferred from timestamps.
+- Bootstrap is transactional. Recovery spends a cumulative initial +3 snapshot
+  operations per symbol/session across successful bootstraps; live pending episodes
+  have a 60s deadline checked by an internal 100ms idle poll. Replay has no host
+  network deadline. Default transient reconnect policy remains unchanged.
+- Managed book_sync diagnostics are epoch-guarded. Preserve continuous unsynced
+  time and total scheduled operations across reconnects, not replacements.
+- Keep 120s/Linux zero-lag thresholds, historical FAIL and RSS investigation;
+  neither local regression nor short connectivity proves the old unique cause.

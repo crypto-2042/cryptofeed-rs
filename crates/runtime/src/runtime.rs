@@ -17,6 +17,8 @@ pub mod connection;
 mod control;
 #[cfg(all(test, feature = "orderbook"))]
 mod cross_check_tests;
+#[cfg(all(test, feature = "orderbook", feature = "recording"))]
+mod gateio_recovery_tests;
 #[cfg(all(test, feature = "trade"))]
 pub(crate) use control::tests::start as test_managed_runtime;
 pub(crate) mod planning;
@@ -86,12 +88,53 @@ const SHUTDOWN_GRACE_PERIOD: std::time::Duration = std::time::Duration::from_mil
 #[cfg(not(test))]
 const SHUTDOWN_GRACE_PERIOD: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// In-session Gate.io snapshot bootstrap retries per symbol. A failed
-/// bootstrap (e.g. buffered deltas that cannot bridge the snapshot) re-fetches
-/// the snapshot up to this many times before the session-level retry takes
-/// over as the backstop. Sequence validation is never weakened.
+/// Additional Gateio snapshot operations per symbol/physical session, across
+/// bootstrap failures AND later gaps. Success does not refund this budget;
+/// exhaustion returns to the existing reconnect/backoff supervisor.
 #[cfg(feature = "orderbook")]
 const GATEIO_MAX_RESNAPSHOTS: u32 = 3;
+#[cfg(feature = "orderbook")]
+const GATEIO_BOOTSTRAP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Cumulative requests in one physical session. Success must not reset this
+/// budget: otherwise bootstrap -> immediate gap can refetch forever.
+#[cfg(feature = "orderbook")]
+pub(crate) struct GateioResnapshotBudget {
+    resnapshots: u32,
+    unsynced_since: tokio::time::Instant,
+}
+
+#[cfg(feature = "orderbook")]
+fn gateio_snapshot_budget(
+    budgets: &mut std::collections::HashMap<String, GateioResnapshotBudget>,
+    symbol: &str,
+    new_episode: bool,
+) -> Result<u32> {
+    use std::collections::hash_map::Entry;
+    match budgets.entry(symbol.to_owned()) {
+        Entry::Vacant(entry) => {
+            entry.insert(GateioResnapshotBudget {
+                resnapshots: 0,
+                unsynced_since: tokio::time::Instant::now(),
+            });
+            Ok(1)
+        }
+        Entry::Occupied(mut entry) => {
+            let budget = entry.get_mut();
+            if new_episode {
+                budget.unsynced_since = tokio::time::Instant::now();
+            }
+            if budget.resnapshots >= GATEIO_MAX_RESNAPSHOTS {
+                return Err(Error::Parse(
+                    "gateio snapshot recovery request limit exceeded".into(),
+                ));
+            }
+            budget.resnapshots += 1;
+            Ok(budget.resnapshots + 1)
+        }
+    }
+}
+
 #[cfg(feature = "orderbook")]
 const BINANCE_MAX_RESNAPSHOTS: u32 = 3;
 #[cfg(feature = "orderbook")]
@@ -997,7 +1040,22 @@ where
 
     #[cfg(feature = "orderbook")]
     let mut resnapshot_attempts = std::collections::HashMap::new();
-    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+    loop {
+        #[cfg(feature = "orderbook")]
+        let next = session
+            .next_event_or_shutdown(
+                &mut shutdown,
+                Some(tokio::time::Instant::now() + std::time::Duration::from_millis(100)),
+            )
+            .await?;
+        #[cfg(feature = "orderbook")]
+        if matches!(next, connection::SessionRead::Closed) {
+            break;
+        }
+        #[cfg(not(feature = "orderbook"))]
+        let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? else {
+            break;
+        };
         let received_ts = session.received_timestamp();
         #[cfg(feature = "orderbook")]
         poll_gateio_snapshot_bootstraps_for_plan(
@@ -1008,6 +1066,10 @@ where
             &mut resnapshot_attempts,
         )
         .await?;
+        #[cfg(feature = "orderbook")]
+        let connection::SessionRead::Text(text) = next else {
+            continue;
+        };
         session.processing();
         #[cfg(feature = "orderbook")]
         if process_gateio_orderbook_message_for_plan(
@@ -1017,6 +1079,7 @@ where
             received_ts,
             &mut snapshot_receivers,
             &mut pending_deltas,
+            &mut resnapshot_attempts,
         )
         .await?
         {
@@ -2027,18 +2090,25 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
     plan: &GateioConnectionPlan,
     receivers: &mut GateioSnapshotReceivers,
     pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
-    resnapshot_attempts: &mut std::collections::HashMap<String, u32>,
+    resnapshot_attempts: &mut std::collections::HashMap<String, GateioResnapshotBudget>,
 ) -> Result<()> {
     use tokio::sync::oneshot::error::TryRecvError;
 
     let keys: Vec<String> = receivers.keys().cloned().collect();
     for key in keys {
-        // Current Gate.io REST snapshots do not carry a sequence id. Do not
-        // consume a completed snapshot until at least one WebSocket delta has
-        // been buffered; that delta provides the only provable sequence
-        // anchor between the REST snapshot and the live stream.
-        if pending.get(&key).is_none_or(Vec::is_empty) {
-            continue;
+        if !matches!(feed.snapshot_mode(), snapshot::SnapshotMode::Replay)
+            && resnapshot_attempts
+                .get(&key)
+                .is_some_and(|budget| budget.unsynced_since.elapsed() >= GATEIO_BOOTSTRAP_DEADLINE)
+        {
+            tracing::warn!(exchange="gateio", symbol=%key, reason="snapshot_recovery_deadline", "gateio bootstrap deadline");
+            feed.record_book_sync(&key, |d| {
+                d.last_reason = "recovery_deadline".into();
+                d.last_error = Some("snapshot_recovery_deadline".into());
+            });
+            return Err(Error::Parse(
+                "gateio snapshot recovery deadline exceeded".into(),
+            ));
         }
         let ready = match receivers.get_mut(&key) {
             Some(receiver) => match receiver.try_recv() {
@@ -2076,24 +2146,80 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                 link.snapshot_error(instrument.symbol.clone(), None, error);
             }
         }
-        let snapshot = result?;
+        let snapshot = match result {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let code = match &error {
+                    Error::HttpStatus { status, .. } => format!("http_status_{status}"),
+                    Error::RateLimited { .. } => "rate_limited".into(),
+                    _ => "snapshot_request_failed".into(),
+                };
+                tracing::warn!(exchange="gateio", symbol=%key, reason=%code, "gateio snapshot request failed");
+                feed.record_book_sync(&key, |d| {
+                    d.last_reason = "snapshot_failed".into();
+                    d.last_error = Some(code);
+                });
+                return Err(error);
+            }
+        };
+        feed.record_book_sync(&key, |d| {
+            d.last_snapshot_id = snapshot.last_update_id;
+            let at = |seconds| {
+                std::time::Duration::try_from_secs_f64(seconds)
+                    .ok()
+                    .and_then(|duration| std::time::UNIX_EPOCH.checked_add(duration))
+            };
+            d.last_snapshot_generated_at = at(snapshot.generated_ts);
+            d.last_snapshot_updated_at = at(snapshot.update_ts);
+        });
         let last_update_id = snapshot.last_update_id;
+        let snapshot_generated_ts = snapshot.generated_ts;
+        let snapshot_update_ts = snapshot.update_ts;
         let buffered = pending.remove(&key).unwrap_or_default();
         match bootstrap_gateio_book(feed, &key, snapshot, buffered.clone()) {
             Ok(books) => {
+                feed.record_book_sync(&key, |d| d.last_reason = "rest_bootstrap_applied".into());
                 for book in books {
                     dispatch_gateio_l2_book(feed, book).await?;
                 }
                 receivers.remove(&key);
-                resnapshot_attempts.remove(&key);
+                // Keep the session-wide request budget across successful bootstraps.
             }
             Err(error) => {
+                feed.record_book_sync(&key, |d| {
+                    d.last_reason = "bootstrap_rejected".into();
+                    d.last_error = Some(
+                        if last_update_id.is_none() {
+                            "missing_snapshot_id"
+                        } else {
+                            "snapshot_bridge_rejected"
+                        }
+                        .into(),
+                    );
+                });
+                // Clear unusable native state before any budget/deadline exit.
+                feed.gateio_book_syncs
+                    .lock()
+                    .expect("gateio sync lock")
+                    .remove(&key);
+                feed.orderbook_states
+                    .lock()
+                    .expect("book state lock")
+                    .remove(&key);
                 // A failed bootstrap (typically buffered deltas that do not
                 // bridge the snapshot) triggers a bounded in-session resnapshot
                 // instead of tearing the session down. The buffered deltas are
                 // preserved so the next snapshot can bridge them; the bridge
                 // rule itself is never relaxed.
-                let attempts = resnapshot_attempts.entry(key.clone()).or_default();
+                // A direct injected/replayed snapshot may have no scheduled
+                // request entry yet; account for its initial request first.
+                resnapshot_attempts
+                    .entry(key.clone())
+                    .or_insert_with(|| GateioResnapshotBudget {
+                        resnapshots: 0,
+                        unsynced_since: tokio::time::Instant::now(),
+                    });
+                let attempts = resnapshot_attempts.get(&key).expect("budget").resnapshots;
                 // Forensics: a warning-level trace records the failing
                 // snapshot id and the complete buffered U/u sequence so a live
                 // smoke run can capture the evidence required to validate the
@@ -2102,16 +2228,21 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                     exchange = "gateio",
                     symbol = %key,
                     snapshot_id = ?last_update_id,
+                    reason = "bootstrap_rejected",
+                    snapshot_generated_ts = snapshot_generated_ts,
+                    snapshot_update_ts = snapshot_update_ts,
                     buffered_sequences = %buffered
                         .iter()
+                        .take(16)
                         .map(|delta| format!("{}..{}", delta.first_update_id, delta.last_update_id))
                         .collect::<Vec<_>>()
                         .join(","),
-                    attempt = *attempts + 1,
+                    buffered_count = buffered.len(),
+                    attempt = attempts + 1,
                     error = %error,
                     "gateio bootstrap failed; scheduling bounded resnapshot"
                 );
-                if *attempts >= GATEIO_MAX_RESNAPSHOTS {
+                if attempts >= GATEIO_MAX_RESNAPSHOTS {
                     tracing::error!(
                         exchange = "gateio",
                         symbol = %key,
@@ -2120,11 +2251,12 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                     );
                     return Err(error);
                 }
-                *attempts += 1;
-                feed.gateio_book_syncs
-                    .lock()
-                    .expect("gateio sync lock")
-                    .remove(&key);
+                let request = gateio_snapshot_budget(resnapshot_attempts, &key, false)?;
+                feed.record_book_sync(&key, |d| {
+                    d.snapshot_requests = request;
+                    d.total_snapshot_requests = d.total_snapshot_requests.saturating_add(1);
+                    d.last_reason = "resnapshot_requested".into();
+                });
                 pending.insert(key.clone(), buffered);
                 let snapshot_url = plan
                     .snapshot_urls
@@ -2244,6 +2376,7 @@ async fn process_gateio_orderbook_message_for_plan(
     received_ts: f64,
     receivers: &mut GateioSnapshotReceivers,
     pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
+    resnapshot_attempts: &mut std::collections::HashMap<String, GateioResnapshotBudget>,
 ) -> Result<bool> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
     let channel = message.get("channel").and_then(Value::as_str);
@@ -2275,6 +2408,10 @@ async fn process_gateio_orderbook_message_for_plan(
         GateioBookUpdate::Delta(update) => update,
     };
     let symbol_key = update.book.symbol.as_str().to_owned();
+    feed.record_book_sync(&symbol_key, |d| {
+        d.last_delta_first = Some(update.first_update_id);
+        d.last_delta_last = Some(update.last_update_id);
+    });
 
     if feed
         .gateio_book_syncs
@@ -2282,23 +2419,32 @@ async fn process_gateio_orderbook_message_for_plan(
         .expect("gateio sync lock")
         .contains_key(&symbol_key)
     {
-        let maybe_book = {
+        let (maybe_book, anchor) = {
             let mut syncs = feed.gateio_book_syncs.lock().expect("gateio sync lock");
             let sync = syncs.get_mut(&symbol_key).expect("gateio sync state");
-            sync.apply_next_delta(update.clone())
+            let anchor = sync.last_update_id();
+            (sync.apply_next_delta(update.clone()), anchor)
         };
         match maybe_book {
             Ok(Some(book)) => dispatch_gateio_l2_book(feed, book).await?,
             Ok(None) => {}
             Err(Error::Parse(_)) => {
+                feed.record_book_sync(&symbol_key, |d| {
+                    d.last_reason = "sequence_resync".into();
+                    d.last_error = Some("sequence_gap_or_invalid_range".into());
+                    d.last_gap_anchor = anchor;
+                    d.last_gap_first = Some(update.first_update_id);
+                    d.last_gap_last = Some(update.last_update_id);
+                });
+                tracing::warn!(exchange="gateio", symbol=%symbol_key, reason="sequence_gap_or_invalid_range", previous_update_id=?anchor, first_update_id=update.first_update_id, last_update_id=update.last_update_id, "gateio sequence resync");
                 schedule_gateio_resync_for_plan(
                     feed,
                     plan,
                     instrument,
-                    &symbol_key,
                     update,
                     receivers,
                     pending,
+                    resnapshot_attempts,
                 )?;
             }
             Err(error) => return Err(error),
@@ -2312,10 +2458,10 @@ async fn process_gateio_orderbook_message_for_plan(
             feed,
             plan,
             instrument,
-            &symbol_key,
             update,
             receivers,
             pending,
+            resnapshot_attempts,
         )?;
     }
     Ok(true)
@@ -2333,6 +2479,11 @@ async fn apply_gateio_full_push(
     pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
 ) -> Result<()> {
     let symbol_key = snapshot.symbol.as_str().to_owned();
+    feed.record_book_sync(&symbol_key, |d| {
+        d.last_reason = "full_push_applied".into();
+        d.last_delta_first = None;
+        d.last_delta_last = Some(last_update_id);
+    });
     {
         let mut syncs = feed.gateio_book_syncs.lock().expect("gateio sync lock");
         let sync = syncs
@@ -2353,12 +2504,26 @@ fn schedule_gateio_resync_for_plan(
     feed: &ExchangeFeed,
     plan: &GateioConnectionPlan,
     instrument: &GateioInstrument,
-    symbol_key: &str,
     update: GateioDepthDelta,
     receivers: &mut GateioSnapshotReceivers,
     pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
+    resnapshot_attempts: &mut std::collections::HashMap<String, GateioResnapshotBudget>,
 ) -> Result<()> {
-    reset_gateio_sync_state(feed, symbol_key, update, pending);
+    let symbol_key = update.book.symbol.as_str().to_owned();
+    reset_gateio_sync_state(feed, &symbol_key, update, pending);
+    let request =
+        gateio_snapshot_budget(resnapshot_attempts, &symbol_key, true).inspect_err(|_| {
+            tracing::warn!(exchange="gateio",symbol=%symbol_key,reason="snapshot_request_limit","gateio snapshot budget exhausted");
+            feed.record_book_sync(&symbol_key, |d| {
+                d.last_reason = "request_budget_exhausted".into();
+                d.last_error = Some("snapshot_request_limit".into());
+            });
+        })?;
+    feed.record_book_sync(&symbol_key, |d| {
+        d.snapshot_requests = request;
+        d.total_snapshot_requests = d.total_snapshot_requests.saturating_add(1);
+        d.last_reason = "snapshot_requested".into();
+    });
     let index = plan
         .instruments
         .iter()
@@ -2370,7 +2535,7 @@ fn schedule_gateio_resync_for_plan(
         .get(index)
         .cloned()
         .ok_or_else(|| Error::Parse("missing gateio resync snapshot URL".to_owned()))?;
-    receivers.remove(symbol_key);
+    receivers.remove(&symbol_key);
     receivers.insert(
         symbol_key.to_owned(),
         spawn_gateio_snapshot_fetch_for_instrument(
@@ -2391,6 +2556,10 @@ fn reset_gateio_sync_state(
     pending: &mut std::collections::HashMap<String, Vec<GateioDepthDelta>>,
 ) {
     feed.invalidate_book_readiness(symbol_key);
+    feed.orderbook_states
+        .lock()
+        .expect("book state lock")
+        .remove(symbol_key);
     feed.gateio_book_syncs
         .lock()
         .expect("gateio sync lock")
@@ -4997,6 +5166,7 @@ mod tests {
                 1.0,
                 &mut receivers,
                 &mut pending,
+                &mut Default::default(),
             )
             .await
             .unwrap();
@@ -5028,6 +5198,7 @@ mod tests {
             1.0,
             &mut receivers,
             &mut pending,
+            &mut Default::default(),
         )
         .await
         .unwrap();
@@ -5277,7 +5448,7 @@ mod tests {
         .expect("failure schedules a bounded resnapshot");
         assert!(receivers.contains_key("BTC-USDT"));
         assert_eq!(pending.get("BTC-USDT").expect("pending").len(), 1);
-        assert_eq!(attempts.get("BTC-USDT"), Some(&1));
+        assert_eq!(attempts.get("BTC-USDT").map(|b| b.resnapshots), Some(1));
 
         // The fresh snapshot arrives at a lower id than the deltas; the
         // preserved deltas now bridge and the book becomes consistent.
@@ -5300,7 +5471,7 @@ mod tests {
         .await
         .expect("bridged bootstrap");
         assert!(!receivers.contains_key("BTC-USDT"));
-        assert!(!attempts.contains_key("BTC-USDT"));
+        assert_eq!(attempts.get("BTC-USDT").map(|b| b.resnapshots), Some(1));
         let states = feed.orderbook_states.lock().expect("lock");
         let state = states.get("BTC-USDT").expect("btc-usdt state");
         assert_eq!(state.bids().len(), 2);
@@ -5355,7 +5526,13 @@ mod tests {
         let mut pending = std::collections::HashMap::new();
         pending.insert("BTC-USDT".to_owned(), vec![non_bridging]);
         let mut attempts = std::collections::HashMap::new();
-        attempts.insert("BTC-USDT".to_owned(), super::GATEIO_MAX_RESNAPSHOTS);
+        attempts.insert(
+            "BTC-USDT".to_owned(),
+            super::GateioResnapshotBudget {
+                resnapshots: super::GATEIO_MAX_RESNAPSHOTS,
+                unsynced_since: tokio::time::Instant::now(),
+            },
+        );
 
         let err = super::poll_gateio_snapshot_bootstraps_for_plan(
             &feed,
@@ -5407,6 +5584,7 @@ mod tests {
             1710000001.5,
             &mut receivers,
             &mut pending,
+            &mut Default::default(),
         )
         .await
         .expect("derivative update");

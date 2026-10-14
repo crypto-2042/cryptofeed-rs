@@ -401,12 +401,6 @@ Official references:
   replacement), `bbo-tbt` (1), and the tick-by-tick `books-l2-tbt` (400) and
   `books50-l2-tbt` (50) which require VIP4+ and return error 64003 otherwise
   (verified 2026-08-06). There are no `books50-l2`/`books400-l2` channels.
-- The spot `order_book` REST response no longer carries a book `id`
-  (measured 2026-08-06, A/B rolled): only `current`/`update` timestamps plus
-  `bids`/`asks` are returned. Bootstrap therefore anchors on the buffered
-  delta timestamps (`update_ts` must cover the first buffered delta's `t`,
-  sequence anchored at `first_update_id - 1`); the legacy `id`-carrying
-  response keeps the strict id bridge.
 - MARGIN instruments reuse the spot instId form (e.g. `BTC-USDT` under
   `instType=MARGIN`); officially verified MARGIN surfaces are the candlestick
   channels (every bar; the 1s exclusion is OPTION-only), the
@@ -512,9 +506,14 @@ Official references:
   returns valid USDT-settled instruments and can resolve the target contract.
 - Keep product-aware REST bootstrap and WebSocket routing assertions so a spot,
   perpetual, or delivery snapshot cannot be applied to another product.
-- When a REST order-book snapshot has no sequence id, wait for at least one
-  buffered WebSocket delta before consuming it; the first delta and timestamp
-  check provide the required bridge. Never accept an unanchored snapshot.
+- Rechecked 2026-10-15: current Spot/Futures order_book_update requires a REST
+  ID from with_id=true. Timestamps never prove that anchor. Missing ID fails
+  closed; a valid complete full push may independently establish its u anchor.
+- The v1 range bridge is U <= current+1 <= u; only U > current+1 is a true gap.
+  Discard fully covered ranges. Do not apply the V2/obu strict-adjacency rule.
+- The former timestamp-only heuristic (including the misplaced Gateio note in
+  the OKX section) is withdrawn after issue #4's deterministic rollback evidence.
+  See [Gateio recovery](gateio-book-recovery.md) for bounded requests and diagnostics.
 
 ## L3 order-book scope
 
@@ -727,8 +726,9 @@ See [native raw replay](raw-replay.md) and its bounded/remaining replay scope.
 Current official Binance Spot depth and Gate public order-book surfaces remain
 unchanged. Raw v2 adds SDK-side consumption/processing markers, not new native
 API versions. HTTP JSON/original receipt time feed the existing snapshot parsers;
-Gate optional IDs/time anchoring and Binance depth/sequence bridges are not
-relaxed. Fresh public Spot capture replay exactly matched native L2 models on both
+Binance ID bridges remain strict. The then-existing Gate time-only anchor was
+subsequently removed on 2026-10-15; valid-ID positive replay fixtures now retain
+the same output assertions without relying on that unsafe heuristic. Fresh public Spot capture replay exactly matched native L2 models on both
 venues with two consumed snapshots each. See [scope](http-l2-replay.md).
 
 

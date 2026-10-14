@@ -2643,3 +2643,45 @@ fn sparse_packing_preserves_required_product_and_endpoint_separation() {
         serde_json::json!([{"channel":"trades","instId":"BTC-USDT"},{"channel":"candle1m","instId":"ETH-USDT"}])
     );
 }
+
+#[test]
+fn gateio_perpetual_sequence_bridge_uses_ids_not_timestamp_guesses() {
+    use cryptofeed_rs::exchange::gateio::book_sync::{GateioBookSync, GateioBookUpdate};
+    let instrument = GateioInstrument::new(
+        Symbol::perpetual("BTC", "USDT"),
+        "BTC_USDT",
+        GateioProduct::UsdtPerpetual,
+    );
+    let wire = json!({"id":100,"current":2.0,"update":2.0,"bids":[{"p":"100","s":"2"}],"asks":[{"p":"101","s":"1"}]});
+    let snapshot =
+        gateio_parser::parse_l2_book_snapshot_for_instrument(&wire, &instrument, 2.1).unwrap();
+    let delta_wire = json!({"channel":"futures.order_book_update","event":"update","result":{"s":"BTC_USDT","t":1000,"U":100,"u":102,"b":[{"p":"100","s":"3"}],"a":[]}});
+    let GateioBookUpdate::Delta(delta) =
+        gateio_parser::parse_l2_book_update_for_instrument(&delta_wire, 2.2, &instrument).unwrap()
+    else {
+        panic!("expected delta")
+    };
+    let mut sync = GateioBookSync::new(instrument.symbol.clone());
+    sync.bootstrap(snapshot.clone(), vec![]).unwrap();
+    assert!(sync.apply_next_delta(delta.clone()).unwrap().is_some());
+    assert_eq!(sync.last_update_id(), Some(102));
+    assert_eq!(sync.state().bids()[0].amount, Decimal::from(3));
+    let mut idless = wire;
+    idless.as_object_mut().unwrap().remove("id");
+    let idless =
+        gateio_parser::parse_l2_book_snapshot_for_instrument(&idless, &instrument, 2.1).unwrap();
+    let mut uninitialized = GateioBookSync::new(instrument.symbol.clone());
+    assert!(uninitialized.bootstrap(idless, vec![delta]).is_err());
+    assert!(uninitialized.state().bids().is_empty());
+    assert_eq!(uninitialized.last_update_id(), None);
+    let mut gap = delta_wire;
+    gap["result"]["U"] = json!(104);
+    gap["result"]["u"] = json!(105);
+    let GateioBookUpdate::Delta(gap) =
+        gateio_parser::parse_l2_book_update_for_instrument(&gap, 3.0, &instrument).unwrap()
+    else {
+        panic!("expected delta")
+    };
+    assert!(sync.apply_next_delta(gap).is_err());
+    assert_eq!(sync.last_update_id(), Some(102));
+}

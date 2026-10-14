@@ -1,6 +1,19 @@
 # Progress
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
+
+## Gateio L2 recovery issue #4 (2026-10-15)
+
+- The repaired-stream Linux baseline had zero final lag but failed Gateio perpetual
+  Ready recovery after 10.30 hours; later stages NOT RUN, 72-hour acceptance incomplete.
+- Corrected v1 overlap handling and rejected unsafe idless timestamp bootstrap;
+  transactional bootstrap does not publish a partial book on failure.
+- Added cumulative per-session snapshot budget (initial +3), a live 60-second
+  pending deadline and safe 100ms idle polling independent of new market messages.
+- Added epoch-qualified per-book diagnostics and bounded warning sequence context.
+  The sibling harness adds optional raw evidence and filtered SDK warning logging.
+- Unique failed-run cause, RSS growth investigation and full Linux requalification
+  remain pending; no thresholds or original baseline profiles were changed.
 
 ## Linux acceptance issue #3 (2026-10-14)
 
@@ -276,7 +289,7 @@ feature boundaries.
 - `(unreleased)` `fix: resilient catalog hydration with bounded response size, status validation, retry, and 24h in-process cache`
 - `(unreleased)` `fix: gateio resnapshot receiver replacement and cross-anchor buffered replay`
 - `(unreleased)` `fix: current bybit liquidation/option ticker contracts and liquidation side/unit normalization`
-- `(unreleased)` `fix: gateio fresh reconnect timestamps, rejected subscribe detection, and anchored id-less snapshots`
+- `(unreleased)` `fix: gateio fresh reconnect timestamps, rejected subscribe detection, and snapshot anchoring (idless heuristic removed 2026-10-15)`
 - `(unreleased)` `ci: add all-target lint, single-feature, MSRV, package-content, and security gates`
 
 ## Python usage alignment — 2026-10-09

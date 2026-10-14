@@ -2,8 +2,8 @@ pub mod control;
 mod subscription;
 use crate::exchange::ExchangeFeed;
 pub use control::{
-    ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot, FeedState,
-    RuntimeControl,
+    BookSyncDiagnostic, ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot,
+    FeedState, RuntimeControl,
 };
 #[cfg(feature = "candles")]
 use cryptofeed_candles::Candle;

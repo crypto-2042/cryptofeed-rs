@@ -602,6 +602,11 @@ New CEX integrations must use the latest stable official exchange API rather tha
 - When adding or updating an exchange adapter, verify the current official REST and WebSocket documentation before implementing.
 - If an older API version already exists in the Python codebase, treat it as migration reference only, not as the Rust source of truth.
 
+Gateio L2 recovery requires a provable snapshot ID or complete full push, accepts
+v1 overlapping sequence coverage and bounds resnapshot loops. Managed
+`state(id).book_sync` exposes per-symbol recovery evidence; see
+[Gateio sequence recovery](docs/gateio-book-recovery.md).
+
 ## Event delivery and overload
 
 Event broadcasts retain 1024 messages across all feeds by default and may lose

@@ -590,7 +590,7 @@ async fn independent_merge_keeps_consumed_http_and_processing_causality_for_bina
         let payload = if exchange == ExchangeId::Binance {
             json!({"lastUpdateId":100,"bids":[["100","2"]],"asks":[["101","1"]]})
         } else {
-            json!({"current":1710000002000u64,"update":1710000002000u64,"bids":[["100","2"]],"asks":[["101","1"]]})
+            json!({"id":100,"current":1710000002000u64,"update":1710000002000u64,"bids":[["100","2"]],"asks":[["101","1"]]})
         };
         let kinds = vec![
             (0, RawObservationKind::Connected),
