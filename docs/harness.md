@@ -188,10 +188,10 @@ separately verify its acknowledgement when the stream is sparse.
 3. **Run a short smoke.** Execute the example with network access, let it run
    for a short window (the 2026-08-04 smoke used roughly 18–25 seconds), then
    interrupt with Ctrl-C. When forensics may be needed (e.g. a Gate.io
-   bootstrap observation), enable tracing with `RUST_LOG=warn` so the
-   structured `gateio bootstrap failed` records capture the failing snapshot
-   id and buffered `U/u` sequence (see "Capturing a Failing Gate.io
-   Bootstrap").
+   bootstrap observation), use a consumer with an installed tracing subscriber.
+   RUST_LOG alone does not install one. Structured Gateio warnings contain the
+   failing snapshot ID and a bounded sequence sample; enable raw capture for
+   full context (see "Capturing a Failing Gate.io Bootstrap").
 4. **Verify the acceptance points.** Discovery completed; subscription
    acknowledgement received; at least one normalized event per active
    high-frequency channel; Ctrl-C shutdown returns `Ok(())` without a retry
@@ -218,13 +218,26 @@ separately verify its acknowledgement when the stream is sparse.
 
 ## Capturing a Failing Gate.io Bootstrap
 
-The bounded resnapshot path emits structured forensics at `warn` level. Run
-the Gate.io spot live smoke with tracing enabled (`RUST_LOG=warn` on the
-example) and look for `gateio bootstrap failed` entries: each includes the
-failing snapshot id and the complete buffered `U/u` sequence. That evidence is
-the acceptance input for validating the resnapshot path against a real
-failure — reproduce the captured sequence in an offline regression before
-declaring the live case resolved.
+The bounded resnapshot path emits structured forensics at WARN level. The SDK
+never installs a global subscriber. A consumer must install one; `RUST_LOG=warn`
+only has an effect if that consumer supports environment filtering. The soak
+0.1.2 worker installs its own safe WARN/ERROR evidence subscriber.
+
+Current warnings retain the failing snapshot ID/times, buffered count and the
+first 16 U/u ranges. These samples are not the complete buffered sequence or a
+replay. Enable bounded raw capture of public book frames and consumed HTTP
+snapshots/errors to retain full native context, and mark overflow/incompleteness.
+The soak Gateio evidence profiles do this explicitly; their selected JSONL is
+forensic evidence, not the SDK's complete native-recording file format.
+
+With issue #4, v1 overlap coverage is accepted, missing IDs fail closed, and
+initial plus three additional snapshot operations are cumulative per symbol/
+physical session even after successful bootstrap. Live pending recovery has a
+60s deadline checked during safe idle polling; the external 120s Ready threshold
+is unchanged. See [Gateio recovery](gateio-book-recovery.md).
+
+Reproduce a captured failure deterministically before declaring its unique live
+cause resolved. Synthetic tests or warning samples alone cannot establish it.
 
 ## Known Gaps
 
@@ -232,10 +245,12 @@ declaring the live case resolved.
 - Full-session WebSocket doubles cover all five active exchanges (subscribe
   framing, control acknowledgements, market-data delivery, and clean shutdown;
   Binance additionally exercises an injected snapshot bootstrap). REST snapshot
-  doubles for the other four exchanges remain direct parser-level tests.
+  wire-level HTTP doubles are incomplete for other exchanges. Gateio additionally
+  has injected HTTP-result/WS recovery and idle-socket bootstrap regressions.
 - Gate.io bootstrap failure and recovery are deterministic, including a
-  bounded in-session resnapshot path (max three attempts per symbol, buffered
-  deltas preserved, session-level retry as backstop). Confirming it against a
+  bounded in-session resnapshot path (initial plus three additional operations
+  per symbol/session across success/gap cycles, preserved buffered deltas and a
+  live pending deadline; session retry remains the backstop). Confirming it against a
   captured failing snapshot ID and complete buffered `U/u` sequence remains a
   live-only validation step.
 - Deferred options remain represented as parser/catalog reference fixtures,
@@ -465,7 +480,7 @@ bootstrap remains an explicit unsupported path, never a live test dependency.
 Raw v2 HTTP replay tests drive the actual native bootstrap polls with controlled
 snapshot receivers and compare exact models, clocks and source observation links.
 The v2 Processing marker disambiguates an observed-but-not-yet-processed WS packet.
-Tests assert id-less Gate timestamps, safe HTTP429, strict overlap resync, missing
+Tests assert Gate ID anchoring/timestamp fidelity, safe HTTP429, valid overlap and true-gap resync, missing
 pending snapshots and schema/version failures; no live HTTP is a deterministic
 test dependency. Legacy v1 references remain readable with their original scope.
 
