@@ -24,6 +24,11 @@ but a new Bitget perpetual terminal failure interrupted baseline after about
 available; the actual trigger and full acceptance remain unverified. See the
 [open-issue audit](docs/reports/issue-audit-2026-10-16.md).
 
+Latest local materials additionally report5513831/soak0.1.3 subscriber loss432
+at39m31s. Soak0.1.4 repairs a reproduced stats-lock consumer stall; Linux
+requalification and actual-trigger attribution remain pending. Protocol/API
+support is unchanged. See [consumer repair](docs/reports/consumer-contention-2026-10-16.md).
+
 ## Verified Baseline
 
 - [x] Preserve the `FeedHandler` user entrypoint.

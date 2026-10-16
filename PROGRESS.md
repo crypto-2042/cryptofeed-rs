@@ -2,6 +2,19 @@
 
 Last updated: 2026-10-16
 
+## Latest Linux evidence and consumer contention (2026-10-16)
+
+- Material pack reports SDK5513831/soak0.1.3 baseline loss432 after39m31s,
+  despite smoke PASS. Final accounting confirms subscriber loss, not parser loss.
+- Reproduced a harness defect: full observer holds registry while blocking on
+  stats and stops draining. Soak0.1.4 uses compact local counters and nonblocking
+  periodic merging, with generation-safe final drain/accounting.
+- Regression retains real overflow432 as failure, validates1000 generation
+  replacements and preserves route/top-N rejection. SDK API/protocols unchanged.
+- Gateio prerequisites passed on9a86e83; Bitget original trigger remains unknown.
+  Full Linux requalification is NOT RUN; all issues remain open.
+- [Evidence and repair](docs/reports/consumer-contention-2026-10-16.md).
+
 ## Open-issue audit and Bitget diagnostics (2026-10-16)
 
 - Issues #3/#4/#6 retain their closure gates. #6 reports Gateio prerequisites and

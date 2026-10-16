@@ -1052,3 +1052,15 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   permanent. Synthetic tests do not prove the failed live trigger is repaired.
 - #3/#4/#6 stay open until their documented evidence gates are met; Gateio
   prerequisites and zero final lag do not replace complete 72-hour acceptance.
+
+## Material-pack follow-up and observer lock stall (2026-10-16)
+
+- New5513831/soak0.1.3 baseline failed39m31s with final loss432; smoke PASS.
+  Do not claim the preceding diagnostics resolved subscriber lag or Bitget cause.
+- Old full observer held registry while waiting for shared stats; the same
+  contention regression fails old source and passes repaired soak0.1.4.
+- Fix is in sibling harness: compact identity-qualified counters, nonblocking
+ 32-event/10ms merge and final blocking merge only after producer shutdown/drain.
+  No payload queue/capacity increase; retired generations purged; overflow staysFAIL.
+- This proves a contention defect, not the unique Linux trigger. Gateio old-version
+  prerequisites remain PASS; Bitget trigger and full72h qualification remain open.

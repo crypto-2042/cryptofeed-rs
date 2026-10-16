@@ -613,6 +613,10 @@ v1 overlapping sequence coverage and bounds resnapshot loops. Managed
 `state(id).book_sync` exposes per-symbol recovery evidence; see
 [Gateio sequence recovery](docs/gateio-book-recovery.md).
 
+Latest Linux evidence still includes subscriber loss. The acceptance app's
+reproduced stats-lock stall is repaired in soak0.1.4; SDK delivery semantics and
+retention are unchanged. See [consumer contention evidence](docs/reports/consumer-contention-2026-10-16.md).
+
 ## Event delivery and overload
 
 Event broadcasts retain 1024 messages across all feeds by default and may lose

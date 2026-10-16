@@ -103,3 +103,15 @@ new frozen diagnostic run and host evidence. Previous FAIL/NOT RUN results remai
 
 Sources: [Tokio broadcast delivery](https://docs.rs/tokio/1.53.2/tokio/sync/broadcast/index.html),
 [receiver backlog/closure](https://docs.rs/tokio/1.53.2/tokio/sync/broadcast/struct.Receiver.html).
+
+## Latest acceptance materials (2026-10-16)
+
+The newer5513831/app0.1.3 baseline reports432 lost envelopes after39m31s, with
+final received+lagged=published. Even after moving JSON outside the stats lock,
+the full observer still blocked on stats while retaining registry. Soak0.1.4
+repairs this proven contention path using locally aggregated compact counters
+and nonblocking merges, with identity checks and final drain. It adds no event
+queue and does not increase1024 retention. This is a supported brief-intake
+pattern, not a promise against arbitrary scheduling stalls or bursts. See the
+[repair evidence](reports/consumer-contention-2026-10-16.md); actual Linux
+trigger attribution and complete qualification remain open.

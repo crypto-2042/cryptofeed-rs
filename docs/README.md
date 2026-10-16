@@ -21,6 +21,8 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
   preserved Ready failure, sequence fixes, bounded recovery and verification limits.
 - [Open-issue audit and Bitget diagnostics](reports/issue-audit-2026-10-16.md):
   closure gates, safe failure classification and remaining Linux evidence.
+- [Latest consumer contention repair](reports/consumer-contention-2026-10-16.md):
+  latest loss evidence, reproduced harness stall and unchanged qualification gates.
 - [Gateio L2 recovery](gateio-book-recovery.md): ID bridges, cumulative recovery
   budgets, idle polling, epoch-qualified diagnostics and issue #4 evidence.
 - [Event delivery and receiver diagnostics](event-streams.md): shared retention,
