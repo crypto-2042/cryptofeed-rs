@@ -48,6 +48,7 @@ pub use feed::{
     EventCounters, FeedHandler, FeedStatus, IdentifiedSubscription, SubscriptionDiagnostics,
 };
 
+pub use crate::feed::FailureDiagnostic;
 pub use crate::feed::control::{
     BookSyncDiagnostic, ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot,
     FeedState, RuntimeControl,

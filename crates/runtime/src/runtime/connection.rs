@@ -307,7 +307,10 @@ impl<S> Session<S> {
 
     pub(crate) fn record_result(&self, result: &Result<()>) {
         if let Some(readiness) = &self.readiness {
-            readiness.disconnected(result.as_ref().err().map(ToString::to_string));
+            match result {
+                Err(error) => readiness.failed(error, "session"),
+                Ok(()) => readiness.disconnected(None),
+            }
         }
     }
 

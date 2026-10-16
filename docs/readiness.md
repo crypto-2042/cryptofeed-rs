@@ -113,3 +113,22 @@ continuous unsynced time and generation totals; stale epoch updates are ignored.
 The latest error is historical within that epoch and may remain after recovery.
 Other exchanges currently return an empty vector. This evidence does not alter
 Ready semantics. See [recovery rules and budgets](gateio-book-recovery.md).
+
+## Safe failure classification (2026-10-16)
+
+`ConnectionInfo.last_failure` is an optional `FailureDiagnostic` containing
+static `category`/`reason`, `permanent`, `http_status` and `close_code`.
+`FailureDiagnostic::from(&Error)` never copies arbitrary error text. Permanent
+means retry policy, not that a transient retry budget has been exhausted.
+A failure retains its classification until a successful connect clears it;
+stale-epoch results cannot replace current state. Existing `last_error` remains
+free text for compatibility and should not be published as sanitized evidence.
+
+SDK connection WARN events add `stage`, `feed_id`, `generation`, `connection`,
+`epoch` and the classification. Subscription rejection codes are numeric-only.
+Bitget processing errors add configured product and a whitelisted native topic;
+join identity to the configured feed for the full channel/symbol set. Terminal
+ERROR events identify permanent failure, exhausted retries or task panic/cancel.
+An aggregate run error can wrap the underlying cause as Transport, so retain the
+preceding diagnostics. The SDK does not install a tracing subscriber itself.
+See [issue audit](reports/issue-audit-2026-10-16.md) for evidence limits.

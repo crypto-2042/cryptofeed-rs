@@ -1039,3 +1039,16 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   time and total scheduled operations across reconnects, not replacements.
 - Keep 120s/Linux zero-lag thresholds, historical FAIL and RSS investigation;
   neither local regression nor short connectivity proves the old unique cause.
+
+## Issue audit and Bitget failure #6 (2026-10-16)
+
+- #6 pins 9a86e83/soak 0.1.2 and reports Gateio prerequisites and matrix smoke
+  PASS, then Bitget perpetual baseline FAIL after ~2h53m. Original error/frame
+  evidence is absent; do not invent a panic/protocol/network root cause.
+- Safe FailureDiagnostic and ConnectionInfo.last_failure expose static categories,
+  reasons and numeric status/close codes. Trace failures with identity/epoch;
+  soak must retain the allowed fields without copying arbitrary error strings.
+- Existing book gap/cross failures already retry; subscription rejection remains
+  permanent. Synthetic tests do not prove the failed live trigger is repaired.
+- #3/#4/#6 stay open until their documented evidence gates are met; Gateio
+  prerequisites and zero final lag do not replace complete 72-hour acceptance.

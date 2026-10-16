@@ -1,6 +1,18 @@
 # Progress
 
-Last updated: 2026-10-15
+Last updated: 2026-10-16
+
+## Open-issue audit and Bitget diagnostics (2026-10-16)
+
+- Issues #3/#4/#6 retain their closure gates. #6 reports Gateio prerequisites and
+  matrix smoke PASS, followed by Bitget perpetual baseline FAIL after about 2h53m;
+  the original error was not retained and 72-hour acceptance remains incomplete.
+- Added safe static failure classification, retained connection diagnostics and
+  identity/epoch-qualified error events. Soak retains these fields and distinct
+  task/run exit outcomes without arbitrary error text.
+- Synthetic Bitget failure/reconnect/withdrawal regressions preserve permanent
+  rejection and transient retry semantics; actual trigger attribution remains open.
+- [Audit and evidence boundaries](docs/reports/issue-audit-2026-10-16.md).
 
 ## Gateio L2 recovery issue #4 (2026-10-15)
 

@@ -43,6 +43,7 @@ pub use cryptofeed_ticker::{Ticker, TickerHandler};
 #[cfg(feature = "trade")]
 pub use cryptofeed_trade::{Side, Trade, TradeHandler};
 
+pub use crate::feed::FailureDiagnostic;
 pub use crate::feed::control::{
     BookSyncDiagnostic, ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot,
     FeedState, RuntimeControl,

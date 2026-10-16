@@ -1,6 +1,6 @@
 # Python Baseline vs Rust Parity Checklist
 
-Last updated: 2026-10-15
+Last updated: 2026-10-16
 
 ## Goal
 
@@ -9,7 +9,7 @@ Last updated: 2026-10-15
 Bybit, OKX, and Gate.io. Python remains a semantic migration reference; official
 exchange documentation and sourced fixtures define protocol correctness.
 
-## Linux release qualification boundary (2026-10-15)
+## Linux release qualification boundary (2026-10-16)
 
 Issue #4 reports zero identified lag but Gateio perpetual L2 recovery failure on
 f6d0f6b after 10.30 hours; the full 72-hour suite remains incomplete. Current
@@ -17,6 +17,12 @@ synthetic/native regression gates cover corrected v1 range bridges, fail-closed
 missing IDs, bounded recovery and per-book diagnostics. Exchange/channel support
 below is unchanged; a checked implementation gate is not sustained-run acceptance.
 See [Gateio remediation evidence](docs/reports/issue-4-gateio-recovery-2026-10-15.md).
+
+The subsequent #6 report confirms Gateio prerequisites and matrix smoke PASS,
+but a new Bitget perpetual terminal failure interrupted baseline after about
+2h53m. Safe error classification and synthetic lifecycle regressions are now
+available; the actual trigger and full acceptance remain unverified. See the
+[open-issue audit](docs/reports/issue-audit-2026-10-16.md).
 
 ## Verified Baseline
 

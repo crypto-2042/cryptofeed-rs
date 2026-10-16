@@ -306,8 +306,21 @@ fn record_exit(
             .lifecycle(FeedState::Stopped { forced: true }),
         result => {
             let error = match result {
-                Ok(Err(error)) => error.to_string(),
-                Err(error) => error.to_string(),
+                Ok(Err(error)) => {
+                    let diagnostic = crate::feed::FailureDiagnostic::from(&error);
+                    tracing::error!(exchange=?running.monitor.exchange,
+                        feed_id=running.monitor.identity.id.as_u64(), generation=running.monitor.identity.generation,
+                        category=diagnostic.category, reason=diagnostic.reason,
+                        outcome="feed_failed", "managed worker exited with error");
+                    error.to_string()
+                }
+                Err(error) => {
+                    tracing::error!(exchange=?running.monitor.exchange,
+                        feed_id=running.monitor.identity.id.as_u64(), generation=running.monitor.identity.generation,
+                        outcome=if error.is_panic() { "task_panicked" } else { "task_cancelled" },
+                        "managed worker task exited");
+                    error.to_string()
+                }
                 _ => unreachable!(),
             };
             running.monitor.lifecycle(FeedState::Failed {

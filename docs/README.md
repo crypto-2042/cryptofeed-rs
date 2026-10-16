@@ -19,6 +19,8 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
   retained Linux failure, bounded-stream changes and deterministic regression scope.
 - [Issue #4 remediation evidence](reports/issue-4-gateio-recovery-2026-10-15.md):
   preserved Ready failure, sequence fixes, bounded recovery and verification limits.
+- [Open-issue audit and Bitget diagnostics](reports/issue-audit-2026-10-16.md):
+  closure gates, safe failure classification and remaining Linux evidence.
 - [Gateio L2 recovery](gateio-book-recovery.md): ID bridges, cumulative recovery
   budgets, idle polling, epoch-qualified diagnostics and issue #4 evidence.
 - [Event delivery and receiver diagnostics](event-streams.md): shared retention,

@@ -594,6 +594,12 @@ The offline evidence and parity workflow is documented in
 [the harness guide](docs/harness.md). See the [documentation index](docs/README.md)
 for protocol references, decisions, and dated live-validation reports.
 
+Managed connection state exposes `last_failure: Option<FailureDiagnostic>` with
+safe static error category/reason, permanent-policy flag and numeric HTTP/close
+codes. Structured WARN/ERROR events correlate failures with feed identity and
+connection epoch; see [readiness diagnostics](docs/readiness.md). Linux sustained
+acceptance remains incomplete; [issue audit](docs/reports/issue-audit-2026-10-16.md).
+
 ## Exchange Policy
 
 New CEX integrations must use the latest stable official exchange API rather than legacy versions.
