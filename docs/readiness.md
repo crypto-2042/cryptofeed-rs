@@ -128,7 +128,9 @@ SDK connection WARN events add `stage`, `feed_id`, `generation`, `connection`,
 `epoch` and the classification. Subscription rejection codes are numeric-only.
 Bitget processing errors add configured product and a whitelisted native topic;
 join identity to the configured feed for the full channel/symbol set. Terminal
-ERROR events identify permanent failure, exhausted retries or task panic/cancel.
+ERROR events identify direct permanent failure or task panic/cancel. Exhaustion
+is logged at the configured supervisor retry-budget boundary; other terminal
+errors use `feed_failed` without inferring retry exhaustion from their category.
 An aggregate run error can wrap the underlying cause as Transport, so retain the
 preceding diagnostics. The SDK does not install a tracing subscriber itself.
 See [issue audit](reports/issue-audit-2026-10-16.md) for evidence limits.

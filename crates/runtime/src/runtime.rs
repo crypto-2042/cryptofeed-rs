@@ -350,7 +350,7 @@ fn record_feed_result(
                 outcome = if diagnostic.permanent {
                     "permanent_failure"
                 } else {
-                    "retry_exhausted"
+                    "feed_failed"
                 },
                 "feed terminated"
             );

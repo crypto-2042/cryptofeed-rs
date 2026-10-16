@@ -37,8 +37,10 @@ checks, subscription matrix and frozen thresholds are unchanged.
   native topic; unknown input topics become `unknown`. Join the identity to the
   frozen feed profile for the configured channel/symbol set. Connection errors
   do not necessarily belong to one channel.
-- Terminal events distinguish permanent error, retry exhaustion and task
-  panic/cancellation; managed worker exits retain identity. Nested aggregate
+- Terminal events identify direct permanent errors and task panic/cancellation;
+  retry exhaustion is emitted at the actual configured supervisor budget boundary.
+  Other feed errors use `feed_failed` because aggregate Transport errors cannot
+  prove retry exhaustion. Managed worker exits retain identity. Nested aggregate
   SDK errors may be Transport: use the preceding connection/feed diagnostic for
   the actual cause, not only the final aggregate.
 - The sibling soak application records these allowed fields, typed connection
