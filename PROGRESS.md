@@ -1,6 +1,18 @@
 # Progress
 
-Last updated: 2026-10-16
+Last updated: 2026-10-20
+
+## First evaluation candidate and repeatable package gates (2026-10-20)
+
+- PR #7 prepares all eleven crates at 0.1.0-rc.1 with exact internal RC
+  requirements and explicit evaluation-only limits. No runtime behavior changes.
+- CI now tests all extracted packages and separate default/minimal/all-feature
+  consumers after workspace publish dry-run. The MSRV job covers all targets.
+- Issues #3/#4/#6 remain open. Historical failures, unknown Bitget trigger and
+  incomplete Linux 72-hour qualification are not waived by RC preparation.
+- Registry upload, publisher permission, real registry consumers and docs.rs
+  confirmation remain pending. PR #5's conflicting base64 update is separate.
+- [Candidate review and validation](docs/reports/release-candidate-review-2026-10-20.md).
 
 ## Latest Linux evidence and consumer contention (2026-10-16)
 

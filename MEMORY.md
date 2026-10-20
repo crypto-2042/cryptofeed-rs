@@ -2,6 +2,14 @@
 
 Project-specific memory for `rust/cryptofeed-rs`.
 
+## RC package gate (2026-10-20)
+
+- All eleven RC versions and internal dependency requirements must match exactly.
+- After workspace dry-run, scripts/verify-packages.sh tests extracted archives and
+  independent consumers. Extracted-path patches simulate unpublished siblings;
+  they do not verify actual registry downloads, ownership or docs.rs publication.
+- RC engineering acceptance does not close #3/#4/#6 or waive Linux qualification.
+
 ## Structural Memory
 
 - The Rust workspace lives at the repository root.
