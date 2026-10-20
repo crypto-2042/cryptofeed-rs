@@ -29,12 +29,15 @@ Rust 1.85 for fresh-resolution compatibility. No toolchain upgrade is required.
    README, normalized manifests and source must be present. No `.local`, secrets,
    source-workspace paths or build artifacts may be published. Cargo-generated
    archive lockfiles are allowed; the repository still does not track Cargo.lock.
-4. Extract archives outside the checkout. Create a consumer depending on exact
-   `cryptofeed-rs = 0.1.0`, with registry patches pointing only at extracted crates.
+4. Run `bash scripts/verify-packages.sh` after the workspace dry-run. It extracts
+   archives outside the checkout and tests all packaged crates, then runs separate
+   consumers depending on the exact workspace version (currently
+   `cryptofeed-rs = "=0.1.0-rc.1"`), with registry patches pointing only at extracted crates.
    Check default features, no defaults, and all features. Exercise the documented
    FeedHandler/builder, handler, Decimal model and optional recording surfaces.
    Test the packaged core/data/runtime crates from extracted sources as well.
    Patches simulate unpublished siblings; they do not establish registry ownership.
+   CI runs this gate after package build verification; the script never uploads.
 5. Audit fresh dependency resolution with current RustSec data and inspect the
    SPDX license metadata of all resolved packages. Keep per-dependency notices;
    MIT for this project does not relicense dependencies.

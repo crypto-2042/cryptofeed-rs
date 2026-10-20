@@ -135,7 +135,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.85
-      - run: cargo check --workspace --all-features
+      - run: cargo check --workspace --all-features --all-targets
 
   package:
     runs-on: ubuntu-latest
@@ -152,6 +152,8 @@ jobs:
           done
       - name: Verify publishable workspace builds
         run: cargo publish --workspace --dry-run --all-features
+      - name: Test extracted packages and independent consumers
+        run: bash scripts/verify-packages.sh
 
   security:
     runs-on: ubuntu-latest
