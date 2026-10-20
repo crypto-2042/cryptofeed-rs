@@ -5,6 +5,16 @@ The implementation is a release candidate; a plan is not a passing live test.
 See [compatibility](compatibility.md) and [PARITY.md](../PARITY.md).
 Do not publish to a registry as part of validation.
 
+## Prerelease preparation
+
+`0.1.0-rc.1` is an evaluation candidate, not stable-release approval. Follow the
+engineering, package, dependency and extracted-consumer gates below on its final
+clean commit. All eleven workspace versions and internal dependency requirements
+must select the same RC. Consumers explicitly opt into `=0.1.0-rc.1` only after
+registry publication. Disclose the [RC limitations](release-candidate.md) and
+leave incomplete sustained-run gates marked FAIL or NOT RUN. Preparing an RC does
+not reduce the stable qualification criteria or close unresolved issues.
+
 ## Packaging and independent-consumer gates
 
 Use the already-installed development compiler (currently Rust 1.93.0); retain

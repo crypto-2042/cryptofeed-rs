@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-rc.1] - 2026-10-20
+
+### Qualification
+
+- Prepare matching prerelease versions for all eleven workspace crates, with
+  internal dependencies pinned to this RC. No runtime behavior or default
+  retention change is part of this release preparation.
+- Document evaluation scope, explicit lag/L2 recovery handling, and unresolved
+  qualification for issues #3, #4 and #6. Engineering/package checks do not
+  establish sustained-run or unattended-production qualification.
+- Registry upload, registry-consumer validation and docs.rs confirmation require
+  separate release authorization and evidence; this entry is not an upload claim.
+
 ### Gateio L2 recovery
 
 - Accept valid order_book_update overlapping sequence coverage; reject unanchored

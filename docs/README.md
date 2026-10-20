@@ -8,6 +8,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
 ## Release preparation
 
+- [0.1.0-rc.1 scope and limitations](release-candidate.md): evaluation status,
+  consumer recovery boundaries and remaining stable-release gates.
+
 - [Release-package verification](reports/release-package-verification-2026-10-13.md):
   eleven real package builds, extracted consumers/tests, security and license evidence.
 

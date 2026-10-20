@@ -30,15 +30,15 @@ webpki-roots = "1"
 base64 = "0.22"
 httpdate = "1"
 cryptofeed-core.workspace = true
-cryptofeed-candles = { path = "../candles", version = "0.1.0", optional = true }
-cryptofeed-funding = { path = "../funding", version = "0.1.0", optional = true }
-cryptofeed-liquidations = { path = "../liquidations", version = "0.1.0", optional = true }
-cryptofeed-markprice = { path = "../markprice", version = "0.1.0", optional = true }
-cryptofeed-openinterest = { path = "../openinterest", version = "0.1.0", optional = true }
-cryptofeed-index = { path = "../index", version = "0.1.0", optional = true }
-cryptofeed-ticker = { path = "../ticker", version = "0.1.0", optional = true }
-cryptofeed-trade = { path = "../trade", version = "0.1.0", optional = true }
-cryptofeed-orderbook = { path = "../orderbook", version = "0.1.0", optional = true }
+cryptofeed-candles = { path = "../candles", version = "=0.1.0-rc.1", optional = true }
+cryptofeed-funding = { path = "../funding", version = "=0.1.0-rc.1", optional = true }
+cryptofeed-liquidations = { path = "../liquidations", version = "=0.1.0-rc.1", optional = true }
+cryptofeed-markprice = { path = "../markprice", version = "=0.1.0-rc.1", optional = true }
+cryptofeed-openinterest = { path = "../openinterest", version = "=0.1.0-rc.1", optional = true }
+cryptofeed-index = { path = "../index", version = "=0.1.0-rc.1", optional = true }
+cryptofeed-ticker = { path = "../ticker", version = "=0.1.0-rc.1", optional = true }
+cryptofeed-trade = { path = "../trade", version = "=0.1.0-rc.1", optional = true }
+cryptofeed-orderbook = { path = "../orderbook", version = "=0.1.0-rc.1", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
 futures.workspace = true
 reqwest.workspace = true
