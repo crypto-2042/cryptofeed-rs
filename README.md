@@ -8,8 +8,9 @@ normalized-feed model while targeting current stable exchange APIs where legacy
 Python adapters no longer match the live protocol. The Python project is a
 semantic migration reference, not the protocol source of truth.
 
-The SDK is preparing **0.1.0-rc.1**, an evaluation candidate for public market
-data. It is not yet published or qualified for unattended production use.
+**0.1.0-rc.1** is an evaluation candidate for public market data, not a
+qualification for unattended production use. Verify registry availability and
+release evidence before selecting a registry dependency.
 Broadcast delivery remains bounded/lossy, and sustained-run qualification and
 the Bitget perpetual termination investigation remain open. See the
 [RC scope and known limitations](docs/release-candidate.md). Authenticated feeds
@@ -32,8 +33,7 @@ in the runtime crate:
 ## Using as a Library
 
 The workspace requires Rust 1.85 or newer. All public-data features are enabled
-by default. The crates have not been published by this project; for a local
-checkout use a path dependency:
+by default. For a local checkout use a path dependency:
 
 ```toml
 [dependencies]

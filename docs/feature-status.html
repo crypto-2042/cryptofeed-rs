@@ -206,7 +206,7 @@
     <h2><span class="step">1</span> 能力矩阵（按标的类型分组：现货 / 合约 / 期权 / MARGIN）</h2>
     <p class="note">首版推送前工程复核：字段语义、无损 JSON 精度、产品限定、Bybit delta 状态、周期格式和日历月边界已修正。383 项测试（含 82 parity）、Rust 1.85、全部 feature、文档与 lint 门禁通过；依赖审计零漏洞。10 配置聚合冒烟及 Bybit/Binance/Bitget 最终目标复核干净退出。最终工程门禁已复跑，源代码已推送 GitHub；GitHub 私有漏洞报告已启用并验证，当时许可证来源待确认；2026-10-13已按维护者决定采用MIT并保留第三方声明。<a href="reports/live-smoke-pre-push-2026-10-08.md">实盘验证范围</a></p>
     <p class="note">后续对齐里程碑按新到旧列出；测试计数和待办项记录各阶段当时的状态，当前进展以上方最新记录为准。</p>
-    <p class="note">2026-10-20 RC准备：11个crate统一0.1.0-rc.1，内部依赖选择同一RC；仅供评估，尚未上传，不表示稳定版或无人值守生产资格。默认1024有损广播、协议检查及恢复期限不变；#3/#4/#6保持开放，最终候选工程/包验证与长时实盘资格分别核验。<a href="release-candidate.md">RC范围、已知限制与规避边界</a></p>
+    <p class="note">2026-10-20 RC准备：11个crate统一0.1.0-rc.1，内部依赖选择同一RC；仅供评估，实际上传与下载复验单独确认，不表示稳定版或无人值守生产资格。默认1024有损广播、协议检查及恢复期限不变；#3/#4/#6保持开放，最终候选工程/包验证与长时实盘资格分别核验。<a href="release-candidate.md">RC范围、已知限制与规避边界</a></p>
     <p class="note">2026-10-16 最新材料：5513831/soak0.1.3冒烟PASS，基线39分31秒后确认丢失432。已复现旧observer持registry等待stats而停止排空，soak0.1.4改用本地计数与非阻塞合并；真正溢出仍FAIL，代次/路由/top-N校验保留。SDK协议、1024环和验收阈值不变。此为已证实的消费者缺陷，未证明实盘唯一原因；新Linux验收NOT RUN。<a href="reports/consumer-contention-2026-10-16.md">证据与修复</a></p>
     <p class="note">2026-10-16 issue复核：#6报告Gateio取证/恢复专项与全矩阵冒烟PASS，但Bitget永续在正常基线约2小时53分后Failed，后四阶段NOT RUN。新增安全静态错误分类、连接代次诊断及任务退出区分，确定性回归覆盖盘口撤回/恢复与永久拒绝。实盘触发原因未留存，#3/#4/#6均未达到关闭条件；72小时验收仍未通过。<a href="reports/issue-audit-2026-10-16.md">复核证据与边界</a></p>
     <p class="note">2026-10-15 issue #4：f6d0f6b Linux基线约10.30小时后Gateio永续L2恢复超时，最终59,137,296发布/接收一致且lag=0；后四阶段未运行。修复v1重叠覆盖误判与无ID时间戳猜锚点，增加会话累计快照预算、60秒引导期限与安全空闲轮询；公开每标的同步诊断。取证版harness保留过滤SDK警告及有界盘口/REST证据。唯一触发原因、RSS趋势及72小时验收仍待新Linux证据，不关闭issue。<a href="gateio-book-recovery.md">规则、诊断与边界</a></p>

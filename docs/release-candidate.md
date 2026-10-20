@@ -1,7 +1,8 @@
 # 0.1.0-rc.1: scope and known limitations
 
-Status: **evaluation candidate, not yet published**. This is not stable-release
-approval, a lossless market-data service, or qualification for unattended
+Status: **evaluation candidate**; registry availability must be checked
+independently. This is not stable-release approval, a lossless market-data
+service, or qualification for unattended
 production. Engineering gates for the final candidate and actual registry
 download/docs.rs verification are separate evidence. Existing FAIL and NOT RUN
 reports remain valid; issues are not automatically closed by preparing this RC.
