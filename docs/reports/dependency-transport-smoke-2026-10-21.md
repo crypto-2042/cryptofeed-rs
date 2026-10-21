@@ -17,9 +17,9 @@ model, capability cell or native protocol expectation changed.
   transport or handshake errors, then exited on SIGALRM. This exercised the new
   explicit connector, SNI/hostname verification against the static roots, and
   the existing shutdown path.
-- The proxied path was not exercised live against a proxy; its CONNECT handling
-  and TLS connector wiring are covered by the existing offline duplex/proxy
-  tests, which continue to pass unchanged.
+- The proxied path was not exercised live against a proxy. Existing offline
+  duplex/proxy tests cover CONNECT parsing and tunneled-byte preservation; they
+  do not establish successful proxied certificate validation.
 - This brief observation verifies connection, data and TLS trust paths, not
   sustained throughput, quota saturation, all venues, proxy deployments or the
   full heartbeat interval.
@@ -28,3 +28,22 @@ The same dependency set passed 853 all-feature workspace tests, strict Clippy an
 rustdoc, `cargo check --workspace --no-default-features` and the `make features`
 matrix. Cargo.lock remains ignored; no test expected values or tolerances were
 relaxed.
+
+## Patched-minimum review
+
+Official RustSec DB `e6f94f3760d5e6c54c1b05f204002263bc025524` marks all
+webpki-roots versions before 1.0.10 as affected. With the original `"1"`
+requirement, `cargo update -p webpki-roots --precise 1.0.9` succeeded and
+`cargo audit --deny warnings` reproduced RUSTSEC-2026-0381. The runtime now
+requires `"1.0.10"`. Existing vulnerable lock selections are updated during
+resolution; an explicit downgrade from the corrected graph is rejected:
+
+```text
+cargo update -p webpki-roots@1.0.10 --precise 1.0.9
+error: failed to select a version for the requirement `webpki-roots = "^1.0.10"`
+candidate versions found which didn't match: 1.0.9
+```
+
+This version floor is part of the published dependency metadata, not a committed
+workspace lockfile. Original smoke observations above remain bounded evidence
+for the explicit connector; the minimum-version review adds no live proxy claim.

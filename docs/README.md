@@ -8,6 +8,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
 ## Release preparation
 
+- [WebSocket trust-root validation](reports/dependency-transport-smoke-2026-10-21.md):
+  explicit static TLS connector, patched minimum dependency and bounded evidence.
+
 - [Release-package verification](reports/release-package-verification-2026-10-13.md):
   eleven real package builds, extracted consumers/tests, security and license evidence.
 
