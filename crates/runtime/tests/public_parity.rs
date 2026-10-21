@@ -264,6 +264,8 @@ fn binance_liquidation_matches_python_public_baseline() {
 fn binance_index_price_matches_public_baseline() {
     // The live USD-M stream emits `e: "IndexUpdate"` (verified 2026-08-07);
     // the docs example uses `indexPriceUpdate`, and both names are accepted.
+    // `T` is the next funding time on mark-price payloads; it must never be
+    // used as the index event timestamp.
     for event in ["IndexUpdate", "indexPriceUpdate"] {
         let message = json!({
             "e": event,
@@ -271,7 +273,7 @@ fn binance_index_price_matches_public_baseline() {
             "s": "BTCUSDT",
             "i": "BTCUSDT",
             "p": "9501.98000000",
-            "T": 1591264326123i64
+            "T": 1591271526123i64
         });
 
         let index = binance_parser::parse_index_price(&message, 1591264326.2).expect("index price");
@@ -866,6 +868,31 @@ fn bybit_funding_from_tickers_matches_public_baseline() {
 }
 
 #[test]
+fn bybit_funding_ignores_settlement_timestamp_for_exchange_ts() {
+    // Funding history uses `fundingRateTimestamp` for the settlement instant.
+    // If a legacy ticker payload carries it, the envelope `ts` must remain
+    // the event time (issue #9 class).
+    let message = json!({
+        "topic": "tickers.BTCUSDT",
+        "type": "snapshot",
+        "ts": 1672304487030i64,
+        "data": [{
+            "symbol": "BTCUSDT",
+            "fundingRate": "0.0001",
+            "nextFundingTime": "1672337600000",
+            "fundingRateTimestamp": "1672337600000",
+            "markPrice": "50000"
+        }]
+    });
+
+    let funding = bybit_parser::parse_funding(&message, 1672304487.1).expect("funding");
+
+    assert_eq!(funding.exchange_ts, 1672304487.03);
+    assert_eq!(funding.next_funding_time, Some(1672337600.0));
+    assert!(funding.exchange_ts < funding.next_funding_time.unwrap());
+}
+
+#[test]
 fn bybit_open_interest_from_tickers_matches_public_baseline() {
     let message = json!({
         "topic": "tickers.BTCUSDT",
@@ -1310,32 +1337,65 @@ fn okx_swap_product_identity_is_preserved() {
 
 #[test]
 fn okx_funding_rate_matches_public_baseline() {
+    // Live 2026-10-21 BTC-USDT-SWAP frame: `fundingTime` is the upcoming
+    // settlement (~2h39m ahead), `ts` is the data return time.
+    let message = json!({
+        "arg": {"channel": "funding-rate", "instId": "BTC-USDT-SWAP"},
+        "data": [{
+            "instId": "BTC-USDT-SWAP",
+            "fundingRate": "0.0000376259479002",
+            "fundingTime": "1792569600000",
+            "nextFundingRate": "0.00004",
+            "nextFundingTime": "1792598400000",
+            "prevFundingTime": "1792540800000",
+            "ts": "1792560006264",
+            "settState": "settled",
+            "method": "current_period"
+        }]
+    });
+
+    let funding = okx_parser::parse_funding(&message, 1792560050.973).expect("funding");
+
+    assert_eq!(funding.symbol.as_str(), "BTC-USDT-PERP");
+    assert_eq!(
+        funding.rate,
+        Some(Decimal::from_str_exact("0.0000376259479002").unwrap())
+    );
+    assert_eq!(funding.mark_price, None);
+    // `fundingTime` settles the current rate; `nextFundingTime` is one period
+    // further and must not be used as the model's next settlement.
+    assert_eq!(funding.next_funding_time, Some(1792569600.0));
+    assert_eq!(
+        funding.predicted_rate,
+        Some(Decimal::from_str_exact("0.00004").unwrap())
+    );
+    // `ts` is the event time, not the future settlement time.
+    assert_eq!(funding.exchange_ts, 1792560006.264);
+    assert_eq!(funding.received_ts, 1792560050.973);
+    assert!(funding.exchange_ts <= funding.received_ts);
+    assert!(
+        funding.next_funding_time.unwrap() - funding.exchange_ts > 9_000.0,
+        "settlement time must not be mistaken for the event time"
+    );
+}
+
+#[test]
+fn okx_funding_rate_without_ts_falls_back_to_received_ts() {
     let message = json!({
         "arg": {"channel": "funding-rate", "instId": "BTC-USDT-SWAP"},
         "data": [{
             "instId": "BTC-USDT-SWAP",
             "fundingRate": "0.0001",
-            "fundingTime": "1710000000123",
-            "nextFundingRate": "0.0002",
-            "nextFundingTime": "1710003600123"
+            "fundingTime": "1792569600000",
+            "nextFundingTime": "1792598400000"
         }]
     });
 
-    let funding = okx_parser::parse_funding(&message, 1710000001.5).expect("funding");
+    let funding = okx_parser::parse_funding(&message, 1792560050.973).expect("funding");
 
-    assert_eq!(funding.symbol.as_str(), "BTC-USDT-PERP");
-    assert_eq!(
-        funding.rate,
-        Some(Decimal::from_str_exact("0.0001").unwrap())
-    );
-    assert_eq!(funding.mark_price, None);
-    assert_eq!(funding.next_funding_time, Some(1710003600.123));
-    assert_eq!(
-        funding.predicted_rate,
-        Some(Decimal::from_str_exact("0.0002").unwrap())
-    );
-    assert_eq!(funding.exchange_ts, 1710000000.123);
-    assert_eq!(funding.received_ts, 1710000001.5);
+    assert_eq!(funding.exchange_ts, 1792560050.973);
+    assert_eq!(funding.received_ts, 1792560050.973);
+    assert_eq!(funding.next_funding_time, Some(1792569600.0));
 }
 
 #[test]

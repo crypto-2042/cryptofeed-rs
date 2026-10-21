@@ -104,8 +104,8 @@ never become a CI dependency.
   is requested, one `@markPrice@1s` topic is shared with Funding/MarkPrice;
   otherwise their default cadence is unchanged. This covers native USD-M
   and COIN-M perpetual/dated contract names without guessing an index topic.
-  Older `IndexUpdate` / `indexPriceUpdate` captures and `p/T` parsers remain
-  implementation references; their 2026-08-07 observations are historical.
+  Older `IndexUpdate` / `indexPriceUpdate` captures use `p` and `E`; they never
+  use `T` as the timestamp, and their 2026-08-07 observations are historical.
 - Contract OI rechecked against official documentation and GitHub SDK/feed
   implementations on 2026-10-08: no documented USD-M/COIN-M perpetual or
   dated-futures OI market stream was found, nor a USD-M WS API OI query.
@@ -295,8 +295,10 @@ Official references:
 - If both Ticker and L2 are requested, keep their topics and normalized event
   types independent even though both originate from order-book channels.
 - Funding normalizes to the project `Funding` model with `next_funding_time`
-  and `predicted_rate` as `None` (Bybit does not push them); the applicable
-  funding time becomes `exchange_ts`.
+  from the ticker's `nextFundingTime` and `predicted_rate` as `None` (Bybit
+  does not push a predicted rate). `exchange_ts` is the envelope `ts` (ticker
+  event time); `fundingRateTimestamp`, when present in legacy payloads, is a
+  settlement/rate instant and must not become `exchange_ts` (issue #9 class).
 - Liquidations normalize with `status: Filled` and no order id; the position
   side in `S` is inverted to the liquidation order/aggressor side.
 - Funding and liquidations are derivative-only capabilities; spot combinations
@@ -373,9 +375,12 @@ Official references:
 ### Current protocol facts (funding and liquidations)
 
 - `funding-rate` applies to SWAP instruments only and pushes
-  `fundingRate` (current period), `fundingTime`, `nextFundingRate` (may be
-  absent or empty until the next period), and `nextFundingTime`. No mark price
-  is sent on this channel.
+  `fundingRate` (current period), `fundingTime` (settlement time for the current
+  rate, normally in the future), `nextFundingRate` (may be absent or empty until
+  the next period), `nextFundingTime` (one settlement period further), and `ts`
+  (data return time). No mark price is sent on this channel. Field semantics
+  verified against the official channel table on 2026-10-21; live capture in
+  issue #9 shows `fundingTime` about 2h39m ahead of `ts`.
 - Monthly `1M` and quarterly `3M` candle ends follow calendar months at
   their documented UTC+8 opening boundary, rather than fixed 30/90-day spans.
   Leap-year and month-length boundary regressions cover this derivation.
@@ -419,8 +424,12 @@ Official references:
   routing or payload expectations while fixing another exchange.
 - Preserve batched entries, snapshot replacement, sequence/checksum failures,
   heartbeat, and subscription errors in deterministic tests.
-- Funding normalizes with `mark_price: None`, `next_funding_time` from
-  `nextFundingTime`, and `predicted_rate` from `nextFundingRate` when present.
+- Funding normalizes with `mark_price: None`, `exchange_ts` from `ts` (falling
+  back to `received_ts` when absent), `next_funding_time` from `fundingTime`,
+  and `predicted_rate` from `nextFundingRate` when present. `nextFundingTime`
+  is one period beyond the model's next settlement and is not substituted.
+  `fundingTime` must never become `exchange_ts`: it is a settlement deadline,
+  not an observation time (issue #9).
 - Liquidations keep `ordId` as the order id and `status: Filled` (OKX pushes no
   fill status). Funding is a SWAP-only capability; futures funding must fail
   preflight while futures liquidations stay supported.

@@ -498,3 +498,26 @@ The positive Gateio HTTP causal replay/independent-merge fixtures now include
 assertions. A separate negative raw-replay regression proves an idless snapshot
 publishes nothing and a subsequent valid-ID snapshot recovers. No failed-run
 payload or expected numerical value was rewritten to conceal a failure.
+
+## 2026-10-21 OKX funding timestamps (issue #9)
+
+The `okx.ws.v5` funding-rate reference now carries the live 2026-10-21
+BTC-USDT-SWAP frame shape: `ts` near the receive time, `fundingTime` about
+2h39m in the future, and `nextFundingTime` one 8-hour period further. Values
+are the public issue capture, not a real order or rate observation for
+trading. The official
+[funding-rate channel table](https://www.okx.com/docs-v5/en/#public-data-websocket-funding-rate-channel)
+defines `fundingTime` as settlement time, `nextFundingTime` as the following
+period, and `ts` as data return time. Inline assertions:
+`okx_funding_rate_matches_public_baseline` and
+`okx_funding_rate_without_ts_falls_back_to_received_ts`. The previous fixture
+asserted `exchange_ts == fundingTime`, which encoded the defect; it was
+replaced rather than relaxed.
+
+The same audit added defensive inline probes, not captured venue frames:
+`binance_index_price_matches_public_baseline` gives IndexUpdate a far-future
+`T` (next funding time) and asserts `E` wins, and
+`bybit_funding_ignores_settlement_timestamp_for_exchange_ts` adds a synthetic
+`fundingRateTimestamp` (funding-history settlement instant) and asserts the
+ticker envelope `ts` wins. Current Bybit tickers do not transmit
+`fundingRateTimestamp`; the probe guards the legacy field path only.

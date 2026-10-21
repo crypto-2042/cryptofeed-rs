@@ -246,7 +246,8 @@ fn parse_index_price_with_symbol(
 ) -> Option<IndexPrice> {
     let from_mark = message.get("e").and_then(Value::as_str) == Some("markPriceUpdate");
     // In markPriceUpdate, i is the index price and E the event timestamp;
-    // T is the next funding time. Legacy index fixtures retain p/T parsing.
+    // T is always the next funding time and must never become the index
+    // timestamp. Legacy index fixtures without E fall back to received_ts.
     Some(IndexPrice {
         exchange: ExchangeId::Binance,
         symbol,
@@ -255,9 +256,8 @@ fn parse_index_price_with_symbol(
         high_24h: None,
         low_24h: None,
         exchange_ts: message
-            .get(if from_mark { "E" } else { "T" })
+            .get("E")
             .and_then(parse_millis)
-            .or_else(|| message.get("E").and_then(parse_millis))
             .unwrap_or(received_ts),
         received_ts,
     })

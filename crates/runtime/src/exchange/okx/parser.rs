@@ -380,10 +380,15 @@ pub fn parse_fundings(message: &Value, received_ts: f64) -> Vec<Funding> {
                 // OKX funding-rate rows do not carry a mark price.
                 mark_price: None,
                 rate: Some(parse_decimal(row.get("fundingRate")?)?),
-                next_funding_time: row.get("nextFundingTime").and_then(parse_millis),
+                // `fundingTime` settles the current `fundingRate`;
+                // `nextFundingTime` is one period further and is not the
+                // model's next settlement.
+                next_funding_time: row.get("fundingTime").and_then(parse_millis),
                 // `nextFundingRate` is absent or empty until the next period.
                 predicted_rate: row.get("nextFundingRate").and_then(parse_decimal),
-                exchange_ts: row.get("fundingTime").and_then(parse_millis)?,
+                // `ts` is the data return time. `fundingTime` is always in the
+                // future and must never become the event timestamp.
+                exchange_ts: row.get("ts").and_then(parse_millis).unwrap_or(received_ts),
                 received_ts,
             })
         })

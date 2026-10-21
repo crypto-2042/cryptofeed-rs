@@ -442,10 +442,12 @@ fn parse_funding_row(
             .filter(|value| *value > 0)
             .map(|value| value as f64 / 1000.0),
         predicted_rate: None,
-        exchange_ts: data
-            .get("fundingRateTimestamp")
+        // The envelope `ts` is the ticker event time. Legacy payloads may
+        // carry `fundingRateTimestamp`, a settlement/rate instant that must
+        // not be mistaken for the event time (issue #9 class).
+        exchange_ts: message
+            .get("ts")
             .and_then(parse_millis)
-            .or_else(|| message.get("ts").and_then(parse_millis))
             .unwrap_or(received_ts),
         received_ts,
     })
