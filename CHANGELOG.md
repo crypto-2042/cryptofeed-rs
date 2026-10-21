@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-rc.1] - 2026-10-20
+
+### Qualification
+
+- Prepare matching prerelease versions for all eleven workspace crates, with
+  internal dependencies pinned to this RC. Includes the explicit static
+  WebSocket TLS security fix and base64 0.23 update; delivery defaults and
+  market-data recovery rules are unchanged.
+- Document evaluation scope, explicit lag/L2 recovery handling, and unresolved
+  qualification for issues #3, #4 and #6. Engineering/package checks do not
+  establish sustained-run or unattended-production qualification.
+- Registry upload, registry-consumer validation and docs.rs confirmation require
+  separate release authorization and evidence; this entry is not an upload claim.
+
 ### Gateio L2 recovery
 
 - Accept valid order_book_update overlapping sequence coverage; reject unanchored
@@ -35,7 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Validate direct and proxied WebSockets with the SDK's own rustls client built
   from the static WebPKI roots, replacing tokio-tungstenite's auto connector; the
-  lockfile no longer carries webpki-roots 0.26 (RUSTSEC-2026-0381).
+  dependency graph excludes webpki-roots 0.26 and requires >=1.0.10
+  (RUSTSEC-2026-0381), including for downstream lockfile resolution.
 
 ### Added
 

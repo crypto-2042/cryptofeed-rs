@@ -5,6 +5,16 @@ The implementation is a release candidate; a plan is not a passing live test.
 See [compatibility](compatibility.md) and [PARITY.md](../PARITY.md).
 Do not publish to a registry as part of validation.
 
+## Prerelease preparation
+
+`0.1.0-rc.1` is an evaluation candidate, not stable-release approval. Follow the
+engineering, package, dependency and extracted-consumer gates below on its final
+clean commit. All eleven workspace versions and internal dependency requirements
+must select the same RC. Consumers explicitly opt into `=0.1.0-rc.1` only after
+registry publication. Disclose the [RC limitations](release-candidate.md) and
+leave incomplete sustained-run gates marked FAIL or NOT RUN. Preparing an RC does
+not reduce the stable qualification criteria or close unresolved issues.
+
 ## Packaging and independent-consumer gates
 
 Use the already-installed development compiler (currently Rust 1.93.0); retain
@@ -19,12 +29,15 @@ Rust 1.85 for fresh-resolution compatibility. No toolchain upgrade is required.
    README, normalized manifests and source must be present. No `.local`, secrets,
    source-workspace paths or build artifacts may be published. Cargo-generated
    archive lockfiles are allowed; the repository still does not track Cargo.lock.
-4. Extract archives outside the checkout. Create a consumer depending on exact
-   `cryptofeed-rs = 0.1.0`, with registry patches pointing only at extracted crates.
+4. Run `bash scripts/verify-packages.sh` after the workspace dry-run. It extracts
+   archives outside the checkout and tests all packaged crates, then runs separate
+   consumers depending on the exact workspace version (currently
+   `cryptofeed-rs = "=0.1.0-rc.1"`), with registry patches pointing only at extracted crates.
    Check default features, no defaults, and all features. Exercise the documented
    FeedHandler/builder, handler, Decimal model and optional recording surfaces.
    Test the packaged core/data/runtime crates from extracted sources as well.
    Patches simulate unpublished siblings; they do not establish registry ownership.
+   CI runs this gate after package build verification; the script never uploads.
 5. Audit fresh dependency resolution with current RustSec data and inspect the
    SPDX license metadata of all resolved packages. Keep per-dependency notices;
    MIT for this project does not relicense dependencies.

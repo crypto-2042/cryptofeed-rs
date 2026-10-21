@@ -8,8 +8,13 @@ normalized-feed model while targeting current stable exchange APIs where legacy
 Python adapters no longer match the live protocol. The Python project is a
 semantic migration reference, not the protocol source of truth.
 
-The SDK is currently an experimental public-market-data release. Authenticated
-feeds and trading are out of scope.
+**0.1.0-rc.1** is an evaluation candidate for public market data, not a
+qualification for unattended production use. Verify registry availability and
+release evidence before selecting a registry dependency.
+Broadcast delivery remains bounded/lossy, and sustained-run qualification and
+the Bitget perpetual termination investigation remain open. See the
+[RC scope and known limitations](docs/release-candidate.md). Authenticated feeds
+and trading are out of scope.
 
 ## Crates
 
@@ -28,8 +33,7 @@ in the runtime crate:
 ## Using as a Library
 
 The workspace requires Rust 1.85 or newer. All public-data features are enabled
-by default. The crates have not been published by this project; for a local
-checkout use a path dependency:
+by default. For a local checkout use a path dependency:
 
 ```toml
 [dependencies]
@@ -40,8 +44,10 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 A Git dependency from
 [the project repository](https://github.com/crypto-2042/cryptofeed-rs) can use `cryptofeed-rs = { git = "https://github.com/crypto-2042/cryptofeed-rs" }`.
-Use a registry version such as `"0.1"` only after the crates are actually
-published.
+After the RC is actually published, opt in explicitly with
+`cryptofeed-rs = "=0.1.0-rc.1"`; an ordinary `"0.1"` requirement does not select
+this prerelease. The release process publishes all eleven crates at the same
+version. Until publication, use the local checkout or a pinned Git commit.
 
 Subscribe to Binance USD-M perpetual funding, index, and mark price alongside
 the ticker/trade/L2 baseline:

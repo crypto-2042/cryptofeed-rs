@@ -2,6 +2,14 @@
 
 Last updated: 2026-10-21
 
+## RC dependency integration (2026-10-21)
+
+- The RC branch incorporates PR #8 security maintenance and PR #5 base64 0.23.
+  Conflicts retain patched roots, all eleven RC versions and exact internal pins.
+- Candidate engineering/package gates must be rerun for the updated commit.
+  Historical 2026-10-20 package hashes identify only their stated older commit.
+- No registry upload, stable promotion or acceptance issue closure is implied.
+
 ## WebSocket trust-root security maintenance (2026-10-21)
 
 - PR #8 replaces tungstenite's automatic root selection with the SDK's explicit
@@ -13,6 +21,18 @@ Last updated: 2026-10-21
   Proxy CONNECT tests do not establish successful proxied TLS validation.
 - [Bounded live evidence and review](docs/reports/dependency-transport-smoke-2026-10-21.md).
   Existing acceptance issues and Linux long-run qualification remain open.
+
+## First evaluation candidate and repeatable package gates (2026-10-20)
+
+- PR #7 prepares all eleven crates at 0.1.0-rc.1 with exact internal RC
+  requirements and explicit evaluation-only limits. No runtime behavior changes.
+- CI now tests all extracted packages and separate default/minimal/all-feature
+  consumers after workspace publish dry-run. The MSRV job covers all targets.
+- Issues #3/#4/#6 remain open. Historical failures, unknown Bitget trigger and
+  incomplete Linux 72-hour qualification are not waived by RC preparation.
+- Registry upload, publisher permission, real registry consumers and docs.rs
+  confirmation remain pending. PR #5's conflicting base64 update is separate.
+- [Candidate review and validation](docs/reports/release-candidate-review-2026-10-20.md).
 
 ## Latest Linux evidence and consumer contention (2026-10-16)
 
