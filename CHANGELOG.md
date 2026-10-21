@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Qualification
 
 - Prepare matching prerelease versions for all eleven workspace crates, with
-  internal dependencies pinned to this RC. No runtime behavior or default
-  retention change is part of this release preparation.
+  internal dependencies pinned to this RC. Includes the explicit static
+  WebSocket TLS security fix and base64 0.23 update; delivery defaults and
+  market-data recovery rules are unchanged.
 - Document evaluation scope, explicit lag/L2 recovery handling, and unresolved
   qualification for issues #3, #4 and #6. Engineering/package checks do not
   establish sustained-run or unattended-production qualification.
@@ -43,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   notice in root and per-crate third-party notices.
 - Define 0.1 patch compatibility, release verification and sustained-run criteria.
 - Require rustls >= 0.23.45 within the 0.23 series.
+
+### Security
+
+- Validate direct and proxied WebSockets with the SDK's own rustls client built
+  from the static WebPKI roots, replacing tokio-tungstenite's auto connector; the
+  dependency graph excludes webpki-roots 0.26 and requires >=1.0.10
+  (RUSTSEC-2026-0381), including for downstream lockfile resolution.
 
 ### Added
 

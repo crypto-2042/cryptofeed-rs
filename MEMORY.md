@@ -2,6 +2,14 @@
 
 Project-specific memory for `rust/cryptofeed-rs`.
 
+## Static WebSocket trust roots (2026-10-21)
+
+- Direct/proxied WS and HTTP share static WebPKI roots and the explicit ring
+  provider. Do not silently adopt OS roots or alter the embedding global provider.
+- webpki-roots requires >=1.0.10 (RUSTSEC-2026-0381); a fresh latest-version audit
+  alone does not protect downstream lockfiles. Keep the patched minimum.
+- Re-check tungstenite's internal __rustls-tls feature on dependency upgrades.
+
 ## RC package gate (2026-10-20)
 
 - All eleven RC versions and internal dependency requirements must match exactly.

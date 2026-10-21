@@ -250,10 +250,15 @@ impl TransportConfig {
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
         self.check_websocket_available()?;
         let Some(proxy) = &self.proxy else {
-            return tokio_tungstenite::connect_async_with_config(url.as_str(), Some(config), false)
-                .await
-                .map(|(stream, _)| stream)
-                .map_err(|error| failure::handshake(error, false));
+            return tokio_tungstenite::connect_async_tls_with_config(
+                url.as_str(),
+                Some(config),
+                false,
+                Some(websocket_connector()),
+            )
+            .await
+            .map(|(stream, _)| stream)
+            .map_err(|error| failure::handshake(error, false));
         };
         let host = socket_host(&proxy.endpoint)?;
         let port = proxy
@@ -267,10 +272,15 @@ impl TransportConfig {
             .set_nodelay(true)
             .map_err(|_| Error::Transport("HTTP proxy TCP configuration failed".into()))?;
         tunnel(&mut stream, url, proxy.authorization.as_ref()).await?;
-        tokio_tungstenite::client_async_tls_with_config(url.as_str(), stream, Some(config), None)
-            .await
-            .map(|(stream, _)| stream)
-            .map_err(|error| failure::handshake(error, true))
+        tokio_tungstenite::client_async_tls_with_config(
+            url.as_str(),
+            stream,
+            Some(config),
+            Some(websocket_connector()),
+        )
+        .await
+        .map(|(stream, _)| stream)
+        .map_err(|error| failure::handshake(error, true))
     }
 }
 fn socket_host(url: &Url) -> Result<String> {
@@ -362,21 +372,28 @@ async fn tunnel<S: AsyncRead + AsyncWrite + Unpin>(
     }
 }
 
-// Keep the existing static WebPKI roots and ring provider without changing the
-// embedding application's global crypto provider. SDK admission owns retries.
-fn http_client_builder() -> reqwest::ClientBuilder {
+/// Static WebPKI roots plus the ring provider, shared by HTTP and websockets so
+/// both stacks validate against the same bundled root set (webpki-roots 1.x).
+fn static_tls_config() -> rustls::ClientConfig {
     let roots = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
-    let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .expect("ring supports default TLS versions")
-    .with_root_certificates(roots)
-    .with_no_client_auth();
+    rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .expect("ring supports default TLS versions")
+        .with_root_certificates(roots)
+        .with_no_client_auth()
+}
+
+fn websocket_connector() -> tokio_tungstenite::Connector {
+    tokio_tungstenite::Connector::Rustls(Arc::new(static_tls_config()))
+}
+
+// Keep the existing static WebPKI roots and ring provider without changing the
+// embedding application's global crypto provider. SDK admission owns retries.
+fn http_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
-        .tls_backend_preconfigured(tls)
+        .tls_backend_preconfigured(static_tls_config())
         .retry(reqwest::retry::never())
 }
 

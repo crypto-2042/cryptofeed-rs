@@ -7,8 +7,12 @@ production. Engineering gates for the final candidate and actual registry
 download/docs.rs verification are separate evidence. Existing FAIL and NOT RUN
 reports remain valid; issues are not automatically closed by preparing this RC.
 
-All eleven crates use `0.1.0-rc.1`. No runtime code, retention default, feature
-default, protocol check or recovery deadline is changed in this preparation.
+All eleven crates use `0.1.0-rc.1`. The candidate includes the explicit static
+WebSocket TLS connector and patched webpki-roots >=1.0.10 requirement from
+PR #8, plus the base64 0.23 update from PR #5. See the
+[security validation](reports/dependency-transport-smoke-2026-10-21.md).
+Retention defaults, SDK feature defaults, market-data protocol checks and
+recovery deadlines are unchanged.
 The admitted API scope remains public spot, perpetual/swap and dated futures on
 the five implemented exchanges, as specified in [PARITY](../PARITY.md).
 Implementation support is not the same as long-running live qualification.
