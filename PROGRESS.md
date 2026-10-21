@@ -1,6 +1,18 @@
 # Progress
 
-Last updated: 2026-10-16
+Last updated: 2026-10-21
+
+## WebSocket trust-root security maintenance (2026-10-21)
+
+- PR #8 replaces tungstenite's automatic root selection with the SDK's explicit
+  static WebPKI/ring connector for direct and proxied WebSockets, shared with HTTP.
+- Require webpki-roots >=1.0.10 so existing downstream lockfiles cannot retain
+  affected 1.x roots. The old broad requirement admitted 1.0.9 and reproduced
+  RUSTSEC-2026-0381; the new minimum rejects that dependency selection.
+- The internal tungstenite TLS feature is documented for future upgrade review.
+  Proxy CONNECT tests do not establish successful proxied TLS validation.
+- [Bounded live evidence and review](docs/reports/dependency-transport-smoke-2026-10-21.md).
+  Existing acceptance issues and Linux long-run qualification remain open.
 
 ## Latest Linux evidence and consumer contention (2026-10-16)
 
