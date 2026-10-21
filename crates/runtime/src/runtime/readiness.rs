@@ -221,6 +221,7 @@ impl FeedMonitor {
                     books_expected: books.len(),
                     books_synchronized: 0,
                     last_error: None,
+                    last_failure: None,
                     last_received_at: None,
                 },
                 books,
@@ -436,6 +437,7 @@ impl ConnectionAttempt {
                 .expect("connection");
             record.info.connected = true;
             record.info.last_error = None;
+            record.info.last_failure = None;
             record.disconnected = false;
         });
     }
@@ -565,7 +567,15 @@ impl ConnectionAttempt {
                 Error::Subscription(format!("{exchange:?}: rejected subscription: {payload}"))
             });
 
-            self.disconnected(Some(error.to_string()));
+            // Codes are parsed as integers; never retain arbitrary rejection text.
+            let code = payload.get("code").and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+            });
+            tracing::warn!(exchange=?exchange, feed_id=self.tracker.monitor.identity.id.as_u64(),
+                generation=self.tracker.monitor.identity.generation, connection=self.tracker.id, epoch=self.epoch,
+                code=code, reason="subscription_control_rejected", "subscription control rejected");
+            self.failed(&error, "subscription_control");
             return Err(error);
         }
         let key = match exchange {
@@ -611,7 +621,20 @@ impl ConnectionAttempt {
         });
         Ok(true)
     }
+    pub fn failed(&self, error: &Error, stage: &'static str) {
+        let diagnostic = crate::feed::FailureDiagnostic::from(error);
+        tracing::warn!(exchange=?self.tracker.monitor.exchange,
+            feed_id=self.tracker.monitor.identity.id.as_u64(), generation=self.tracker.monitor.identity.generation,
+            connection=self.tracker.id, epoch=self.epoch, stage,
+            category=diagnostic.category, reason=diagnostic.reason, permanent=diagnostic.permanent,
+            http_status=diagnostic.http_status, close_code=diagnostic.close_code,
+            "connection attempt failed");
+        self.disconnect(Some(error.to_string()), Some(diagnostic));
+    }
     pub fn disconnected(&self, error: Option<String>) {
+        self.disconnect(error, None);
+    }
+    fn disconnect(&self, error: Option<String>, failure: Option<crate::feed::FailureDiagnostic>) {
         self.update(|state| {
             let record = state
                 .connections
@@ -620,6 +643,9 @@ impl ConnectionAttempt {
             record.info.connected = false;
             record.info.subscriptions_confirmed = 0;
             record.disconnected = true;
+            if failure.is_some() {
+                record.info.last_failure = failure;
+            }
             #[cfg(feature = "orderbook")]
             if let Some(books) = &self.tracker.monitor.books {
                 books.invalidate(

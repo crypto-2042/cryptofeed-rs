@@ -1,6 +1,43 @@
 # Progress
 
-Last updated: 2026-10-15
+Last updated: 2026-10-21
+
+## WebSocket trust-root security maintenance (2026-10-21)
+
+- PR #8 replaces tungstenite's automatic root selection with the SDK's explicit
+  static WebPKI/ring connector for direct and proxied WebSockets, shared with HTTP.
+- Require webpki-roots >=1.0.10 so existing downstream lockfiles cannot retain
+  affected 1.x roots. The old broad requirement admitted 1.0.9 and reproduced
+  RUSTSEC-2026-0381; the new minimum rejects that dependency selection.
+- The internal tungstenite TLS feature is documented for future upgrade review.
+  Proxy CONNECT tests do not establish successful proxied TLS validation.
+- [Bounded live evidence and review](docs/reports/dependency-transport-smoke-2026-10-21.md).
+  Existing acceptance issues and Linux long-run qualification remain open.
+
+## Latest Linux evidence and consumer contention (2026-10-16)
+
+- Material pack reports SDK5513831/soak0.1.3 baseline loss432 after39m31s,
+  despite smoke PASS. Final accounting confirms subscriber loss, not parser loss.
+- Reproduced a harness defect: full observer holds registry while blocking on
+  stats and stops draining. Soak0.1.4 uses compact local counters and nonblocking
+  periodic merging, with generation-safe final drain/accounting.
+- Regression retains real overflow432 as failure, validates1000 generation
+  replacements and preserves route/top-N rejection. SDK API/protocols unchanged.
+- Gateio prerequisites passed on9a86e83; Bitget original trigger remains unknown.
+  Full Linux requalification is NOT RUN; all issues remain open.
+- [Evidence and repair](docs/reports/consumer-contention-2026-10-16.md).
+
+## Open-issue audit and Bitget diagnostics (2026-10-16)
+
+- Issues #3/#4/#6 retain their closure gates. #6 reports Gateio prerequisites and
+  matrix smoke PASS, followed by Bitget perpetual baseline FAIL after about 2h53m;
+  the original error was not retained and 72-hour acceptance remains incomplete.
+- Added safe static failure classification, retained connection diagnostics and
+  identity/epoch-qualified error events. Soak retains these fields and distinct
+  task/run exit outcomes without arbitrary error text.
+- Synthetic Bitget failure/reconnect/withdrawal regressions preserve permanent
+  rejection and transient retry semantics; actual trigger attribution remains open.
+- [Audit and evidence boundaries](docs/reports/issue-audit-2026-10-16.md).
 
 ## Gateio L2 recovery issue #4 (2026-10-15)
 

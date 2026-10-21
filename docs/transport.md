@@ -46,7 +46,7 @@ CONNECT uses the original destination authority, including bracketed IPv6 and
 port. The SDK bounds response headers to 16 KiB, accepts successful 2xx statuses,
 handles interim responses and reads only through the header terminator so TLS
 bytes remain untouched. TLS/SNI/certificate validation uses the original exchange
-hostname and the existing tokio-tungstenite rustls path; CONNECT is not TLS
+hostname and the SDK's own rustls client; CONNECT is not TLS
 interception or a reason to disable certificate verification. The existing
 connection deadline covers proxy TCP, CONNECT, destination TLS and WS handshake;
 shutdown cancels the owning establishment future.
@@ -116,6 +116,27 @@ crypto provider, nor add platform roots implicitly. Implicit HTTP retries are
 disabled; SDK admission, error classification and retry ownership remain intact.
 The removed reqwest `rustls-tls` feature is not used. No exchange endpoint,
 normalized model or proxy/cache identity changed.
+
+## WebSocket TLS roots — 2026-10-21
+
+Direct and proxied WebSockets now build their TLS client in `crates/runtime`
+instead of letting `tokio-tungstenite` pick one. `connect_async_tls_with_config` and
+`client_async_tls_with_config` receive an explicit `Connector::Rustls` built from
+the same static WebPKI roots (webpki-roots 1.x) and ring provider the HTTP client
+already uses, so both stacks validate against one bundled root set and neither
+consults platform/OS roots.
+
+The direct `webpki-roots` dependency requires at least 1.0.10, the patched
+version in [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html).
+This also excludes affected 1.x versions from a downstream application's existing
+lockfile; a fresh resolution alone would not enforce that security floor.
+
+The `rustls-tls-webpki-roots` feature is replaced by `__rustls-tls` because the
+auto-selected connector pins `webpki-roots` 0.26, whose 0.26 line has no release
+that fixes RUSTSEC-2026-0381. The flag is an internal cargo feature of
+`tokio-tungstenite` 0.30; re-check it on the next tungstenite upgrade. Hostname
+and certificate verification, SNI, proxy routing and handshake deadlines are
+unchanged.
 
 ## WebSocket 0.30 migration — 2026-10-13
 

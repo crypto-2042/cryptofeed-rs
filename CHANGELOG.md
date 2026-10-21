@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Define 0.1 patch compatibility, release verification and sustained-run criteria.
 - Require rustls >= 0.23.45 within the 0.23 series.
 
+### Security
+
+- Validate direct and proxied WebSockets with the SDK's own rustls client built
+  from the static WebPKI roots, replacing tokio-tungstenite's auto connector; the
+  lockfile no longer carries webpki-roots 0.26 (RUSTSEC-2026-0381).
+
 ### Added
 
 - Retained `RuntimeControl::state` snapshots with connection epochs, confirmation

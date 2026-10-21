@@ -13,6 +13,8 @@ mod scope_tests;
 mod weights;
 #[cfg(feature = "recording")]
 pub(crate) use raw_replay::RawParserSession;
+#[cfg(all(test, feature = "orderbook"))]
+mod bitget_failure_tests;
 pub mod connection;
 mod control;
 #[cfg(all(test, feature = "orderbook"))]
@@ -337,7 +339,21 @@ fn record_feed_result(
     match result {
         Ok((_, _, Ok(()))) => {}
         Ok((identity, exchange, Err(error))) => {
-            tracing::error!(?exchange, %error, "feed terminated after retry exhaustion");
+            let diagnostic = crate::feed::FailureDiagnostic::from(&error);
+            tracing::error!(
+                ?exchange,
+                feed_id = identity.as_ref().map(|m| m.identity.id.as_u64()),
+                generation = identity.as_ref().map(|m| m.identity.generation),
+                category = diagnostic.category,
+                reason = diagnostic.reason,
+                permanent = diagnostic.permanent,
+                outcome = if diagnostic.permanent {
+                    "permanent_failure"
+                } else {
+                    "feed_failed"
+                },
+                "feed terminated"
+            );
             if let Some(sender) = status_sender {
                 let _ = sender.send(crate::feed::FeedStatus::Terminated {
                     exchange,
@@ -352,7 +368,18 @@ fn record_feed_result(
             terminal_errors.push(format!("{exchange:?}: {error}"));
         }
         Err(error) => {
-            tracing::error!(%error, "feed task terminated unexpectedly");
+            let route = routes.get(&error.id());
+            tracing::error!(
+                exchange = ?route.map(|(_, exchange)| exchange),
+                feed_id = route.and_then(|(monitor, _)| monitor.as_ref()).map(|m| m.identity.id.as_u64()),
+                generation = route.and_then(|(monitor, _)| monitor.as_ref()).map(|m| m.identity.generation),
+                outcome = if error.is_panic() {
+                    "task_panicked"
+                } else {
+                    "task_cancelled"
+                },
+                "feed task terminated unexpectedly"
+            );
             if let Some(sender) = status_sender {
                 let _ = sender.send(crate::feed::FeedStatus::TaskPanicked {
                     error: error.to_string(),
@@ -701,7 +728,7 @@ async fn consume_binance_session(
         Ok(session) => session,
         Err(error) => {
             if let Some(attempt) = &attempt {
-                attempt.disconnected(Some(error.to_string()));
+                attempt.failed(&error, "connect");
             }
             return Err(error);
         }
@@ -824,7 +851,7 @@ async fn consume_bitget_session(
         Ok(session) => session,
         Err(error) => {
             if let Some(attempt) = &attempt {
-                attempt.disconnected(Some(error.to_string()));
+                attempt.failed(&error, "connect");
             }
             return Err(error);
         }
@@ -854,7 +881,30 @@ where
     while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
         let received_ts = session.received_timestamp();
         session.processing();
-        process_bitget_text_message(&feed, &text, received_ts).await?;
+        if let Err(error) = process_bitget_text_message(&feed, &text, received_ts).await {
+            let diagnostic = crate::feed::FailureDiagnostic::from(&error);
+            let value = serde_json::from_str::<Value>(&text).ok();
+            let channel = match value
+                .as_ref()
+                .and_then(|v| v.pointer("/arg/topic"))
+                .and_then(Value::as_str)
+            {
+                Some("books") => "books",
+                Some("books1") => "books1",
+                Some("books5") => "books5",
+                Some("books50") => "books50",
+                Some("ticker") => "ticker",
+                Some("trade" | "publicTrade") => "publicTrade",
+                Some("kline") => "kline",
+                Some("liquidation") => "liquidation",
+                _ => "unknown",
+            };
+            tracing::warn!(exchange="Bitget", feed_id=feed.identity.map(|i| i.id.as_u64()),
+                generation=feed.identity.map(|i| i.generation), product=?feed.symbols.first().map(|s| s.kind()),
+                channel, category=diagnostic.category, reason=diagnostic.reason, permanent=diagnostic.permanent,
+                stage="message_processing", "Bitget message processing failed");
+            return Err(error);
+        }
     }
 
     Ok(())
@@ -876,7 +926,7 @@ async fn consume_bybit_session(
         Ok(session) => session,
         Err(error) => {
             if let Some(attempt) = &attempt {
-                attempt.disconnected(Some(error.to_string()));
+                attempt.failed(&error, "connect");
             }
             return Err(error);
         }
@@ -934,7 +984,7 @@ async fn consume_okx_session(
         Ok(session) => session,
         Err(error) => {
             if let Some(attempt) = &attempt {
-                attempt.disconnected(Some(error.to_string()));
+                attempt.failed(&error, "connect");
             }
             return Err(error);
         }
@@ -990,7 +1040,7 @@ async fn consume_gateio_session(
         Ok(session) => session,
         Err(error) => {
             if let Some(attempt) = &attempt {
-                attempt.disconnected(Some(error.to_string()));
+                attempt.failed(&error, "connect");
             }
             return Err(error);
         }

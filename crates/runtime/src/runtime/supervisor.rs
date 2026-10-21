@@ -173,6 +173,14 @@ where
                     backoff.reset();
                 }
                 if max_retries.is_some_and(|limit| attempts >= limit) {
+                    let diagnostic = crate::feed::FailureDiagnostic::from(&error);
+                    tracing::error!(
+                        outcome = "retry_exhausted",
+                        attempt = attempts,
+                        category = diagnostic.category,
+                        reason = diagnostic.reason,
+                        "configured transient retry budget exhausted"
+                    );
                     return Err(error);
                 }
                 let delay = retry_delay(&error, jittered_delay(backoff.next_delay_secs()));

@@ -2,6 +2,14 @@
 
 Project-specific memory for `rust/cryptofeed-rs`.
 
+## Static WebSocket trust roots (2026-10-21)
+
+- Direct/proxied WS and HTTP share static WebPKI roots and the explicit ring
+  provider. Do not silently adopt OS roots or alter the embedding global provider.
+- webpki-roots requires >=1.0.10 (RUSTSEC-2026-0381); a fresh latest-version audit
+  alone does not protect downstream lockfiles. Keep the patched minimum.
+- Re-check tungstenite's internal __rustls-tls feature on dependency upgrades.
+
 ## Structural Memory
 
 - The Rust workspace lives at the repository root.
@@ -1039,3 +1047,28 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   time and total scheduled operations across reconnects, not replacements.
 - Keep 120s/Linux zero-lag thresholds, historical FAIL and RSS investigation;
   neither local regression nor short connectivity proves the old unique cause.
+
+## Issue audit and Bitget failure #6 (2026-10-16)
+
+- #6 pins 9a86e83/soak 0.1.2 and reports Gateio prerequisites and matrix smoke
+  PASS, then Bitget perpetual baseline FAIL after ~2h53m. Original error/frame
+  evidence is absent; do not invent a panic/protocol/network root cause.
+- Safe FailureDiagnostic and ConnectionInfo.last_failure expose static categories,
+  reasons and numeric status/close codes. Trace failures with identity/epoch;
+  soak must retain the allowed fields without copying arbitrary error strings.
+- Existing book gap/cross failures already retry; subscription rejection remains
+  permanent. Synthetic tests do not prove the failed live trigger is repaired.
+- #3/#4/#6 stay open until their documented evidence gates are met; Gateio
+  prerequisites and zero final lag do not replace complete 72-hour acceptance.
+
+## Material-pack follow-up and observer lock stall (2026-10-16)
+
+- New5513831/soak0.1.3 baseline failed39m31s with final loss432; smoke PASS.
+  Do not claim the preceding diagnostics resolved subscriber lag or Bitget cause.
+- Old full observer held registry while waiting for shared stats; the same
+  contention regression fails old source and passes repaired soak0.1.4.
+- Fix is in sibling harness: compact identity-qualified counters, nonblocking
+ 32-event/10ms merge and final blocking merge only after producer shutdown/drain.
+  No payload queue/capacity increase; retired generations purged; overflow staysFAIL.
+- This proves a contention defect, not the unique Linux trigger. Gateio old-version
+  prerequisites remain PASS; Bitget trigger and full72h qualification remain open.

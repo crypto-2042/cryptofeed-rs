@@ -594,6 +594,12 @@ The offline evidence and parity workflow is documented in
 [the harness guide](docs/harness.md). See the [documentation index](docs/README.md)
 for protocol references, decisions, and dated live-validation reports.
 
+Managed connection state exposes `last_failure: Option<FailureDiagnostic>` with
+safe static error category/reason, permanent-policy flag and numeric HTTP/close
+codes. Structured WARN/ERROR events correlate failures with feed identity and
+connection epoch; see [readiness diagnostics](docs/readiness.md). Linux sustained
+acceptance remains incomplete; [issue audit](docs/reports/issue-audit-2026-10-16.md).
+
 ## Exchange Policy
 
 New CEX integrations must use the latest stable official exchange API rather than legacy versions.
@@ -606,6 +612,10 @@ Gateio L2 recovery requires a provable snapshot ID or complete full push, accept
 v1 overlapping sequence coverage and bounds resnapshot loops. Managed
 `state(id).book_sync` exposes per-symbol recovery evidence; see
 [Gateio sequence recovery](docs/gateio-book-recovery.md).
+
+Latest Linux evidence still includes subscriber loss. The acceptance app's
+reproduced stats-lock stall is repaired in soak0.1.4; SDK delivery semantics and
+retention are unchanged. See [consumer contention evidence](docs/reports/consumer-contention-2026-10-16.md).
 
 ## Event delivery and overload
 

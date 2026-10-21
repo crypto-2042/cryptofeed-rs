@@ -125,6 +125,8 @@ pub struct ConnectionInfo {
     pub subscriptions_confirmed: usize,
     pub books_expected: usize,
     pub books_synchronized: usize,
+    /// Safe classification for the latest failed connection attempt. Cleared on connect.
+    pub last_failure: Option<crate::feed::FailureDiagnostic>,
     pub last_error: Option<String>,
     pub last_received_at: Option<std::time::SystemTime>,
 }

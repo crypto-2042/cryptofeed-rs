@@ -1,4 +1,5 @@
 pub mod control;
+mod failure;
 mod subscription;
 use crate::exchange::ExchangeFeed;
 pub use control::{
@@ -24,6 +25,7 @@ use cryptofeed_orderbook::{L1Book, L2Book};
 use cryptofeed_ticker::Ticker;
 #[cfg(feature = "trade")]
 use cryptofeed_trade::Trade;
+pub use failure::FailureDiagnostic;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 pub use subscription::{IdentifiedSubscription, SubscriptionDiagnostics};
