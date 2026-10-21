@@ -27,7 +27,7 @@ index = ["dep:cryptofeed-index"]
 [dependencies]
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1.0.10"
-base64 = "0.22"
+base64 = "0.23"
 httpdate = "1"
 cryptofeed-core.workspace = true
 cryptofeed-candles = { path = "../candles", version = "0.1.0", optional = true }
