@@ -139,6 +139,25 @@ pub struct FeedEnvelope {
     pub event: FeedEvent,
 }
 
+/// Producer-owned connection identity. Connection numbers are scoped to the
+/// configuration identity; epochs distinguish attempts on that connection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "recording", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "recording", serde(deny_unknown_fields))]
+pub struct EventAnchor {
+    pub identity: FeedIdentity,
+    pub connection: u64,
+    pub epoch: u64,
+}
+
+/// Market event with the anchor captured by its producing connection attempt.
+/// Buffered or late events retain their old anchor after reconnect/replacement.
+#[derive(Clone, Debug)]
+pub struct AnchoredEnvelope {
+    pub anchor: EventAnchor,
+    pub event: FeedEvent,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FeedState {
@@ -272,6 +291,7 @@ pub(crate) struct ControlContext {
     pub books: Option<Arc<crate::books::BookStore>>,
     pub event_sender: Option<broadcast::Sender<FeedEvent>>,
     pub envelope_sender: Option<broadcast::Sender<FeedEnvelope>>,
+    pub anchored_sender: Option<broadcast::Sender<AnchoredEnvelope>>,
     pub status_sender: Option<broadcast::Sender<FeedStatus>>,
     pub counters: Arc<EventCounters>,
 }
@@ -285,6 +305,7 @@ impl ControlContext {
         feed.connection_epoch = None;
         feed.event_sender = self.event_sender.clone();
         feed.envelope_sender = self.envelope_sender.clone();
+        feed.anchored_sender = self.anchored_sender.clone();
         feed.status_sender = self.status_sender.clone();
         feed.event_counts = Some(self.counters.clone());
         feed.fresh_runtime_state();

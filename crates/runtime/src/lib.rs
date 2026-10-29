@@ -45,13 +45,14 @@ pub mod transport;
 pub use catalog::MarketCatalog;
 pub use exchange::*;
 pub use feed::{
-    EventCounters, FeedHandler, FeedStatus, IdentifiedSubscription, SubscriptionDiagnostics,
+    AnchoredSubscription, EventCounters, FeedHandler, FeedStatus, IdentifiedSubscription,
+    SubscriptionDiagnostics,
 };
 
 pub use crate::feed::FailureDiagnostic;
 pub use crate::feed::control::{
-    BookSyncDiagnostic, ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot,
-    FeedState, RuntimeControl,
+    AnchoredEnvelope, BookSyncDiagnostic, ConnectionInfo, EventAnchor, FeedEnvelope, FeedId,
+    FeedIdentity, FeedInfo, FeedSnapshot, FeedState, RuntimeControl,
 };
 
 pub use discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};
@@ -91,8 +92,9 @@ pub use crate::rest::{
 
 #[cfg(feature = "recording")]
 pub use crate::recording::{
-    RecordedEvent, RecordingEnd, RecordingLimits, RecordingReader, RecordingSummary,
-    RecordingWriter, ReplayOptions, ReplayTiming, record_stream,
+    AnchoredRecordedEvent, RecordedEvent, RecordingEnd, RecordingLimits, RecordingReader,
+    RecordingSummary, RecordingWriter, ReplayOptions, ReplayTiming, record_anchored_stream,
+    record_stream,
 };
 
 #[cfg(feature = "recording")]

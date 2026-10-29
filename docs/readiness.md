@@ -134,3 +134,63 @@ errors use `feed_failed` without inferring retry exhaustion from their category.
 An aggregate run error can wrap the underlying cause as Transport, so retain the
 preceding diagnostics. The SDK does not install a tracing subscriber itself.
 See [issue audit](reports/issue-audit-2026-10-16.md) for evidence limits.
+
+## Connection-anchored market events
+
+Issue #10 identifies a real consumer-contract gap: `FeedEnvelope.identity`
+identifies a configuration, and remains equal across reconnects. Independently
+buffered lifecycle and market streams have no shared ordering barrier. Checking
+`received_ts`, prioritizing a select branch, or observing Ready cannot label
+already queued identified events with a connection attempt.
+
+`FeedHandler::subscribe_anchored()` returns a bounded broadcast receiver of
+`AnchoredEnvelope { anchor: EventAnchor { identity, connection, epoch }, event }`.
+`subscribe_anchored_with_diagnostics()` returns the same stream with the existing
+receiver-local accounting. Both explicitly enable **managed runtime**, including
+independent initial-feed startup/failure isolation, just like `control_handle()`.
+Call before `run`; retain a control handle for authoritative queries. Existing
+static subscriptions, `FeedEnvelope`, callbacks and L2 recovery remain unchanged.
+There is no static/untracked fallback with an invented epoch.
+
+- `identity.generation` changes on configuration replacement. Connection IDs are
+  scoped to that identity, distinguish every physical route/shard, and match
+  `FeedSnapshot.connections[].id`. A reconnect increments that connection's epoch;
+  failed attempts can therefore leave gaps between observed event epochs.
+- The session captures its epoch at attempt start. Publication reads the
+  producing session's captured identity/connection/epoch, never the monitor's
+  latest epoch. Buffered events and any delayed retired producer retain their old
+  anchor even if a newer connection or configuration is already Ready. This
+  contract permits old-anchor publication; it does not require draining every
+  old event before replacement/removal acknowledges retirement.
+- A consumer serializes reset and event admission. Query `control.state(id)`;
+  on a new Ready configuration/connection set, clear old windows **before**
+  installing the accepted anchors. Admit only exact identity/connection/epoch
+  matches from that set. Unknown or mismatched anchors must not establish a new
+  window; query authoritative state again if appropriate. Reject input and reset
+  according to application policy while not Ready, stopping or removed. Do not
+  promote an anchor merely because it arrives later or has a larger epoch.
+- Ready remains a point-in-time observation. This API proves event provenance,
+  not atomic revocation at the consumer when a remote connection fails. Status
+  and event channels still have no cross-channel ordering promise. Lost lifecycle
+  hints can be recovered with `state()`; no timer/queue-drain heuristic is needed
+  to identify an old buffered epoch. The application owns when to query again.
+- Each opt-in ring has the configured shared event retention (default 1024,
+  Tokio power-of-two rounding), no forwarding task or unbounded queue. Successful
+  reads increment `received`, including events deliberately rejected by business
+  admission. Track those application discards separately. Only `Lagged(n)` adds
+  to `lagged`; it does not identify an exchange, category or exchange-side loss.
+  After publishers stop, drain to Closed for final accounting.
+
+With the `recording` feature, [normalized v2 recording](recording.md#connection-anchors-version-2)
+preserves original anchors and ordered replay. Labels are local to a capture;
+independent recordings do not establish globally unique identities. A normalized
+v2 tape does not record Ready/reset decisions, repair missing events, reproduce
+lifecycle timing, or replace `L2BookHandle::recover()` and its revision anchor.
+The existing raw replay interfaces are unchanged and do not gain this new
+normalized envelope type implicitly.
+
+Deterministic tests cover prefilled old buffers, a late old producer interleaved
+with new Ready events, dropped lifecycle notifications, multiple connections,
+replace/remove, bounded ring loss, deliberate discard/final drain and anchored
+record/replay. These tests do not attribute or close historical #3/#4/#6 failures
+or substitute for live Linux qualification.

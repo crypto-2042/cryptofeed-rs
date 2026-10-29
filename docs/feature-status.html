@@ -189,7 +189,7 @@
   <header>
     <h1>cryptofeed-rs <span class="accent">功能实现状态</span></h1>
     <div class="subtitle">
-      纯 Rust 归一化加密货币行情 SDK · 状态截至 2026-10-21 · 数据来源：README / PARITY.md / PROGRESS.md /
+      纯 Rust 归一化加密货币行情 SDK · 状态截至 2026-10-29 · 数据来源：README / PARITY.md / PROGRESS.md /
       docs/exchange-protocol-baseline.md / docs/reports/live-smoke-2026-08-17.md
     </div>
     <div class="badges">
@@ -206,6 +206,7 @@
     <h2><span class="step">1</span> 能力矩阵（按标的类型分组：现货 / 合约 / 期权 / MARGIN）</h2>
     <p class="note">首版推送前工程复核：字段语义、无损 JSON 精度、产品限定、Bybit delta 状态、周期格式和日历月边界已修正。383 项测试（含 82 parity）、Rust 1.85、全部 feature、文档与 lint 门禁通过；依赖审计零漏洞。10 配置聚合冒烟及 Bybit/Binance/Bitget 最终目标复核干净退出。最终工程门禁已复跑，源代码已推送 GitHub；GitHub 私有漏洞报告已启用并验证，当时许可证来源待确认；2026-10-13已按维护者决定采用MIT并保留第三方声明。<a href="reports/live-smoke-pre-push-2026-10-08.md">实盘验证范围</a></p>
     <p class="note">后续对齐里程碑按新到旧列出；测试计数和待办项记录各阶段当时的状态，当前进展以上方最新记录为准。</p>
+    <p class="note">2026-10-29 issue #10 消费契约：新增可选 anchored 订阅，启用 managed 模式；普通行情携带生产连接的配置身份、connection、epoch，旧缓冲和延迟发布保留旧锚点。消费者串行重置并按权威 Ready 快照精确准入；状态与行情仍无跨通道顺序保证。有界容量及 delivered/lagged/pending 诊断保留，主动弃读不算覆盖丢失。归一化 v2 录制/回放保留原始锚点，v1 接口和 L2 recover 不变。确定性回归覆盖多连接、替换/删除、旧生产者、丢帧和回放；不代表实盘故障归因或 #3/#4/#6 关闭。<a href="readiness.md#connection-anchored-market-events">消费者契约</a> · <a href="recording.md#connection-anchors-version-2">录制 v2</a></p>
     <p class="note">2026-10-21 TLS安全维护：直连与代理WebSocket显式采用SDK静态WebPKI/ring配置，与HTTP共用信任来源；webpki-roots最低1.0.10，排除RUSTSEC-2026-0381影响的旧根集合。原宽泛1.x要求可降级至1.0.9并复现审计失败；新最低版本拒绝该选择。代理CONNECT离线测试不等于代理TLS实盘验证；既有验收issue与长测状态不变。<a href="reports/dependency-transport-smoke-2026-10-21.md">证据与边界</a></p>
 
     <p class="note">2026-10-20 RC准备：11个crate统一0.1.0-rc.1，内部依赖选择同一RC；仅供评估，实际上传与下载复验单独确认，不表示稳定版或无人值守生产资格。默认1024有损广播、协议检查及恢复期限不变；#3/#4/#6保持开放。CI新增全部解包测试及默认/最小/全部feature独立消费者门禁，Rust 1.85覆盖全部target；工程/包验证与长时实盘资格分别核验。<a href="release-candidate.md">RC范围与已知限制</a> · <a href="reports/release-candidate-review-2026-10-20.md">复核证据</a></p>

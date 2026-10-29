@@ -521,3 +521,11 @@ The same audit added defensive inline probes, not captured venue frames:
 `fundingRateTimestamp` (funding-history settlement instant) and asserts the
 ticker envelope `ts` wins. Current Bybit tickers do not transmit
 `fundingRateTimestamp`; the probe guards the legacy field path only.
+
+## Normalized connection-anchor reference (2026-10-29)
+
+`recording.normalized.v2.jsonl` is synthetic SDK normalized output, derived from
+its existing v1 public Trade example with a producer anchor (identity 1/1,
+connection 1, epoch 10). It is not exchange traffic. Inline
+`recording::anchored_tests` asserts the exact bytes and original anchor through
+bounded write/read/replay. No credentials, URLs or lifecycle errors are included.

@@ -63,6 +63,8 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Managed runtime control](runtime-control.md): command results, feed identity,
   configuration generations, cancellation, startup policy and lifecycle scope.
 
+- [Connection-anchored ordinary events](readiness.md#connection-anchored-market-events):
+  producer epochs, Ready admission/reset, receiver diagnostics and v2 recording.
 - [Readiness and retained state](readiness.md): confirmation evidence, reconnect
   epochs, book synchronization, diagnostics and authoritative queries.
 

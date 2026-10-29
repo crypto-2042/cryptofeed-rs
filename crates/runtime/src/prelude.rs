@@ -4,8 +4,8 @@ pub use crate::exchange::{
     coinbase::Coinbase, gateio::Gateio, kraken::Kraken, okx::Okx,
 };
 pub use crate::feed::{
-    EventCounters, FeedEvent, FeedHandler, FeedStatus, IdentifiedSubscription,
-    SubscriptionDiagnostics,
+    AnchoredSubscription, EventCounters, FeedEvent, FeedHandler, FeedStatus,
+    IdentifiedSubscription, SubscriptionDiagnostics,
 };
 pub use cryptofeed_core::{
     exchange::{Channel, ExchangeId},
@@ -45,8 +45,8 @@ pub use cryptofeed_trade::{Side, Trade, TradeHandler};
 
 pub use crate::feed::FailureDiagnostic;
 pub use crate::feed::control::{
-    BookSyncDiagnostic, ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot,
-    FeedState, RuntimeControl,
+    AnchoredEnvelope, BookSyncDiagnostic, ConnectionInfo, EventAnchor, FeedEnvelope, FeedId,
+    FeedIdentity, FeedInfo, FeedSnapshot, FeedState, RuntimeControl,
 };
 
 pub use crate::discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};
@@ -88,8 +88,9 @@ pub use crate::rest::{
 
 #[cfg(feature = "recording")]
 pub use crate::recording::{
-    RecordedEvent, RecordingEnd, RecordingLimits, RecordingReader, RecordingSummary,
-    RecordingWriter, ReplayOptions, ReplayTiming, record_stream,
+    AnchoredRecordedEvent, RecordedEvent, RecordingEnd, RecordingLimits, RecordingReader,
+    RecordingSummary, RecordingWriter, ReplayOptions, ReplayTiming, record_anchored_stream,
+    record_stream,
 };
 
 #[cfg(feature = "recording")]

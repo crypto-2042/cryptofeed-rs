@@ -1080,3 +1080,16 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   No payload queue/capacity increase; retired generations purged; overflow staysFAIL.
 - This proves a contention defect, not the unique Linux trigger. Gateio old-version
   prerequisites remain PASS; Bitget trigger and full72h qualification remain open.
+
+## Ordinary event connection anchors (#10, 2026-10-29)
+
+- subscribe_anchored[_with_diagnostics] enables managed mode; retain existing
+  static/identified behavior and externally constructible FeedEnvelope fields.
+- EventAnchor comes from the producing feed/session's captured epoch, never the
+  monitor's current state. Buffered/late retired producers keep old labels.
+- Consumers serialize reset then install exact Ready anchors; statuses and events
+  remain independently ordered. No atomic consumer revocation/freshness promise.
+- Application rejection counts as received; only broadcast Lagged is overwrite
+  loss. Keep capture-local identity scope and normalized v2 strict anchor gates.
+- v1 APIs stay intact; anchored reads/replay reject v1. No Ready/reset lifecycle
+  reconstruction or raw/L2 recovery contract change is implied.

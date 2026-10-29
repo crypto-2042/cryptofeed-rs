@@ -137,3 +137,35 @@ Incompatible normalized model/schema changes require a recording format migratio
 
 A separate [public WS observation channel](raw-capture.md) now provides sanitized pre-parser text/context. It is not accepted by this normalized codec. [Raw WS files](raw-recording.md) provide their own bounded reader/writer; [native protocol replay](raw-replay.md) and [v2 HTTP/L2 replay](http-l2-replay.md)
 use those files separately.
+
+## Connection anchors (version 2)
+
+For the opt-in [anchored stream](readiness.md#connection-anchored-market-events),
+use `record_anchored_stream(writer, handler.subscribe_anchored(), limits, stop)`.
+It uses the same resource limits, shutdown, lag rejection and certified footer
+rules as `record_stream`, and writes normalized format version 2. For manual
+capture use `RecordingWriter::new_anchored` and `append_anchored`.
+
+Each event adds a required sibling of `record`:
+`"anchor":{"identity":{"id":1,"generation":1},"connection":1,"epoch":10}`.
+The anchor identity must equal `record.identity`; connection and epoch must be
+positive. Missing/mismatched anchors, unknown fields and v2 anchors under a v1
+header fail validation. Writers reject mixing anchored/unanchored append modes.
+
+`RecordingReader::next_anchored_event()` returns `AnchoredRecordedEvent { anchor,
+record }`; `replay_anchored` passes that type to sequential callbacks with the
+existing immediate/recorded timing and cancellation/timeout rules. Both reject
+v1 input rather than inventing provenance. The existing `next_event`/`replay`
+methods can read either version as `RecordedEvent`, deliberately omitting anchor
+metadata; use the anchored methods for epoch-sensitive consumers. Existing
+`RecordingWriter::new`, `append` and `record_stream` write v1. The `EventSink`
+adapter requires the v1 constructor; use anchored append/stream capture for v2.
+Neither `FeedEnvelope` nor `RecordedEvent` gains a required field.
+
+Old buffered or late producer events retain their recorded old epoch even after
+new-epoch events. Replay does not relabel against a live monitor. Original
+Decimal values, model clocks and elapsed ordering remain intact; labels are
+capture-local and are not live control handles. Ready/lifecycle/reset decisions
+are not recorded, nor is authoritative L2 recovery reconstructed. Reference:
+`sample_data/recording.normalized.v2.jsonl`; inline anchored codec tests verify
+round-trip, original label order, rejection and repeated deterministic replay.

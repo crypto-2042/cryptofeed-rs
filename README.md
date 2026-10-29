@@ -150,6 +150,11 @@ Key API surface:
   produced, not per-consumer delivery. Obtain `handler.event_counters()`
   before `run(self)` to retain a shared handle and read `counters.count(channel)`
   while the runtime runs or after it shuts down.
+- `subscribe_anchored()` / `subscribe_anchored_with_diagnostics()` opt into
+  managed runtime and tag each event with its producer's configuration identity,
+  connection ID and reconnect epoch. Buffered/late events keep their old anchor;
+  consumers can reject them after resetting against authoritative Ready state.
+  See [the consumer contract](docs/readiness.md#connection-anchored-market-events).
 - Handler callbacks execute sequentially within the feed and should return
   quickly. Use the bounded event stream for slower application processing;
   lagged broadcast consumers must handle `RecvError::Lagged`. After losing L2

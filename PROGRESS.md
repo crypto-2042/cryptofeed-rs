@@ -1,6 +1,20 @@
 # Progress
 
-Last updated: 2026-10-21
+Last updated: 2026-10-29
+
+## Producer-anchored ordinary events (#10, 2026-10-29)
+
+- Reviewed the identified-stream gap: configuration generation cannot prove
+  the connection epoch of buffered ordinary events after reconnect.
+- Added opt-in anchored subscriptions with producer-owned identity/connection/
+  epoch and the existing receiver-local diagnostics; they enable managed mode.
+  Existing static/identified APIs and L2 revision recovery remain unchanged.
+- Normalized v2 recording/replay retains anchors without changing public v1
+  envelope/record construction. Strict validation rejects missing/mismatched
+  anchors; ordering, limits and loss semantics remain bounded and explicit.
+- Deterministic tests cover stale buffers/late producers, lost lifecycle hints,
+  multiple connections, replace/remove, lag/discard/drain and repeated replay.
+  No live fault attribution, downstream migration, or #3/#4/#6 closure is implied.
 
 ## RC dependency integration (2026-10-21)
 

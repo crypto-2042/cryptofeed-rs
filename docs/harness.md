@@ -661,3 +661,14 @@ and a current-schema Bybit replay example. Model/runtime/replay tests assert
 them and compare sequential projected updates against an independently rebuilt
 full-book top-N oracle. Default public parity values and native integrity rules
 remain unchanged. CI also tests minimal orderbook and recording/orderbook builds.
+
+## Anchored consumer contract (#10)
+
+Run `cargo test -p cryptofeed-rs --all-features anchored` for deterministic
+producer-anchor, multi-connection, replace/remove, loss/accounting and normalized
+v2 replay evidence. The normalized v2 reference is synthetic SDK output, not an
+exchange capture. Matching inline assertions run in
+`recording::anchored_tests` without depending on files outside the crate; no protocol expectation or exchange fixture
+changes are involved. Existing L2 recovery and public parity remain separate
+gates. See [readiness](readiness.md#connection-anchored-market-events) and
+[recording v2](recording.md#connection-anchors-version-2).

@@ -146,3 +146,14 @@ before preparing a candidate. Other replacement semantics remain the same.
 and bounded [public REST/history](public-rest.md) are now implemented separately.
 Optional ecosystem boundaries and final acceptance remain in the
 [requirement audit](python-alignment-audit.md).
+
+## Ordinary events across reconnects
+
+`subscribe_anchored()` and `subscribe_anchored_with_diagnostics()` also enable
+managed mode. They preserve each producing session's identity, physical
+connection ID and reconnect epoch; old queued/late events are never relabeled
+with current state. Use exact anchor admission against queried Ready state,
+serializing application resets before accepting the new anchors. Replacement
+and removal do not purge a receiver's buffers. See the [anchored consumer
+contract](readiness.md#connection-anchored-market-events) for ordering, retirement,
+local discard accounting and the static/managed boundary.

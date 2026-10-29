@@ -2,7 +2,7 @@
 pub mod http;
 pub mod raw;
 mod sink;
-use crate::feed::{FeedEnvelope, FeedEvent, FeedIdentity};
+use crate::feed::{AnchoredEnvelope, EventAnchor, FeedEnvelope, FeedEvent, FeedIdentity};
 use cryptofeed_core::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{future::Future, io::Write, time::Duration};
@@ -61,12 +61,29 @@ pub struct RecordedEvent {
     pub identity: FeedIdentity,
     pub event: FeedEvent,
 }
+/// A normalized v2 record retaining its original producer anchor.
+#[derive(Clone, Debug)]
+pub struct AnchoredRecordedEvent {
+    pub anchor: EventAnchor,
+    pub record: RecordedEvent,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 enum Record {
-    Header { format: String, version: u16 },
-    Event { record: RecordedEvent },
-    End { events: u64, reason: RecordingEnd },
+    Header {
+        format: String,
+        version: u16,
+    },
+    Event {
+        record: Box<RecordedEvent>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        anchor: Option<EventAnchor>,
+    },
+    End {
+        events: u64,
+        reason: RecordingEnd,
+    },
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RecordingSummary {
@@ -189,22 +206,32 @@ pub struct RecordingWriter<W> {
     events: u64,
     bytes: u64,
     elapsed_ns: u64,
+    version: u16,
     poisoned: bool,
 }
 impl<W: AsyncWrite + Unpin> RecordingWriter<W> {
     pub async fn new(writer: W, limits: RecordingLimits) -> Result<Self> {
+        Self::with_version(writer, limits, 1).await
+    }
+    /// Creates a v2 tape requiring an anchor on every event. Legacy v1 output
+    /// and public FeedEnvelope/RecordedEvent construction remain unchanged.
+    pub async fn new_anchored(writer: W, limits: RecordingLimits) -> Result<Self> {
+        Self::with_version(writer, limits, 2).await
+    }
+    async fn with_version(writer: W, limits: RecordingLimits, version: u16) -> Result<Self> {
         let mut this = Self {
             writer,
             limits,
             events: 0,
             bytes: 0,
             elapsed_ns: 0,
+            version,
             poisoned: false,
         };
         let bytes = encode(
             &Record::Header {
                 format: FORMAT.into(),
-                version: 1,
+                version,
             },
             limits.max_record_bytes,
         )?;
@@ -226,7 +253,33 @@ impl<W: AsyncWrite + Unpin> RecordingWriter<W> {
     }
     /// Returns false on a configured event/byte/line limit, without writing a prefix.
     pub async fn append(&mut self, envelope: FeedEnvelope, elapsed: Duration) -> Result<bool> {
-        if self.poisoned {
+        self.append_inner(envelope, None, elapsed).await
+    }
+    pub async fn append_anchored(
+        &mut self,
+        envelope: AnchoredEnvelope,
+        elapsed: Duration,
+    ) -> Result<bool> {
+        self.append_inner(
+            FeedEnvelope {
+                identity: envelope.anchor.identity,
+                event: envelope.event,
+            },
+            Some(envelope.anchor),
+            elapsed,
+        )
+        .await
+    }
+    async fn append_inner(
+        &mut self,
+        envelope: FeedEnvelope,
+        anchor: Option<EventAnchor>,
+        elapsed: Duration,
+    ) -> Result<bool> {
+        if self.poisoned || (self.version == 2) != anchor.is_some() {
+            return Err(invalid());
+        }
+        if anchor.is_some_and(|a| a.connection == 0 || a.epoch == 0) {
             return Err(invalid());
         }
         if self.events >= self.limits.max_events {
@@ -243,7 +296,13 @@ impl<W: AsyncWrite + Unpin> RecordingWriter<W> {
             event: envelope.event,
         };
         validate_event(&record)?;
-        let bytes = match encode(&Record::Event { record }, self.limits.max_record_bytes) {
+        let bytes = match encode(
+            &Record::Event {
+                record: Box::new(record),
+                anchor,
+            },
+            self.limits.max_record_bytes,
+        ) {
             Ok(bytes) => bytes,
             Err(_) => return Ok(false),
         };
@@ -316,6 +375,38 @@ pub async fn record_stream<W: AsyncWrite + Unpin>(
     writer.finish(end).await
 }
 
+/// Stream capture is strict about broadcast lag; dropped records invalidate the file.
+pub async fn record_anchored_stream<W: AsyncWrite + Unpin>(
+    writer: W,
+    mut receiver: broadcast::Receiver<AnchoredEnvelope>,
+    limits: RecordingLimits,
+    mut shutdown: watch::Receiver<bool>,
+) -> Result<RecordingSummary> {
+    let started = tokio::time::Instant::now();
+    let mut writer = RecordingWriter::new_anchored(writer, limits).await?;
+    let end = loop {
+        if *shutdown.borrow() {
+            break RecordingEnd::Stopped;
+        }
+        let envelope = tokio::select! {biased;
+            _=stopped(&mut shutdown)=>break RecordingEnd::Stopped,
+            result=receiver.recv()=>match result {
+                Ok(event)=>event,
+                Err(broadcast::error::RecvError::Closed)=>break RecordingEnd::Complete,
+                Err(broadcast::error::RecvError::Lagged(count))=>return Err(Error::Protocol(format!("recording lost {count} broadcast events"))),
+            }
+        };
+        let appended = tokio::select! {biased;
+            _=stopped(&mut shutdown)=>return Err(Error::Transport("recording interrupted during append".into())),
+            result=writer.append_anchored(envelope,started.elapsed())=>result?,
+        };
+        if !appended || writer.events >= limits.max_events {
+            break RecordingEnd::LimitReached;
+        }
+    };
+    writer.finish(end).await
+}
+
 pub struct RecordingReader<R> {
     reader: R,
     limits: RecordingLimits,
@@ -323,6 +414,8 @@ pub struct RecordingReader<R> {
     bytes: u64,
     elapsed_ns: u64,
     header: bool,
+    version: u16,
+    last_anchor: Option<EventAnchor>,
     finished: Option<RecordingSummary>,
     poisoned: bool,
     replay_active: bool,
@@ -336,6 +429,8 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
             bytes: 0,
             elapsed_ns: 0,
             header: false,
+            version: 0,
+            last_anchor: None,
             finished: None,
             poisoned: false,
             replay_active: false,
@@ -351,13 +446,27 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
         if !self.header {
             let line = self.line().await?.ok_or_else(invalid)?;
             match serde_json::from_slice::<Record>(&line).map_err(|_| invalid())? {
-                Record::Header { format, version: 1 } if format == FORMAT => self.header = true,
+                Record::Header {
+                    format,
+                    version: version @ (1 | 2),
+                } if format == FORMAT => {
+                    self.header = true;
+                    self.version = version;
+                }
                 _ => return Err(invalid()),
             }
         }
         let line = self.line().await?.ok_or_else(invalid)?;
         match serde_json::from_slice::<Record>(&line).map_err(|_| invalid())? {
-            Record::Event { record } => {
+            Record::Event { record, anchor } => {
+                if (self.version == 2) != anchor.is_some()
+                    || anchor.is_some_and(|a| {
+                        a.identity != record.identity || a.connection == 0 || a.epoch == 0
+                    })
+                {
+                    return Err(invalid());
+                }
+                self.last_anchor = anchor;
                 if self.events >= self.limits.max_events
                     || record.sequence != self.events + 1
                     || record.elapsed_ns < self.elapsed_ns
@@ -367,7 +476,7 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
                 validate_event(&record)?;
                 self.events += 1;
                 self.elapsed_ns = record.elapsed_ns;
-                Ok(Some(record))
+                Ok(Some(*record))
             }
             Record::End { events, reason } if events == self.events => {
                 if self.line().await?.is_some() {
@@ -390,6 +499,23 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
         }
         self.read_event().await
     }
+    /// Reads v2 anchors without reconstructing them from timestamps or state.
+    /// A v1 tape cannot provide connection evidence and is rejected here.
+    pub async fn next_anchored_event(&mut self) -> Result<Option<AnchoredRecordedEvent>> {
+        let record = self.next_event().await?;
+        if self.version != 2 {
+            self.poisoned = true;
+            return Err(invalid());
+        }
+        record
+            .map(|record| {
+                Ok(AnchoredRecordedEvent {
+                    anchor: self.last_anchor.ok_or_else(invalid)?,
+                    record,
+                })
+            })
+            .transpose()
+    }
     async fn read_event(&mut self) -> Result<Option<RecordedEvent>> {
         if self.poisoned {
             return Err(invalid());
@@ -411,10 +537,48 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
         &mut self,
         options: ReplayOptions,
         shutdown: watch::Receiver<bool>,
-        callback: F,
+        mut callback: F,
     ) -> Result<Option<RecordingSummary>>
     where
         F: FnMut(RecordedEvent) -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        self.replay_checked(options, shutdown, move |record, _| callback(record), false)
+            .await
+    }
+    /// Sequential replay preserving every captured connection anchor. Requires v2.
+    pub async fn replay_anchored<F, Fut>(
+        &mut self,
+        options: ReplayOptions,
+        shutdown: watch::Receiver<bool>,
+        mut callback: F,
+    ) -> Result<Option<RecordingSummary>>
+    where
+        F: FnMut(AnchoredRecordedEvent) -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        self.replay_checked(
+            options,
+            shutdown,
+            move |record, anchor| {
+                callback(AnchoredRecordedEvent {
+                    record,
+                    anchor: anchor.expect("validated v2 anchor"),
+                })
+            },
+            true,
+        )
+        .await
+    }
+    async fn replay_checked<F, Fut>(
+        &mut self,
+        options: ReplayOptions,
+        shutdown: watch::Receiver<bool>,
+        callback: F,
+        require_anchor: bool,
+    ) -> Result<Option<RecordingSummary>>
+    where
+        F: FnMut(RecordedEvent, Option<EventAnchor>) -> Fut,
         Fut: Future<Output = Result<()>>,
     {
         if self.replay_active || self.poisoned || self.header {
@@ -423,7 +587,9 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
             ));
         }
         self.replay_active = true;
-        let result = self.replay_inner(options, shutdown, callback).await;
+        let result = self
+            .replay_inner(options, shutdown, callback, require_anchor)
+            .await;
         if matches!(result, Ok(Some(_))) {
             self.replay_active = false;
         }
@@ -434,9 +600,10 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
         options: ReplayOptions,
         mut shutdown: watch::Receiver<bool>,
         mut callback: F,
+        require_anchor: bool,
     ) -> Result<Option<RecordingSummary>>
     where
-        F: FnMut(RecordedEvent) -> Fut,
+        F: FnMut(RecordedEvent, Option<EventAnchor>) -> Fut,
         Fut: Future<Output = Result<()>>,
     {
         use futures::FutureExt;
@@ -446,6 +613,9 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
                 return Ok(None);
             }
             let next = tokio::select! {biased;_=stopped(&mut shutdown)=>return Ok(None),next=self.read_event()=>next?};
+            if require_anchor && self.version != 2 {
+                return Err(invalid());
+            }
             let Some(record) = next else {
                 return Ok(self.summary());
             };
@@ -455,7 +625,8 @@ impl<R: AsyncBufRead + Unpin> RecordingReader<R> {
                 tokio::select! {biased;_=stopped(&mut shutdown)=>return Ok(None),_=tokio::time::sleep_until(deadline)=>{}}
             }
             let callback =
-                std::panic::AssertUnwindSafe(async { callback(record).await }).catch_unwind();
+                std::panic::AssertUnwindSafe(async { callback(record, self.last_anchor).await })
+                    .catch_unwind();
             tokio::select! {biased;
                 _=stopped(&mut shutdown)=>return Ok(None),
                 result=tokio::time::timeout(options.callback_deadline,callback)=>{
@@ -968,4 +1139,207 @@ async fn disabled_recorded_category_is_an_error_not_a_skipped_event() {
     let mut reader = RecordingReader::new(bytes, RecordingLimits::default());
     assert!(reader.next_event().await.is_err());
     assert!(reader.summary().is_none());
+}
+
+#[cfg(all(test, feature = "trade"))]
+mod anchored_tests {
+    use super::*;
+
+    fn envelope(connection: u64, epoch: u64) -> AnchoredEnvelope {
+        let record: Record =
+            serde_json::from_slice(NORMALIZED_FIXTURE.split(|b| *b == b'\n').nth(1).unwrap())
+                .unwrap();
+        let Record::Event { record, .. } = record else {
+            panic!()
+        };
+        AnchoredEnvelope {
+            anchor: EventAnchor {
+                identity: record.identity,
+                connection,
+                epoch,
+            },
+            event: record.event,
+        }
+    }
+
+    const FIXTURE: &[u8] = br#"{"header":{"format":"cryptofeed-rs.normalized","version":2}}
+{"event":{"record":{"sequence":1,"elapsed_ns":1000000000,"identity":{"id":1,"generation":1},"event":{"trade":{"exchange":"Binance","symbol":{"value":"BTC-USDT","kind":"Spot"},"side":"buy","amount":"0.1234567890123456789012345678","price":"100.1234567890123456789012345","exchange_ts":1.0,"received_ts":2.0,"id":"synthetic-public-execution","implied_volatility":null}}},"anchor":{"identity":{"id":1,"generation":1},"connection":1,"epoch":10}}}
+{"end":{"events":1,"reason":"complete"}}
+"#;
+
+    #[tokio::test]
+    async fn anchored_v2_reference_matches_inline_codec_assertion() {
+        let mut bytes = Vec::new();
+        let mut writer = RecordingWriter::new_anchored(&mut bytes, RecordingLimits::default())
+            .await
+            .unwrap();
+        writer
+            .append_anchored(envelope(1, 10), Duration::from_secs(1))
+            .await
+            .unwrap();
+        writer.finish(RecordingEnd::Complete).await.unwrap();
+        assert_eq!(bytes, FIXTURE);
+    }
+
+    async fn tape() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let mut writer = RecordingWriter::new_anchored(&mut bytes, RecordingLimits::default())
+            .await
+            .unwrap();
+        // Original ordering, including an old epoch published late, is preserved.
+        for (connection, epoch) in [(1, 10), (1, 11), (2, 1), (1, 10)] {
+            assert!(
+                writer
+                    .append_anchored(envelope(connection, epoch), Duration::from_secs(1))
+                    .await
+                    .unwrap()
+            );
+        }
+        writer.finish(RecordingEnd::Complete).await.unwrap();
+        bytes
+    }
+
+    #[tokio::test]
+    async fn anchored_roundtrip_and_repeated_replay_preserve_original_labels_and_clocks() {
+        let bytes = tape().await;
+        let mut reader = RecordingReader::new(bytes.as_slice(), RecordingLimits::default());
+        for (connection, epoch) in [(1, 10), (1, 11), (2, 1), (1, 10)] {
+            let event = reader.next_anchored_event().await.unwrap().unwrap();
+            assert_eq!(
+                (event.anchor.connection, event.anchor.epoch),
+                (connection, epoch)
+            );
+            assert_eq!(event.anchor.identity, event.record.identity);
+            assert_eq!(event.record.elapsed_ns, 1_000_000_000);
+        }
+        assert!(reader.next_anchored_event().await.unwrap().is_none());
+        let mut runs = Vec::new();
+        for _ in 0..2 {
+            let mut reader = RecordingReader::new(bytes.as_slice(), RecordingLimits::default());
+            let mut events = Vec::new();
+            let (_stop, shutdown) = watch::channel(false);
+            let summary = reader
+                .replay_anchored(ReplayOptions::default(), shutdown, |event| {
+                    events.push((event.anchor, serde_json::to_string(&event.record).unwrap()));
+                    std::future::ready(Ok(()))
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(summary.events, 4);
+            runs.push(events);
+        }
+        assert_eq!(runs[0], runs[1]);
+    }
+
+    #[tokio::test]
+    async fn anchored_codec_rejects_missing_mismatched_zero_and_v1_anchors() {
+        let bytes = tape().await;
+        let lines: Vec<_> = bytes
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap())
+            .collect();
+        for case in 0..6 {
+            let mut lines = lines.clone();
+            match case {
+                0 => {
+                    lines[1]["event"].as_object_mut().unwrap().remove("anchor");
+                }
+                1 => {
+                    lines[1]["event"]["anchor"]["identity"]["generation"] = 2.into();
+                }
+                2 => {
+                    lines[1]["event"]["anchor"]["connection"] = 0.into();
+                }
+                3 => {
+                    lines[1]["event"]["anchor"]["epoch"] = 0.into();
+                }
+                4 => {
+                    lines[0]["header"]["version"] = 1.into();
+                }
+                _ => {
+                    lines[1]["event"]["anchor"]["unknown"] = true.into();
+                }
+            }
+            let bytes = lines
+                .iter()
+                .map(|line| serde_json::to_string(line).unwrap() + "\n")
+                .collect::<String>();
+            let mut reader = RecordingReader::new(bytes.as_bytes(), RecordingLimits::default());
+            assert!(reader.next_anchored_event().await.is_err(), "case {case}");
+            assert!(reader.next_anchored_event().await.is_err());
+        }
+        let mut reader = RecordingReader::new(NORMALIZED_FIXTURE, RecordingLimits::default());
+        let (_stop, shutdown) = watch::channel(false);
+        assert!(
+            reader
+                .replay_anchored(ReplayOptions::default(), shutdown, |_| async {
+                    panic!("v1 must not call anchored consumer")
+                })
+                .await
+                .is_err()
+        );
+        let mut bytes = Vec::new();
+        let mut writer = RecordingWriter::new(&mut bytes, RecordingLimits::default())
+            .await
+            .unwrap();
+        assert!(
+            writer
+                .append_anchored(envelope(1, 1), Duration::ZERO)
+                .await
+                .is_err()
+        );
+        let mut writer = RecordingWriter::new_anchored(Vec::new(), RecordingLimits::default())
+            .await
+            .unwrap();
+        let event = envelope(1, 1);
+        assert!(
+            writer
+                .append(
+                    FeedEnvelope {
+                        identity: event.anchor.identity,
+                        event: event.event
+                    },
+                    Duration::ZERO
+                )
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn anchored_stream_rejects_ring_loss_and_certifies_closed_drain() {
+        for capacity in [1, 4] {
+            let (sender, receiver) = broadcast::channel(capacity);
+            for epoch in 1..=3 {
+                sender.send(envelope(1, epoch)).unwrap();
+            }
+            drop(sender);
+            let (_stop, shutdown) = watch::channel(false);
+            let mut bytes = Vec::new();
+            let result =
+                record_anchored_stream(&mut bytes, receiver, RecordingLimits::default(), shutdown)
+                    .await;
+            if capacity == 1 {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(result.unwrap().events, 3);
+                let mut reader = RecordingReader::new(bytes.as_slice(), RecordingLimits::default());
+                for epoch in 1..=3 {
+                    assert_eq!(
+                        reader
+                            .next_anchored_event()
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .anchor
+                            .epoch,
+                        epoch
+                    );
+                }
+                assert!(reader.next_anchored_event().await.unwrap().is_none());
+            }
+        }
+    }
 }

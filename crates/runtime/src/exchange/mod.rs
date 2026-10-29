@@ -158,6 +158,8 @@ pub struct ExchangeFeed {
     pub(crate) connection_tracker: Option<crate::runtime::readiness::ConnectionTracker>,
     pub(crate) connection_epoch: Option<u64>,
     pub(crate) envelope_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedEnvelope>>,
+    pub(crate) anchored_sender:
+        Option<tokio::sync::broadcast::Sender<crate::feed::AnchoredEnvelope>>,
 }
 
 impl ExchangeFeed {
@@ -395,6 +397,21 @@ impl ExchangeFeed {
         }
         if let Some(sender) = &self.event_sender {
             let _ = sender.send(event.clone());
+        }
+        if let (Some(sender), Some(identity), Some(tracker), Some(epoch)) = (
+            &self.anchored_sender,
+            self.identity,
+            &self.connection_tracker,
+            self.connection_epoch,
+        ) {
+            let _ = sender.send(crate::feed::AnchoredEnvelope {
+                anchor: crate::feed::EventAnchor {
+                    identity,
+                    connection: tracker.id,
+                    epoch,
+                },
+                event: event.clone(),
+            });
         }
         if let (Some(sender), Some(identity)) = (&self.envelope_sender, self.identity) {
             let _ = sender.send(crate::feed::FeedEnvelope { identity, event });
@@ -1155,6 +1172,7 @@ impl ExchangeFeedBuilder {
             connection_tracker: None,
             connection_epoch: None,
             envelope_sender: None,
+            anchored_sender: None,
         }
     }
 }

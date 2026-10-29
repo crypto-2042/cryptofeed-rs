@@ -3,8 +3,8 @@ mod failure;
 mod subscription;
 use crate::exchange::ExchangeFeed;
 pub use control::{
-    BookSyncDiagnostic, ConnectionInfo, FeedEnvelope, FeedId, FeedIdentity, FeedInfo, FeedSnapshot,
-    FeedState, RuntimeControl,
+    AnchoredEnvelope, BookSyncDiagnostic, ConnectionInfo, EventAnchor, FeedEnvelope, FeedId,
+    FeedIdentity, FeedInfo, FeedSnapshot, FeedState, RuntimeControl,
 };
 #[cfg(feature = "candles")]
 use cryptofeed_candles::Candle;
@@ -28,7 +28,7 @@ use cryptofeed_trade::Trade;
 pub use failure::FailureDiagnostic;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-pub use subscription::{IdentifiedSubscription, SubscriptionDiagnostics};
+pub use subscription::{AnchoredSubscription, IdentifiedSubscription, SubscriptionDiagnostics};
 use tokio::sync::broadcast;
 
 /// A normalized event delivered through the `FeedHandler` event stream.
@@ -232,6 +232,7 @@ pub struct FeedHandler {
     status_sender: Option<broadcast::Sender<FeedStatus>>,
     counters: Arc<EventCounters>,
     envelope_sender: Option<broadcast::Sender<FeedEnvelope>>,
+    anchored_sender: Option<broadcast::Sender<AnchoredEnvelope>>,
     control_sender: Option<tokio::sync::mpsc::Sender<control::Command>>,
     control_receiver: Option<tokio::sync::mpsc::Receiver<control::Command>>,
 }
@@ -253,6 +254,7 @@ impl FeedHandler {
             status_sender: None,
             counters: Arc::new(EventCounters::default()),
             envelope_sender: None,
+            anchored_sender: None,
             control_sender: None,
             control_receiver: None,
         }
@@ -370,12 +372,36 @@ impl FeedHandler {
         IdentifiedSubscription::new(self.subscribe_identified(), capacity)
     }
 
+    /// Opt-in producer-anchored stream. Enables managed runtime (including its
+    /// isolated initial startup); static subscribe/subscribe_identified are unchanged.
+    /// Match identity/connection/epoch against authoritative Ready state before
+    /// admitting events. Status and event rings have no shared ordering barrier.
+    pub fn subscribe_anchored(&mut self) -> broadcast::Receiver<AnchoredEnvelope> {
+        self.control_handle();
+        let capacity = self.event_capacity;
+        let sender = self
+            .anchored_sender
+            .get_or_insert_with(|| broadcast::channel(capacity).0);
+        for feed in &mut self.feeds {
+            feed.anchored_sender = Some(sender.clone());
+        }
+        sender.subscribe()
+    }
+
+    /// Same bounded stream with receiver-local accounting; application discards
+    /// count as received, never as ring overwrite loss.
+    pub fn subscribe_anchored_with_diagnostics(&mut self) -> AnchoredSubscription {
+        let capacity = self.event_capacity.next_power_of_two();
+        AnchoredSubscription::new(self.subscribe_anchored(), capacity)
+    }
+
     fn control_context(&self) -> control::ControlContext {
         control::ControlContext {
             #[cfg(feature = "orderbook")]
             books: self.book_store.clone(),
             event_sender: self.event_sender.clone(),
             envelope_sender: self.envelope_sender.clone(),
+            anchored_sender: self.anchored_sender.clone(),
             status_sender: self.status_sender.clone(),
             counters: self.counters.clone(),
         }

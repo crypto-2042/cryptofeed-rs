@@ -763,6 +763,26 @@ pub(crate) mod tests {
         mut shutdown: watch::Receiver<bool>,
     ) -> BoxFuture<'static, Result<()>> {
         async move {
+            let mut feed = feed;
+            let _attempt = if feed.anchored_sender.is_some() {
+                super::super::readiness::track(&mut feed, "wss://synthetic/", vec![]);
+                let mut attempt = super::super::readiness::begin(&mut feed).unwrap();
+                attempt.connected();
+                let messages = attempt.prepare_messages(vec![
+                    serde_json::json!({
+                        "method":"SUBSCRIBE", "params":["btcusdt@aggTrade"], "id":1
+                    })
+                    .to_string(),
+                ]);
+                attempt.sent(&messages[0], tokio::time::Instant::now());
+                attempt
+                    .control(&serde_json::json!({"result":null,"id":1}))
+                    .unwrap();
+                Some(attempt)
+            } else {
+                None
+            };
+
             if feed.symbols[0].as_str() == "PANIC-USDT" {
                 panic!("fake session panic");
             }
@@ -813,6 +833,42 @@ pub(crate) mod tests {
         ));
         (control, events, statuses, running, stop)
     }
+    #[tokio::test]
+    async fn anchored_managed_add_replace_remove_keep_buffered_generations_distinct() {
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe_anchored_with_diagnostics();
+        let (control, _identified, _statuses, running, _stop) = start(handler);
+        let first = control.add_feed(input("BTC")).await.unwrap();
+        let old = events.recv().await.unwrap();
+        assert_eq!(old.anchor.identity, first);
+        let state = control.state(first.id).await.unwrap();
+        assert!(state.is_ready());
+        assert_eq!(old.anchor.connection, state.connections[0].id);
+        assert_eq!(old.anchor.epoch, state.connections[0].epoch);
+        let replacement = control.replace_feed(first.id, input("ETH")).await.unwrap();
+        assert_ne!(replacement, first);
+        let new = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.anchor.identity == replacement {
+                    break event;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(old.anchor.identity, first); // Retained label cannot be rewritten.
+        assert_eq!(new.anchor.epoch, 1); // Configuration and attempt are different axes.
+        control.remove_feed(first.id).await.unwrap();
+        assert!(control.state(first.id).await.is_err());
+        control.shutdown().await.unwrap();
+        running.await.unwrap().unwrap();
+        while events.try_recv().is_ok() {}
+        assert_eq!(events.diagnostics().lagged, 0);
+        assert_eq!(events.diagnostics().pending, 0);
+        assert!(events.diagnostics().closed);
+    }
+
     async fn event_for(
         events: &mut broadcast::Receiver<FeedEnvelope>,
         identity: FeedIdentity,
