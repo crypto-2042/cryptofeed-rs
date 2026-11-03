@@ -2333,9 +2333,9 @@ mod tests {
     #[test]
     fn kucoin_futures_catalog_maps_perpetual_inverse_and_dated_contracts() {
         let payload = json!({"code": "200000", "data": {"tradeType": "FUTURES", "list": [
-            {"symbol":"XBTUSDTM","baseCurrency":"XBT","quoteCurrency":"USDT","settlementCurrency":"USDT","contractType":"0","expiryTime":null,"isInverse":false,"tradingStatus":"Open","marketStage":"NORMAL"},
-            {"symbol":"XBTUSDM","baseCurrency":"XBT","quoteCurrency":"USD","settlementCurrency":"XBT","contractType":"0","expiryTime":null,"isInverse":true,"tradingStatus":"Open","marketStage":"NORMAL"},
-            {"symbol":"XBTMZ26","baseCurrency":"XBT","quoteCurrency":"USD","settlementCurrency":"XBT","contractType":"1","expiryTime":"1798185600000","isInverse":true,"tradingStatus":"Open","marketStage":"NORMAL"},
+            {"symbol":"XBTUSDTM","baseCurrency":"XBT","quoteCurrency":"USDT","settlementCurrency":"USDT","contractType":"0","expiryTime":null,"isInverse":false,"unitSize":"0.001","tradingStatus":"Open","marketStage":"NORMAL"},
+            {"symbol":"XBTUSDM","baseCurrency":"XBT","quoteCurrency":"USD","settlementCurrency":"XBT","contractType":"0","expiryTime":null,"isInverse":true,"unitSize":"1.0","tradingStatus":"Open","marketStage":"NORMAL"},
+            {"symbol":"XBTMZ26","baseCurrency":"XBT","quoteCurrency":"USD","settlementCurrency":"XBT","contractType":"1","expiryTime":"1798185600000","isInverse":true,"unitSize":"1.0","tradingStatus":"Open","marketStage":"NORMAL"},
             {"symbol":"NEWUSDTM","baseCurrency":"NEW","quoteCurrency":"USDT","contractType":"0","expiryTime":null,"tradingStatus":"Open","marketStage":"PRE_MARKET"},
             {"symbol":"OFFUSDTM","baseCurrency":"OFF","quoteCurrency":"USDT","contractType":"0","expiryTime":null,"tradingStatus":"Close","marketStage":"NORMAL"}
         ]}});
@@ -2357,6 +2357,26 @@ mod tests {
             perpetual.to_exchange(&Symbol::spot("NEW", "USDT")),
             Err(Error::UnsupportedSymbol(_))
         ));
+        let markets = perpetual.into_markets(ExchangeId::Kucoin);
+        let linear = markets
+            .iter()
+            .find(|market| market.symbol == Symbol::perpetual("BTC", "USDT"))
+            .unwrap();
+        assert_eq!(
+            linear.contract_value,
+            Some(rust_decimal::Decimal::new(1, 3))
+        );
+        assert_eq!(linear.contract_value_currency.as_deref(), Some("BTC"));
+        assert_eq!(linear.settlement_currency.as_deref(), Some("USDT"));
+        let inverse = markets
+            .iter()
+            .find(|market| market.symbol == Symbol::perpetual("BTC", "USD"))
+            .unwrap();
+        assert_eq!(inverse.contract_value, Some(rust_decimal::Decimal::ONE));
+        // Inverse face value is the quote asset even though settlement is the
+        // base asset; the catalog never substitutes settlement currency.
+        assert_eq!(inverse.contract_value_currency.as_deref(), Some("USD"));
+        assert_eq!(inverse.settlement_currency.as_deref(), Some("XBT"));
 
         let mut dated = SymbolRegistry::default();
         add_kucoin_futures_markets(&mut dated, &payload, InstrumentKind::Futures).unwrap();
