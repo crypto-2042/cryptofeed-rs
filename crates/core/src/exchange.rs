@@ -9,6 +9,7 @@ pub enum ExchangeId {
     Coinbase,
     Gateio,
     Kraken,
+    Kucoin,
     Okx,
 }
 

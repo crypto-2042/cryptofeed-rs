@@ -4,6 +4,7 @@ pub mod bybit;
 pub mod coinbase;
 pub mod gateio;
 pub mod kraken;
+pub mod kucoin;
 pub mod okx;
 
 #[cfg(feature = "orderbook")]
