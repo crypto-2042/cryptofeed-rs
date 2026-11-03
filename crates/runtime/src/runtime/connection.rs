@@ -1,5 +1,6 @@
 use crate::exchange::{
-    bybit::adapter::BybitAdapter, kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter,
+    bybit::adapter::BybitAdapter, kraken::adapter::KrakenAdapter, kucoin::adapter::KucoinAdapter,
+    okx::adapter::OkxAdapter,
 };
 use cryptofeed_core::{
     error::{Error, Result},
@@ -77,7 +78,13 @@ impl HeartbeatPolicy {
                     Duration::from_secs(45),
                 )
             }
-            ExchangeId::Coinbase | ExchangeId::Kraken => (
+            // `{"method":"ping"}` is answered by `{"method":"pong"}`.
+            ExchangeId::Kraken => (
+                HeartbeatKind::Text(KrakenAdapter::heartbeat_message()),
+                Duration::from_secs(30),
+                Duration::from_secs(60),
+            ),
+            ExchangeId::Coinbase => (
                 HeartbeatKind::None,
                 Duration::from_secs(60),
                 DEFAULT_IDLE_TIMEOUT,
@@ -120,6 +127,7 @@ impl HeartbeatPolicy {
 
     fn is_response_value(self, value: &serde_json::Value) -> bool {
         value.get("op").and_then(|value| value.as_str()) == Some("pong")
+            || value.get("method").and_then(|value| value.as_str()) == Some("pong")
             || value.get("ret_msg").and_then(|value| value.as_str()) == Some("pong")
             || value
                 .get("channel")

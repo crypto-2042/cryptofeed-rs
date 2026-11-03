@@ -6,7 +6,7 @@ Last updated: 2026-10-16
 
 `cryptofeed-rs` aligns core normalized public-market behavior with Python
 `cryptofeed` while using the current official protocols for Binance, Bitget,
-Bybit, OKX, Gate.io, and KuCoin. Python remains a semantic migration reference; official
+Bybit, OKX, Gate.io, KuCoin, and Kraken Spot. Python remains a semantic migration reference; official
 exchange documentation and sourced fixtures define protocol correctness.
 
 ## Linux release qualification boundary (2026-10-16)
@@ -100,6 +100,7 @@ tracked in [the usage alignment plan](docs/python-usage-alignment.md).
 | Gate.io v4 | spot, USDT/BTC perpetual, USDT delivery | yes | yes | yes | yes | yes | yes (perpetual only) | yes (perpetual only) | yes (derivatives) | yes (derivatives) | yes (derivatives) |
 | KuCoin UTA WS V2 | spot | yes | yes | yes | no | yes | no | no | no | no | no |
 | KuCoin UTA WS V2 | USDT/USDC/coin-margined perpetual | yes | yes | yes | no | yes | yes | no | yes | yes | yes |
+| Kraken WS v2 | spot | yes | yes | yes | no | yes | no | no | no | no | no |
 
 Bybit funding rides the derivative `tickers.{symbol}` stream (the standalone
 `funding.{symbol}` channel was removed by Bybit; verified live 2026-08-06).
@@ -120,6 +121,14 @@ together and is subscribed once; `funding-fee` is futures-only. `obu` is
 `increment@10ms` (snapshot then `O`/`C`-sequenced deltas) by default, or
 snapshot-only `depth=1/5/50`. KuCoin `6hour` klines are rejected on futures
 preflight.
+
+Kraken Spot WebSocket v2 is spot-only: `ticker` carries BBO sizes but is not an
+`L1Book` channel, and funding/open interest/mark price/liquidations live on the
+separate Kraken Derivatives platform. `book` is parameterized by depth
+(10/25/100/500/1000) and every push is CRC32-verified over the top ten levels;
+a mismatch enters the bounded resnapshot path instead of publishing a corrupt
+book. `ohlc` intervals are Kraken's documented minute set (1m/5m/15m/30m/1h/4h/
+1d/1w); the 15-day interval is not expressible in the normalized vocabulary.
 
 Candles are parameterized: the normalized interval (default `1m`) is
 validated per exchange during preflight (`1m`..`1M` subsets; Gate.io maps to
@@ -309,6 +318,37 @@ remain offline-verified in this increment. See
   trade delivery and clean shutdown; order-book gap/bridge and snapshot-only
   replacements are covered by deterministic dispatch tests.
 
+### Kraken Spot WebSocket v2
+
+- [x] Public endpoint `wss://ws.kraken.com/v2` with `method`-based
+  subscribe/unsubscribe, per-symbol acknowledgements correlated by echoed
+  `req_id`, and `{"method":"ping"}` / `{"method":"pong"}` heartbeat policy.
+  `status` and `heartbeat` channel frames are control frames, not market data.
+- [x] Spot-only capability row; funding, open interest, mark price,
+  liquidations, L1 and derivative products fail preflight.
+- [x] `ticker` (BBO + last, `event_trigger: bbo`), `trade`, `ohlc` and `book`
+  normalization with RFC 3339 timestamps converted to Unix seconds; deprecated
+  `ohlc.timestamp` is ignored and bar completion stays unknown.
+- [x] Documented OHLC minute intervals only (1m/5m/15m/30m/1h/4h/1d/1w);
+  `6h`/`2h`/`1M` and the 15-day interval fail preflight. Book depths
+  10/25/100/500/1000 are validated.
+- [x] CRC32 book checksum over the top ten levels (asks low-to-high then bids
+  high-to-low, documented string formatting), reproduced against the official
+  `3310070434` example and verified live on 2026-11-03 at depth 25/100. Local
+  books are truncated to the subscribed depth because out-of-scope levels never
+  receive `qty: 0` removals.
+- [x] Checksum mismatch clears the book and enters the bounded in-session
+  resnapshot path (unsubscribe/subscribe with `snapshot: true`, at most three
+  cumulative requests per connection); corrupt books are never published and
+  pre-snapshot updates are dropped.
+- [x] REST catalog `GET /public/AssetPairs` with `wsname`/`altname` validation,
+  `XBT` -> `BTC` and `XDG` -> `DOGE` wire aliases (live-verified), arbitrary
+  quote currencies, and `status: online` eligibility only.
+- [x] Full-session WebSocket double: subscription framing, `req_id`
+  acknowledgement, trade delivery and clean shutdown; checksum mismatch ->
+  resnapshot -> replacement-snapshot recovery is covered by deterministic
+  dispatch tests.
+
 ### Gate.io v4
 
 - [x] Public perpetual liquidation subscription, signed-size normalization,
@@ -351,7 +391,7 @@ cargo test -p cryptofeed-rs --test public_parity
   based on multi-symbol rate-limit exposure; current REST availability does
   not enable a capability cell. See [the decision record](docs/binance-open-interest-decision.md).
 
-- Coinbase and Kraken live runtime paths.
+- Coinbase live runtime path.
 - Authenticated feeds and trading.
 - Options and MARGIN as public runtime products. Their existing protocol
   helpers and fixtures are retained, but all such feeds fail 0.1 preflight.
@@ -368,7 +408,8 @@ Gate.io, KuCoin), index price (OKX explicit index/contract mapping, Binance
 derivative index-price stream, Bitget/Bybit/Gate.io derivative tickers, KuCoin
 shared mark-price payload), and L1 (the five original active exchanges) are
 implemented for spot/contract scope; KuCoin intentionally exposes no L1Book or
-liquidation cell. Options, MARGIN, and L3 are deferred. Further expansion requires a new explicit plan and current official
+liquidation cell, and Kraken Spot exposes no derivative or L1 cell. Options,
+MARGIN, and L3 are deferred. Further expansion requires a new explicit plan and current official
 protocol evidence. See [the harness guide](docs/harness.md) for acceptance
 criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 

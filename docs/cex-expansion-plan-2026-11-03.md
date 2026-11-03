@@ -1,7 +1,7 @@
 # Exchange expansion design and implementation plan — 2026-11-03
 
-Status: **plan; KuCoin phase 1 implemented end to end on 2026-11-03 (Kraken
-phase 2 in progress).** Selected venues and their
+Status: **plan; both phases implemented end to end on 2026-11-03** (KuCoin
+phase 1 and Kraken Spot phase 2). Selected venues and their
 protocol baselines: [research](cex-expansion-research-2026-11-03.md),
 [KuCoin](kucoin-protocol.md), [Kraken](kraken-protocol.md). KuCoin is phase 1
 because one channel set covers spot and futures with nine normalized

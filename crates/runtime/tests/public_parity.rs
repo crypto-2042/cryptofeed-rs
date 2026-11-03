@@ -10,6 +10,7 @@ use cryptofeed_rs::gateio::{
     adapter::{GateioInstrument, GateioProduct},
     parser as gateio_parser,
 };
+use cryptofeed_rs::kraken::{adapter::KrakenAdapter, parser as kraken_parser};
 use cryptofeed_rs::kucoin::parser as kucoin_parser;
 use cryptofeed_rs::okx::parser as okx_parser;
 use rust_decimal::Decimal;
@@ -2901,4 +2902,173 @@ fn kucoin_obu_sequence_handling_fails_closed_on_gaps() {
     assert_eq!(sync.apply(gap).unwrap(), KucoinBookOutcome::Resnapshot);
     assert!(sync.awaiting_snapshot());
     assert!(sync.state().bids().is_empty());
+}
+
+// ---------- Kraken Spot WebSocket v2 documented frames ----------
+//
+// Frames follow the official Kraken channel documentation and the sanitized
+// live shape observed on 2026-11-03 (see sample_data/SOURCES.md). The book
+// checksum fixture is the official book-checksum guide example.
+
+#[test]
+fn kraken_ticker_and_trade_match_the_documented_shape() {
+    let ticker = json!({
+        "channel": "ticker", "type": "snapshot",
+        "data": [{"symbol": "BTC/USD", "bid": 76497.5, "bid_qty": 0.00065022,
+                  "ask": 76497.6, "ask_qty": 0.83895981, "last": 76497.6,
+                  "volume": 2770.68084624, "vwap": 77090.9, "low": 76254.4,
+                  "high": 78269.8, "change": -1587.9, "change_pct": -2.03,
+                  "trades": 140869, "timestamp": "2026-11-03T07:01:22.016355Z"}]
+    });
+    let tickers = kraken_parser::parse_tickers(&ticker, 1.0);
+    assert_eq!(tickers.len(), 1);
+    assert_eq!(tickers[0].symbol.as_str(), "BTC-USD");
+    assert_eq!(tickers[0].bid, Decimal::from_str_exact("76497.5").unwrap());
+    assert_eq!(tickers[0].ask, Decimal::from_str_exact("76497.6").unwrap());
+    assert_eq!(tickers[0].exchange_ts, 1_793_689_282.016_355);
+
+    let trade = json!({
+        "channel": "trade", "type": "update",
+        "data": [{"symbol": "BTC/USD", "side": "sell", "price": 76449.6,
+                  "qty": 0.00043059, "ord_type": "limit",
+                  "trade_id": 114005505,
+                  "timestamp": "2026-11-03T07:02:37.171033Z"}]
+    });
+    let trades = kraken_parser::parse_trades(&trade, 1.0);
+    assert_eq!(trades.len(), 1);
+    assert_eq!(trades[0].side, cryptofeed_rs::prelude::Side::Sell);
+    assert_eq!(trades[0].id.as_deref(), Some("114005505"));
+}
+
+#[test]
+fn kraken_ohlc_uses_interval_begin_and_ignores_deprecated_timestamp() {
+    let ohlc = json!({
+        "channel": "ohlc", "type": "snapshot",
+        "timestamp": "2026-11-03T07:01:24.187297694Z",
+        "data": [{"symbol": "BTC/USD", "open": 76381.0, "high": 76399.4,
+                  "low": 76376.7, "close": 76399.4, "trades": 70,
+                  "volume": 0.63763428, "vwap": 76384.9,
+                  "interval_begin": "2026-11-03T06:52:00.000000000Z",
+                  "interval": 1,
+                  "timestamp": "2026-11-03T06:53:00.000000Z"}]
+    });
+    let candles = kraken_parser::parse_candles(&ohlc, 1.0);
+    assert_eq!(candles.len(), 1);
+    assert_eq!(candles[0].interval, "1m");
+    assert_eq!(candles[0].start, 1_793_688_720.0);
+    assert_eq!(candles[0].end, 1_793_688_780.0);
+    assert_eq!(candles[0].trades, Some(70));
+    // Kraken does not mark OHLC bars final.
+    assert_eq!(candles[0].closed, None);
+}
+
+#[test]
+fn kraken_official_book_checksum_example_matches() {
+    use cryptofeed_orderbook::L2Book;
+    use cryptofeed_rs::exchange::kraken::book_sync::{
+        KrakenBookOutcome, KrakenBookSync, checksum_of_state, checksum_string,
+    };
+
+    let row = json!({
+        "symbol": "BTC/USD",
+        "bids": [
+            {"price": "45283.5", "qty": "0.10000000"},
+            {"price": "45283.4", "qty": "1.54582015"},
+            {"price": "45282.1", "qty": "0.10000000"},
+            {"price": "45281.0", "qty": "0.10000000"},
+            {"price": "45280.3", "qty": "1.54592586"},
+            {"price": "45279.0", "qty": "0.07990000"},
+            {"price": "45277.6", "qty": "0.03310103"},
+            {"price": "45277.5", "qty": "0.30000000"},
+            {"price": "45277.3", "qty": "1.54602737"},
+            {"price": "45276.6", "qty": "0.15445238"}
+        ],
+        "asks": [
+            {"price": "45285.2", "qty": "0.00100000"},
+            {"price": "45286.4", "qty": "1.54571953"},
+            {"price": "45286.6", "qty": "1.54571109"},
+            {"price": "45289.6", "qty": "1.54560911"},
+            {"price": "45290.2", "qty": "0.15890660"},
+            {"price": "45291.8", "qty": "1.54553491"},
+            {"price": "45294.7", "qty": "0.04454749"},
+            {"price": "45296.1", "qty": "0.35380000"},
+            {"price": "45297.5", "qty": "0.09945542"},
+            {"price": "45299.5", "qty": "0.18772827"}
+        ],
+        "checksum": 3310070434u32,
+        "timestamp": "2023-10-06T17:35:55.440295Z"
+    });
+    let update = kraken_parser::parse_book_row(&row, true, 1.0, &Symbol::spot("BTC", "USD"))
+        .expect("book row");
+    let mut sync = KrakenBookSync::new(Symbol::spot("BTC", "USD"), 10);
+    assert!(matches!(
+        sync.apply(update).expect("snapshot"),
+        KrakenBookOutcome::Publish(L2Book::Snapshot(_))
+    ));
+    assert_eq!(checksum_of_state(sync.state()), 3_310_070_434);
+    assert_eq!(
+        checksum_string(sync.state()),
+        "45285210000045286415457195345286615457110945289615456091145290215890660452918154553491452947445474945296135380000452975994554245299518772827452835100000004528341545820154528211000000045281010000000452803154592586452790799000045277633101034527753000000045277315460273745276615445238"
+    );
+    // Level count/order is preserved by the state; a replacement checksum
+    // mismatch clears the book instead of publishing it.
+    let mut corrupt = kraken_parser::parse_book_row(&row, true, 2.0, &Symbol::spot("BTC", "USD"))
+        .expect("book row");
+    corrupt.checksum ^= 0xFF;
+    assert_eq!(
+        sync.apply(corrupt).expect("mismatch"),
+        KrakenBookOutcome::Resnapshot
+    );
+    assert!(sync.state().bids().is_empty());
+    assert!(sync.state().asks().is_empty());
+}
+
+#[test]
+fn kraken_method_subscribe_and_control_frames_are_parsed() {
+    let feed = cryptofeed_rs::prelude::Kraken::new()
+        .ticker()
+        .trade()
+        .l2_book()
+        .candles()
+        .candles_interval("1h")
+        .symbol("BTC-USD")
+        .exchange_symbol("BTC/USD")
+        .build();
+    let frames = KrakenAdapter::subscription_messages(&feed).expect("frames");
+    assert_eq!(frames.len(), 4);
+    let ticker: serde_json::Value = serde_json::from_str(
+        frames
+            .iter()
+            .find(|frame| frame.contains("\"ticker\""))
+            .expect("ticker frame"),
+    )
+    .expect("json");
+    assert_eq!(ticker["method"], "subscribe");
+    assert_eq!(ticker["params"]["event_trigger"], "bbo");
+    assert_eq!(ticker["params"]["symbol"], json!(["BTC/USD"]));
+    assert!(
+        frames
+            .iter()
+            .any(|frame| frame.contains("\"channel\":\"book\""))
+    );
+    assert!(frames.iter().any(|frame| frame.contains("\"interval\":60")));
+
+    assert!(
+        KrakenAdapter::parse_control_message(&json!({"method": "pong"}))
+            .expect("pong")
+            .is_ok()
+    );
+    assert!(
+        KrakenAdapter::parse_control_message(&json!({"channel": "heartbeat"}))
+            .expect("heartbeat")
+            .is_ok()
+    );
+    assert!(
+        KrakenAdapter::parse_control_message(&json!({
+            "method": "subscribe", "req_id": 1, "success": false,
+            "error": "Currency pair not supported XBT/USD"
+        }))
+        .expect("rejection")
+        .is_err()
+    );
 }

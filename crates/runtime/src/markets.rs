@@ -173,6 +173,16 @@ const KUCOIN_SPOT_CHANNELS: &[Channel] = &[
     Channel::L2Book,
     Channel::Candles,
 ];
+/// Kraken Spot WebSocket v2 exposes `ticker`, `trade`, `book` and `ohlc`.
+/// `ticker` carries BBO sizes but is not an `L1Book` channel; funding, open
+/// interest, mark price and liquidations live on the separate Derivatives
+/// platform and stay unsupported here.
+const KRAKEN_SPOT_CHANNELS: &[Channel] = &[
+    Channel::Ticker,
+    Channel::Trade,
+    Channel::L2Book,
+    Channel::Candles,
+];
 /// KuCoin futures add `funding-fee` and the shared `mark-price` channel, which
 /// publishes mark price, index price and open interest in one payload. There
 /// is no documented public liquidation stream.
@@ -280,6 +290,11 @@ const CAPABILITIES: &[Capability] = &[
         product: InstrumentKind::Perpetual,
         channels: KUCOIN_PERPETUAL_CHANNELS,
     },
+    Capability {
+        exchange: ExchangeId::Kraken,
+        product: InstrumentKind::Spot,
+        channels: KRAKEN_SPOT_CHANNELS,
+    },
 ];
 
 pub fn capability_matrix() -> &'static [Capability] {
@@ -358,6 +373,12 @@ fn validate_candle_interval(feed: &ExchangeFeed, product: InstrumentKind) -> Res
             )
             .is_some()
         }
+        ExchangeId::Kraken => {
+            crate::exchange::kraken::adapter::KrakenAdapter::candle_interval_wire(
+                &feed.candle_interval,
+            )
+            .is_some()
+        }
         ExchangeId::Kucoin => {
             let product = if product == InstrumentKind::Spot {
                 crate::exchange::kucoin::adapter::KucoinProduct::Spot
@@ -414,6 +435,9 @@ fn validate_l2_book_depth(feed: &ExchangeFeed, product: InstrumentKind) -> Resul
         }
         ExchangeId::Kucoin => {
             crate::exchange::kucoin::adapter::KucoinAdapter::l2_book_depth_supported(level)
+        }
+        ExchangeId::Kraken => {
+            crate::exchange::kraken::adapter::KrakenAdapter::l2_book_depth_supported(level)
         }
         _ => false,
     };
@@ -807,6 +831,22 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
                 )));
             }
         },
+        ExchangeId::Kraken => {
+            if product != InstrumentKind::Spot {
+                return Err(Error::UnsupportedCapability(format!(
+                    "{:?}/{:?} symbol discovery; Kraken derivatives live on a separate platform",
+                    exchange, product
+                )));
+            }
+            let payload = fetch_json(
+                "https://api.kraken.com/0/public/AssetPairs",
+                refresh,
+                transport,
+                exchange,
+            )
+            .await?;
+            add_kraken_spot_catalog(&mut registry, &payload)?;
+        }
         // Coinbase has no verified catalog in this increment; fail symbol
         // discovery explicitly instead of guessing native names.
         _ => {
@@ -1404,6 +1444,64 @@ fn catalog_status(item: &Value, field: &str, eligible: &[&str]) -> Result<bool> 
     }
 }
 
+/// Legacy Kraken asset codes that the WebSocket v2 symbol namespace spells
+/// differently from the REST `AssetPairs` `wsname`. Verified live on
+/// 2026-11-03: `XBT/USD` and `XDG/USD` are rejected as unsupported while
+/// `BTC/USD` and `DOGE/USD` subscribe. The alias is applied to both sides of
+/// the pair, so an `AAVE/XBT` pair subscribes as `AAVE/BTC`.
+fn kraken_wire_asset(asset: &str) -> &str {
+    match asset {
+        "XBT" => "BTC",
+        "XDG" => "DOGE",
+        other => other,
+    }
+}
+
+/// Kraken `AssetPairs` spot catalog. `wsname` is the canonical pair form used
+/// by WebSocket v2 after the legacy `XBT`/`XDG` aliases; `altname` is the
+/// slash-less legacy form and is cross-checked so a catalog contradiction is
+/// explicit instead of being guessed around. Only `status: online` pairs are
+/// eligible; `cancel_only`/`post_only` are not tradable market-data
+/// subscriptions and are skipped.
+fn add_kraken_spot_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
+    let rows = payload
+        .get("result")
+        .and_then(Value::as_object)
+        .ok_or_else(|| Error::MalformedData("Kraken AssetPairs is missing result".to_owned()))?;
+    for (native_key, item) in rows {
+        if required_str(item, "status")? != "online" {
+            continue;
+        }
+        let wsname = required_str(item, "wsname")?;
+        let altname = required_str(item, "altname")?;
+        if altname != wsname.replace('/', "") {
+            return Err(Error::MalformedData(format!(
+                "Kraken pair {native_key} altname {altname} disagrees with wsname {wsname}"
+            )));
+        }
+        let (base, quote) = wsname.split_once('/').ok_or_else(|| {
+            Error::MalformedData(format!(
+                "Kraken pair {native_key} has invalid wsname {wsname}"
+            ))
+        })?;
+        if base.is_empty() || quote.is_empty() || quote.contains('/') {
+            return Err(Error::MalformedData(format!(
+                "Kraken pair {native_key} has invalid wsname {wsname}"
+            )));
+        }
+        let base = kraken_wire_asset(base);
+        let quote = kraken_wire_asset(quote);
+        registry.insert_market(
+            Symbol::spot(base, quote),
+            &format!("{base}/{quote}"),
+            ExchangeId::Kraken,
+            item,
+            None,
+        )?;
+    }
+    Ok(())
+}
+
 /// KuCoin base aliases used before product qualification (`XBT` -> `BTC`).
 fn kucoin_alias_asset(asset: &str) -> &str {
     if asset.eq_ignore_ascii_case("XBT") {
@@ -1763,12 +1861,12 @@ mod tests {
     use super::{
         SymbolRegistry, add_binance_markets, add_binance_option_market, add_bitget_markets,
         add_bybit_option_market, add_bybit_option_page, add_bybit_page,
-        add_gateio_delivery_markets, add_gateio_perpetual_markets, add_kucoin_futures_markets,
-        add_kucoin_spot_catalog, add_okx_markets, capability_matrix, record_bybit_cursor,
-        resolve_feed_symbols, validate_catalog_envelope, validate_feed,
+        add_gateio_delivery_markets, add_gateio_perpetual_markets, add_kraken_spot_catalog,
+        add_kucoin_futures_markets, add_kucoin_spot_catalog, add_okx_markets, capability_matrix,
+        record_bybit_cursor, resolve_feed_symbols, validate_catalog_envelope, validate_feed,
     };
     use crate::exchange::binance::Binance;
-    use crate::exchange::{ExchangeFeedBuilder, gateio::Gateio, kucoin::Kucoin};
+    use crate::exchange::{ExchangeFeedBuilder, gateio::Gateio, kraken::Kraken, kucoin::Kucoin};
     use cryptofeed_core::{
         error::Error,
         exchange::ExchangeId,
@@ -3104,15 +3202,146 @@ mod tests {
     }
 
     #[test]
-    fn kraken_stays_rejected_until_its_runtime_path_lands() {
-        let feed = ExchangeFeedBuilder::new(ExchangeId::Kraken)
+    fn kraken_spot_catalog_maps_canonical_wsname_with_legacy_aliases() {
+        let payload = json!({"error": [], "result": {
+            "XXBTZUSD": {"altname":"XBTUSD","wsname":"XBT/USD","base":"XXBT","quote":"ZUSD","status":"online","tick_size":"0.1","pair_decimals":1,"lot_decimals":8,"ordermin":"0.00006","costmin":"0.5"},
+            "XDGUSD": {"altname":"XDGUSD","wsname":"XDG/USD","base":"XXDG","quote":"ZUSD","status":"online"},
+            "AAVEEUR": {"altname":"AAVEEUR","wsname":"AAVE/EUR","base":"AAVE","quote":"ZEUR","status":"online"},
+            "XBTUSDT": {"altname":"XBTUSDT","wsname":"XBT/USDT","base":"XXBT","quote":"USDT","status":"online"},
+            "ACAEUR": {"altname":"ACAEUR","wsname":"ACA/EUR","base":"ACA","quote":"ZEUR","status":"cancel_only"},
+            "AIOEUR": {"altname":"AIOEUR","wsname":"AIO/EUR","base":"AIO","quote":"ZEUR","status":"post_only"}
+        }});
+        let mut registry = SymbolRegistry::default();
+        add_kraken_spot_catalog(&mut registry, &payload).unwrap();
+
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("BTC", "USD")).unwrap(),
+            "BTC/USD"
+        );
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("DOGE", "USD")).unwrap(),
+            "DOGE/USD"
+        );
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("AAVE", "EUR")).unwrap(),
+            "AAVE/EUR"
+        );
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("BTC", "USDT")).unwrap(),
+            "BTC/USDT"
+        );
+        // Only `online` pairs are eligible market-data subscriptions.
+        assert!(matches!(
+            registry.to_exchange(&Symbol::spot("ACA", "EUR")),
+            Err(Error::UnsupportedSymbol(_))
+        ));
+        assert!(matches!(
+            registry.to_exchange(&Symbol::spot("AIO", "EUR")),
+            Err(Error::UnsupportedSymbol(_))
+        ));
+        assert!(matches!(
+            registry.to_normalized("BTC/USD", InstrumentKind::Spot).unwrap(),
+            symbol if symbol.as_str() == "BTC-USD"
+        ));
+
+        let contradictory = json!({"result": {
+            "XXBTZUSD": {"altname":"BTCUSD","wsname":"XBT/USD","status":"online"}
+        }});
+        assert!(matches!(
+            add_kraken_spot_catalog(&mut SymbolRegistry::default(), &contradictory),
+            Err(Error::MalformedData(_))
+        ));
+    }
+
+    #[cfg(all(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles"
+    ))]
+    #[test]
+    fn preflight_allows_kraken_spot_cells_only() {
+        let spot = Kraken::new()
             .ticker()
+            .trade()
+            .l2_book()
+            .candles()
             .symbol("BTC-USD")
             .build();
-        assert!(matches!(
-            validate_feed(&feed),
-            Err(Error::UnsupportedCapability(_))
-        ));
+        assert_eq!(validate_feed(&spot).unwrap(), InstrumentKind::Spot);
+
+        for feed in [
+            Kraken::new().funding().symbol("BTC-USD").build(),
+            Kraken::new().index().symbol("BTC-USD").build(),
+            Kraken::new().mark_price().symbol("BTC-USD").build(),
+            Kraken::new().open_interest().symbol("BTC-USD").build(),
+            Kraken::new().l1_book().symbol("BTC-USD").build(),
+            Kraken::new().liquidations().symbol("BTC-USD").build(),
+        ] {
+            assert!(matches!(
+                validate_feed(&feed),
+                Err(Error::UnsupportedCapability(_))
+            ));
+        }
+
+        // Kraken Derivatives products are a separate platform.
+        for symbol in [
+            Symbol::perpetual("BTC", "USD"),
+            Symbol::futures("BTC", "USD", "261225"),
+        ] {
+            let feed = Kraken::new().ticker().instrument(symbol).build();
+            assert!(matches!(
+                validate_feed(&feed),
+                Err(Error::UnsupportedCapability(_))
+            ));
+        }
+
+        // Documented book depths only.
+        for level in [10u16, 25, 100, 500, 1000] {
+            let feed = Kraken::new()
+                .l2_book()
+                .l2_book_depth(level)
+                .symbol("BTC-USD")
+                .build();
+            assert_eq!(validate_feed(&feed).unwrap(), InstrumentKind::Spot);
+        }
+        for level in [50u16, 20, 400] {
+            let feed = Kraken::new()
+                .l2_book()
+                .l2_book_depth(level)
+                .symbol("BTC-USD")
+                .build();
+            assert!(matches!(
+                validate_feed(&feed),
+                Err(Error::UnsupportedCapability(_))
+            ));
+        }
+
+        // Documented OHLC minute intervals only; `6h`/`2h`/`1M` are not
+        // expressible in Kraken's minute set.
+        for interval in ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"] {
+            let feed = Kraken::new()
+                .candles()
+                .candles_interval(interval)
+                .symbol("BTC-USD")
+                .build();
+            assert_eq!(
+                validate_feed(&feed).unwrap(),
+                InstrumentKind::Spot,
+                "{interval}"
+            );
+        }
+        for interval in ["2m", "3m", "2h", "6h", "8h", "12h", "1M"] {
+            let feed = Kraken::new()
+                .candles()
+                .candles_interval(interval)
+                .symbol("BTC-USD")
+                .build();
+            assert!(matches!(
+                validate_feed(&feed),
+                Err(Error::UnsupportedCapability(_))
+            ));
+        }
     }
 
     #[test]

@@ -562,3 +562,31 @@ Live-shape observations (sanitized, not retained): `welcome` with
 Prices, sizes, timestamps, identifiers and symbol selections in the tests are
 substituted or shortened while preserving the documented wire shape and
 precision relevant to normalization.
+
+## 2026-11-03 Kraken Spot WebSocket v2
+
+The Kraken fixtures are sanitized documented examples plus sanitized live-shape
+references from the unauthenticated WebSocket v2 endpoint on 2026-11-03. No raw
+capture is stored in this directory; the deterministic parser, adapter,
+book-sync and full-session-double tests embed the same shapes inline.
+
+Official sources:
+
+- [WebSocket v2 ticker](https://docs.kraken.com/api/docs/websocket-v2/ticker),
+  [book](https://docs.kraken.com/api/docs/websocket-v2/book),
+  [trades](https://docs.kraken.com/api/docs/websocket-v2/trade),
+  [candles](https://docs.kraken.com/api/docs/websocket-v2/ohlc),
+  [AssetPairs REST](https://docs.kraken.com/api/docs/rest-api/get-tradable-asset-pairs).
+- [Book checksum guide (WebSocket v2)](https://docs.kraken.com/exchange/guides/websockets/book-checksum-v2):
+  the `3310070434` snapshot example is used verbatim as the checksum fixture
+  (the only fixture in this addition with unchanged documented values).
+
+Live-shape observations (sanitized, not retained): `status` channel frame on
+connect; `{"channel":"heartbeat"}` frames; `{"method":"pong"}` replies;
+per-symbol `method: subscribe` acknowledgements echoing `req_id`; canonical
+`BTC/USD`/`DOGE/USD`/`AAVE/BTC` wire symbols (legacy `XBT`/`XDG` rejected);
+object-shaped book levels with `checksum`; `interval_begin`-based OHLC rows;
+and the depth-truncation requirement reproduced by comparing local CRC32
+values at depth 10/25/100. Prices, sizes, timestamps, identifiers and symbol
+selections in the tests are substituted or shortened while preserving the
+documented wire shape and precision relevant to normalization.

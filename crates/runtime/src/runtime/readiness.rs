@@ -446,6 +446,16 @@ impl ConnectionAttempt {
             ExchangeId::Binance => vec![(format!("b:{}", payload["id"]), None)],
             ExchangeId::Bybit => vec![(format!("y:{}", payload["req_id"]), None)],
             ExchangeId::Kucoin => vec![(format!("k:{}", payload["id"]), None)],
+            // Kraken acknowledges each requested symbol separately and echoes
+            // the client `req_id`; correlate per (req_id, symbol).
+            ExchangeId::Kraken => payload
+                .pointer("/params/symbol")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|symbol| symbol.as_str())
+                .map(|symbol| (format!("r:{}:{symbol}", payload["req_id"]), None))
+                .collect(),
             ExchangeId::Gateio => vec![(
                 format!("g:{}:{}", payload["id"], payload["channel"]),
                 payload.get("payload").cloned(),
@@ -469,6 +479,7 @@ impl ConnectionAttempt {
                 match self.tracker.monitor.exchange {
                     ExchangeId::Bybit => payload["req_id"] = json!(format!("cf-{}", self.sequence)),
                     ExchangeId::Kucoin => payload["id"] = json!(format!("cf-{}", self.sequence)),
+                    ExchangeId::Kraken => payload["req_id"] = json!(self.sequence),
                     ExchangeId::Gateio => payload["id"] = json!(self.sequence),
                     _ => {}
                 }
@@ -564,6 +575,7 @@ impl ConnectionAttempt {
                             != Some("success"))
             }
             ExchangeId::Kucoin => payload["result"] != true,
+            ExchangeId::Kraken => payload["success"] != true,
             _ => false,
         };
         if rejected {
@@ -587,6 +599,13 @@ impl ConnectionAttempt {
             ExchangeId::Bybit => format!("y:{}", payload["req_id"]),
             ExchangeId::Gateio => format!("g:{}:{}", payload["id"], payload["channel"]),
             ExchangeId::Kucoin => format!("k:{}", payload["id"]),
+            ExchangeId::Kraken => {
+                let symbol = payload
+                    .pointer("/result/symbol")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                format!("r:{}:{symbol}", payload["req_id"])
+            }
             _ => arg_key(exchange, &payload["arg"]),
         };
         for pending in &mut self.pending {
