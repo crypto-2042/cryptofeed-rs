@@ -1,6 +1,25 @@
 # Progress
 
-Last updated: 2026-10-29
+Last updated: 2026-11-03
+
+## KuCoin and Kraken Spot expansion (2026-11-03)
+
+- Surveyed current official public APIs and selected KuCoin UTA WebSocket V2
+  (spot + perpetual) and Kraken Spot WebSocket v2; reasoning, rejected
+  candidates and per-venue baselines are in docs/cex-expansion-research-2026-11-03.md,
+  docs/kucoin-protocol.md, docs/kraken-protocol.md and docs/cex-expansion-plan-2026-11-03.md.
+- KuCoin: REST catalog with product-qualified mapping and XBT->BTC, spot/perpetual
+  capability rows, ticker/trade/obu/kline plus funding-fee and the shared
+  mark-price payload split into MarkPrice, IndexPrice and OpenInterest. `obu`
+  honours O/C sequences (stale dropped, gap -> bounded resnapshot with
+  buffered-delta bridging); depth 1/5/50 stays snapshot-only.
+- Kraken Spot: ticker/trade/ohlc/book parsers, CRC32 book checksum over the top
+  ten levels with truncation to the subscribed depth, mismatch -> bounded
+  resubscribe resnapshot, and AssetPairs catalog with XBT->BTC/XDG->DOGE aliases.
+- Both venues are public, unauthenticated and rejected for unsupported
+  products/channels/depths/intervals in preflight. Deterministic parser,
+  catalog, preflight, book-sync and full-session double tests cover both;
+  long-run live qualification and the Kraken Derivatives platform remain open.
 
 ## Producer-anchored ordinary events (#10, 2026-10-29)
 

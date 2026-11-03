@@ -39,6 +39,8 @@ use crate::exchange::{
     bitget::adapter::{BitgetAdapter, BitgetEvent},
     bybit::adapter::{BybitAdapter, BybitEvent, BybitProduct},
     gateio::adapter::{GateioAdapter, GateioConnectionPlan, GateioEvent},
+    kraken::adapter::{KrakenAdapter, KrakenEvent},
+    kucoin::adapter::{KucoinAdapter, KucoinEvent},
     okx::adapter::{OkxAdapter, OkxEvent},
 };
 #[cfg(feature = "orderbook")]
@@ -52,6 +54,14 @@ use crate::exchange::{
     gateio::{
         book_sync::{GateioBookSync, GateioBookUpdate, GateioDepthDelta},
         parser as gateio_parser,
+    },
+    kraken::{
+        book_sync::{KrakenBookOutcome, KrakenBookSync},
+        parser as kraken_parser,
+    },
+    kucoin::{
+        book_sync::{KucoinBookMode, KucoinBookOutcome, KucoinBookSync},
+        parser as kucoin_parser,
     },
     okx::{book_sync::OkxBookSync, parser as okx_parser},
 };
@@ -192,6 +202,8 @@ async fn consume_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Re
         ExchangeId::Bybit => consume_bybit_feed(feed, shutdown).await,
         ExchangeId::Okx => consume_okx_feed(feed, shutdown).await,
         ExchangeId::Gateio => consume_gateio_feed(feed, shutdown).await,
+        ExchangeId::Kucoin => consume_kucoin_feed(feed, shutdown).await,
+        ExchangeId::Kraken => consume_kraken_feed(feed, shutdown).await,
         // Builders that exist without a live runtime (Coinbase/Kraken)
         // and any future exchange are rejected by capability validation
         // before a feed reaches this point.
@@ -238,7 +250,8 @@ fn planned_url(feed: &ExchangeFeed) -> String {
             .ok()
             .and_then(|plans| plans.into_iter().next())
             .map_or_else(String::new, |plan| plan.websocket_url),
-        ExchangeId::Kraken => String::new(),
+        ExchangeId::Kraken => KrakenAdapter::subscription_url(feed),
+        ExchangeId::Kucoin => KucoinAdapter::subscription_url(feed),
         ExchangeId::Okx => OkxAdapter::subscription_url(feed),
         _ => String::new(),
     }
@@ -563,6 +576,68 @@ async fn consume_okx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -
         });
     }
     collect_connection_results("OKX", tasks).await
+}
+
+async fn consume_kucoin_feed(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
+        supervisor::Backoff::new(1, 8),
+        shutdown.clone(),
+        feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
+        move || {
+            let feed = feed.clone();
+            let shutdown = shutdown.clone();
+            async move { consume_kucoin_session(feed, shutdown).await }
+        },
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn consume_kraken_feed(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
+        supervisor::Backoff::new(1, 8),
+        shutdown.clone(),
+        feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
+        move || {
+            let feed = feed.clone();
+            let shutdown = shutdown.clone();
+            async move { consume_kraken_session(feed, shutdown).await }
+        },
+    )
+    .await
+    .map(|_| ())
 }
 
 async fn collect_connection_results(label: &str, mut tasks: JoinSet<Result<()>>) -> Result<()> {
@@ -1020,6 +1095,121 @@ where
     Ok(())
 }
 
+async fn consume_kucoin_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.failed(&error, "connect");
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_kucoin_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
+}
+
+async fn consume_kucoin_session_with<S, E>(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+    session: &mut Session<S>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
+    E: Display,
+{
+    session.queue_subscriptions(KucoinAdapter::subscription_messages(&feed)?);
+
+    // In-session resnapshot requests for `obu` gaps: unsubscribe/subscribe so
+    // the next push is a documented snapshot.
+    let mut outbound: Vec<String> = Vec::new();
+    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
+        session.processing();
+        outbound.clear();
+        process_kucoin_text_message(&feed, &text, received_ts, &mut outbound).await?;
+        if !outbound.is_empty() {
+            session.queue_subscriptions(std::mem::take(&mut outbound));
+        }
+    }
+
+    Ok(())
+}
+
+async fn consume_kraken_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.failed(&error, "connect");
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_kraken_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
+}
+
+async fn consume_kraken_session_with<S, E>(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+    session: &mut Session<S>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
+    E: Display,
+{
+    session.queue_subscriptions(KrakenAdapter::subscription_messages(&feed)?);
+
+    // In-session resnapshot requests for book checksum mismatches.
+    let mut outbound: Vec<String> = Vec::new();
+    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
+        session.processing();
+        outbound.clear();
+        process_kraken_text_message(&feed, &text, received_ts, &mut outbound).await?;
+        if !outbound.is_empty() {
+            session.queue_subscriptions(std::mem::take(&mut outbound));
+        }
+    }
+
+    Ok(())
+}
+
 async fn consume_gateio_session(
     mut feed: ExchangeFeed,
     plan: GateioConnectionPlan,
@@ -1285,6 +1475,62 @@ async fn dispatch_okx_event(feed: &ExchangeFeed, event: OkxEvent) -> Result<()> 
         OkxEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
     Ok(())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_kucoin_event(feed: &ExchangeFeed, event: KucoinEvent) -> Result<()> {
+    let _ = feed;
+    match event {
+        #[cfg(feature = "candles")]
+        KucoinEvent::Candle(candle) => dispatch_candle(feed, candle).await,
+        #[cfg(feature = "funding")]
+        KucoinEvent::Funding(funding) => dispatch_funding(feed, funding).await,
+        #[cfg(feature = "index")]
+        KucoinEvent::IndexPrice(index_price) => {
+            dispatch_index_price(feed, index_price).await;
+        }
+        #[cfg(feature = "markprice")]
+        KucoinEvent::MarkPrice(mark_price) => {
+            dispatch_mark_price(feed, mark_price).await;
+        }
+        #[cfg(feature = "openinterest")]
+        KucoinEvent::OpenInterest(open_interest) => {
+            dispatch_open_interest(feed, open_interest).await;
+        }
+        #[cfg(feature = "orderbook")]
+        KucoinEvent::L2Book(book) => {
+            dispatch_kucoin_l2_book(feed, book).await?;
+        }
+        #[cfg(feature = "ticker")]
+        KucoinEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
+        #[cfg(feature = "trade")]
+        KucoinEvent::Trade(trade) => dispatch_trade(feed, trade).await,
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_kucoin_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_kraken_event(feed: &ExchangeFeed, event: KrakenEvent) -> Result<()> {
+    let _ = feed;
+    match event {
+        #[cfg(feature = "candles")]
+        KrakenEvent::Candle(candle) => dispatch_candle(feed, candle).await,
+        #[cfg(feature = "ticker")]
+        KrakenEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
+        #[cfg(feature = "trade")]
+        KrakenEvent::Trade(trade) => dispatch_trade(feed, trade).await,
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_kraken_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -2916,6 +3162,186 @@ async fn process_okx_text_message(feed: &ExchangeFeed, text: &str, received_ts: 
     Ok(())
 }
 
+async fn process_kucoin_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+    outbound: &mut Vec<String>,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(control) = KucoinAdapter::parse_control_message(&message) {
+        return control.map(|_| ());
+    }
+    #[cfg(feature = "orderbook")]
+    let handled = process_kucoin_orderbook_message(feed, &message, received_ts, outbound).await?;
+    #[cfg(not(feature = "orderbook"))]
+    let handled = {
+        let _ = &outbound;
+        false
+    };
+    if handled {
+        return Ok(());
+    }
+    let events = KucoinAdapter::parse_messages_for_feed(feed, &message, received_ts);
+    let native = crate::exchange::kucoin::parser::native_symbol(&message);
+    let configured =
+        native.is_some_and(|native| KucoinAdapter::symbol_for_native(feed, native).is_some());
+    if configured && crate::exchange::kucoin::parser::is_market_frame(&message) && events.is_empty()
+    {
+        return Err(Error::MalformedData(format!(
+            "KuCoin message for {} produced no normalized events",
+            message
+                .get("T")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown topic")
+        )));
+    }
+    for event in events {
+        dispatch_kucoin_event(feed, event).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_kucoin_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+    outbound: &mut Vec<String>,
+) -> Result<bool> {
+    let Some(topic) = message.get("T").and_then(Value::as_str) else {
+        return Ok(false);
+    };
+    if !topic.starts_with("obu") {
+        return Ok(false);
+    }
+    let native = kucoin_parser::native_symbol(message)
+        .ok_or_else(|| Error::Parse("KuCoin obu message is missing its symbol".to_owned()))?;
+    let Some(symbol) = KucoinAdapter::symbol_for_native(feed, native).cloned() else {
+        // A multiplexed connection may carry symbols this feed does not
+        // subscribe; ignore them instead of failing the session.
+        return Ok(true);
+    };
+    if !feed.subscribes(Channel::L2Book, &symbol) {
+        return Ok(true);
+    }
+    let update = kucoin_parser::parse_book_for_symbol(message, received_ts, &symbol)
+        .ok_or_else(|| Error::Parse("failed to parse KuCoin obu update".to_owned()))?;
+    let symbol_key = symbol.as_str().to_owned();
+    let mode = KucoinBookMode::for_depth(feed.l2_book_depth);
+    let outcome = {
+        let mut syncs = feed.kucoin_book_syncs.lock().expect("kucoin sync lock");
+        let sync = syncs
+            .entry(symbol_key)
+            .or_insert_with(|| KucoinBookSync::new(symbol.clone(), mode));
+        sync.apply(update)?
+    };
+    match outcome {
+        KucoinBookOutcome::Publish(events) => {
+            for book in events {
+                dispatch_kucoin_l2_book(feed, book).await?;
+            }
+        }
+        KucoinBookOutcome::Ignored => {}
+        KucoinBookOutcome::Resnapshot => {
+            outbound.extend(KucoinAdapter::book_resubscribe_messages(feed, &symbol)?);
+        }
+    }
+    Ok(true)
+}
+
+async fn process_kraken_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+    outbound: &mut Vec<String>,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(control) = KrakenAdapter::parse_control_message(&message) {
+        return control.map(|_| ());
+    }
+    #[cfg(feature = "orderbook")]
+    let handled = process_kraken_orderbook_message(feed, &message, received_ts, outbound).await?;
+    #[cfg(not(feature = "orderbook"))]
+    let handled = {
+        let _ = &outbound;
+        false
+    };
+    if handled {
+        return Ok(());
+    }
+    let events = KrakenAdapter::parse_messages_for_feed(feed, &message, received_ts);
+    let channel = crate::exchange::kraken::parser::channel(&message);
+    let configured_row = crate::exchange::kraken::parser::data_rows(&message)
+        .iter()
+        .any(|row| {
+            crate::exchange::kraken::parser::row_symbol(row)
+                .is_some_and(|native| KrakenAdapter::symbol_for_native(feed, native).is_some())
+        });
+    if channel.is_some() && configured_row && events.is_empty() {
+        return Err(Error::MalformedData(format!(
+            "Kraken message for {} produced no normalized events",
+            channel.unwrap_or("unknown channel")
+        )));
+    }
+    for event in events {
+        dispatch_kraken_event(feed, event).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_kraken_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+    outbound: &mut Vec<String>,
+) -> Result<bool> {
+    if kraken_parser::channel(message) != Some("book") {
+        return Ok(false);
+    }
+    let snapshot = match kraken_parser::message_type(message) {
+        Some("snapshot") => true,
+        Some("update") => false,
+        _ => {
+            return Err(Error::Parse(
+                "Kraken book message is missing its snapshot/update type".to_owned(),
+            ));
+        }
+    };
+    let depth = KrakenAdapter::l2_book_depth_wire(feed.l2_book_depth).ok_or_else(|| {
+        Error::UnsupportedCapability(format!("Kraken l2 depth level {:?}", feed.l2_book_depth))
+    })?;
+    for row in kraken_parser::data_rows(message) {
+        let native = kraken_parser::row_symbol(row)
+            .ok_or_else(|| Error::Parse("Kraken book row is missing its symbol".to_owned()))?;
+        let Some(symbol) = KrakenAdapter::symbol_for_native(feed, native).cloned() else {
+            continue;
+        };
+        if !feed.subscribes(Channel::L2Book, &symbol) {
+            continue;
+        }
+        let update = kraken_parser::parse_book_row(row, snapshot, received_ts, &symbol)
+            .ok_or_else(|| Error::Parse("failed to parse Kraken book row".to_owned()))?;
+        let symbol_key = symbol.as_str().to_owned();
+        let outcome = {
+            let mut syncs = feed.kraken_book_syncs.lock().expect("kraken sync lock");
+            let sync = syncs
+                .entry(symbol_key)
+                .or_insert_with(|| KrakenBookSync::new(symbol.clone(), depth));
+            sync.apply(update)?
+        };
+        match outcome {
+            KrakenBookOutcome::Publish(book) => dispatch_kraken_l2_book(feed, book).await?,
+            KrakenBookOutcome::Ignored => {}
+            KrakenBookOutcome::Resnapshot => {
+                outbound.extend(KrakenAdapter::book_resubscribe_messages(feed, &symbol)?);
+            }
+        }
+    }
+    Ok(true)
+}
+
 #[cfg_attr(not(test), allow(dead_code))]
 async fn process_gateio_text_message(
     feed: &ExchangeFeed,
@@ -3182,7 +3608,8 @@ mod tests {
     use super::connection::{HeartbeatPolicy, Session};
     use super::{
         planned_connection_urls, process_binance_text_message, process_bitget_text_message,
-        process_bybit_text_message, process_gateio_text_message, process_okx_text_message,
+        process_bybit_text_message, process_gateio_text_message, process_kraken_text_message,
+        process_kucoin_text_message, process_okx_text_message,
     };
     use crate::{
         FeedHandler,
@@ -3196,6 +3623,8 @@ mod tests {
         },
         exchange::bybit::Bybit,
         exchange::gateio::Gateio,
+        exchange::kraken::Kraken,
+        exchange::kucoin::Kucoin,
         exchange::okx::Okx,
     };
     use async_trait::async_trait;
@@ -3323,6 +3752,55 @@ mod tests {
         assert_eq!(
             planned_connection_urls(&handler),
             vec!["wss://api.gateio.ws/ws/v4/".to_owned()]
+        );
+    }
+
+    #[test]
+    fn plans_kucoin_connection_urls_per_product() {
+        let mut spot = FeedHandler::new();
+        spot.add_feed(
+            Kucoin::new()
+                .ticker()
+                .trade()
+                .l2_book()
+                .symbol("BTC-USDT")
+                .build(),
+        );
+        assert_eq!(
+            planned_connection_urls(&spot),
+            vec!["wss://x-push-spot.kucoin.com".to_owned()]
+        );
+
+        let mut futures = FeedHandler::new();
+        futures.add_feed(
+            Kucoin::new()
+                .ticker()
+                .trade()
+                .mark_price()
+                .instrument(cryptofeed_core::symbol::Symbol::perpetual("BTC", "USDT"))
+                .build(),
+        );
+        assert_eq!(
+            planned_connection_urls(&futures),
+            vec!["wss://x-push-futures.kucoin.com".to_owned()]
+        );
+    }
+
+    #[test]
+    fn plans_kraken_connection_urls() {
+        let mut handler = FeedHandler::new();
+        handler.add_feed(
+            Kraken::new()
+                .ticker()
+                .trade()
+                .l2_book()
+                .candles()
+                .symbol("BTC-USD")
+                .build(),
+        );
+        assert_eq!(
+            planned_connection_urls(&handler),
+            vec!["wss://ws.kraken.com/v2".to_owned()]
         );
     }
 
@@ -6143,6 +6621,503 @@ mod tests {
         assert!(matches!(
             server.next().await,
             Some(Ok(Message::Close(_))) | None
+        ));
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn kucoin_full_session_subscribes_acknowledges_and_delivers() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let feed = Kucoin::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Kucoin).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let session = tokio::spawn(async move {
+            super::consume_kucoin_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        let subscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected subscribe frame, got {other:?}"),
+        };
+        let subscribe: serde_json::Value = serde_json::from_str(&subscribe).expect("json");
+        assert_eq!(subscribe["action"], "SUBSCRIBE");
+        assert_eq!(subscribe["channel"], "trade");
+        assert_eq!(subscribe["tradeType"], "SPOT");
+        assert_eq!(subscribe["symbols"], serde_json::json!(["BTC-USDT"]));
+        server
+            .send(Message::Text(
+                serde_json::json!({"id": subscribe["id"], "result": true})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .expect("send subscribe ack");
+        let trade = serde_json::json!({
+            "T": "trade.SPOT", "P": 1793689090235247913_u64,
+            "d": {"E": 25082366677762048_u64, "M": 1793689090234000000_u64,
+                  "S": "buy", "p": "76592.5", "q": "0.00009772",
+                  "s": "BTC-USDT", "ti": "25082366677762048"}
+        });
+        server
+            .send(Message::Text(trade.to_string().into()))
+            .await
+            .expect("send trade");
+
+        wait_for_seen(|| *trade_seen.lock().expect("lock") == 1).await;
+
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        assert!(matches!(
+            server.next().await,
+            Some(Ok(Message::Close(_))) | None
+        ));
+    }
+
+    #[cfg(all(feature = "markprice", feature = "index", feature = "openinterest"))]
+    #[tokio::test]
+    async fn kucoin_mark_price_payload_dispatches_three_normalized_categories() {
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        handler.add_feed(
+            Kucoin::new()
+                .mark_price()
+                .index()
+                .open_interest()
+                .instrument(cryptofeed_core::symbol::Symbol::perpetual("BTC", "USDT"))
+                .exchange_symbol("XBTUSDTM")
+                .build(),
+        );
+        let feed = handler.into_feeds().pop().unwrap();
+        let message = serde_json::json!({
+            "T": "mark-price", "P": 1731899129000_u64,
+            "d": {"s": "XBTUSDTM", "mp": "90445", "ip": "90445", "oi": "23445", "ts": 1731899128999_u64}
+        });
+        let mut outbound = Vec::new();
+        process_kucoin_text_message(&feed, &message.to_string(), 1731899129.5, &mut outbound)
+            .await
+            .expect("process mark price");
+        assert!(outbound.is_empty());
+        let mut counts = [0; 3];
+        while let Ok(event) = events.try_recv() {
+            match event {
+                crate::feed::FeedEvent::MarkPrice(value) => {
+                    assert_eq!(value.symbol.as_str(), "BTC-USDT-PERP");
+                    counts[0] += 1;
+                }
+                crate::feed::FeedEvent::IndexPrice(_) => counts[1] += 1,
+                crate::feed::FeedEvent::OpenInterest(_) => counts[2] += 1,
+                _ => panic!("unsubscribed event"),
+            }
+        }
+        assert_eq!(counts, [1; 3]);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn kucoin_book_gap_requests_a_resnapshot_and_bridges_the_replacement() {
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        handler.add_feed(
+            Kucoin::new()
+                .l2_book()
+                .symbol("BTC-USDT")
+                .exchange_symbol("BTC-USDT")
+                .build(),
+        );
+        let feed = handler.into_feeds().pop().unwrap();
+        let snapshot = serde_json::json!({
+            "T": "obu.SPOT", "dp": "increment@10ms", "t": "snapshot",
+            "P": 1768217874990007701_u64,
+            "d": {"C": 100_u64, "M": 1768217874986000000_u64, "O": 100_u64,
+                  "a": [["90701.2", "0.5771583"]],
+                  "b": [["90701.1", "0.13918404"]], "s": "BTC-USDT"}
+        });
+        let mut outbound = Vec::new();
+        process_kucoin_text_message(&feed, &snapshot.to_string(), 1.0, &mut outbound)
+            .await
+            .expect("snapshot");
+        assert!(outbound.is_empty());
+        assert!(matches!(
+            events.try_recv().expect("snapshot event"),
+            crate::feed::FeedEvent::L2Book(cryptofeed_orderbook::L2Book::Snapshot(_))
+        ));
+
+        let gap = serde_json::json!({
+            "T": "obu.SPOT", "dp": "increment@10ms", "t": "delta",
+            "P": 1768217909684719896_u64,
+            "d": {"C": 106_u64, "M": 1768217909683000000_u64, "O": 105_u64,
+                  "a": [], "b": [["90700.0", "2.0"]], "s": "BTC-USDT"}
+        });
+        process_kucoin_text_message(&feed, &gap.to_string(), 2.0, &mut outbound)
+            .await
+            .expect("gap");
+        assert_eq!(outbound.len(), 2, "{outbound:?}");
+        let unsubscribe: serde_json::Value = serde_json::from_str(&outbound[0]).expect("json");
+        let resubscribe: serde_json::Value = serde_json::from_str(&outbound[1]).expect("json");
+        assert_eq!(unsubscribe["action"], "UNSUBSCRIBE");
+        assert_eq!(resubscribe["action"], "SUBSCRIBE");
+        assert_eq!(resubscribe["depth"], "increment@10ms");
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+
+        let replacement = serde_json::json!({
+            "T": "obu.SPOT", "dp": "increment@10ms", "t": "snapshot",
+            "P": 1768217875990007701_u64,
+            "d": {"C": 104_u64, "M": 1768217875986000000_u64, "O": 104_u64,
+                  "a": [["90701.2", "0.5771583"]],
+                  "b": [["90701.0", "0.5"]], "s": "BTC-USDT"}
+        });
+        process_kucoin_text_message(&feed, &replacement.to_string(), 3.0, &mut outbound)
+            .await
+            .expect("replacement snapshot");
+        // The buffered delta (O=105) bridges the snapshot (C=104) and is
+        // applied after it.
+        assert!(matches!(
+            events.try_recv().expect("snapshot"),
+            crate::feed::FeedEvent::L2Book(cryptofeed_orderbook::L2Book::Snapshot(_))
+        ));
+        assert!(matches!(
+            events.try_recv().expect("bridged delta"),
+            crate::feed::FeedEvent::L2Book(cryptofeed_orderbook::L2Book::Delta(_))
+        ));
+        let states = feed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USDT").expect("state");
+        // The replacement snapshot level and the bridged delta level are both
+        // present; the best bid is the snapshot's higher level.
+        assert_eq!(state.bids()[0].price.to_string(), "90701.0");
+        assert_eq!(state.bids()[1].price.to_string(), "90700.0");
+        assert_eq!(state.bids().len(), 2);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn kucoin_snapshot_only_depth_replaces_the_book_without_sequence_state() {
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        let mut feed = Kucoin::new()
+            .l2_book()
+            .l2_book_depth(5)
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        feed.l2_book_depth = Some(5);
+        handler.add_feed(feed);
+        let feed = handler.into_feeds().pop().unwrap();
+        let first = serde_json::json!({
+            "T": "obu.SPOT", "dp": "5", "t": "snapshot", "P": 1768217874990007701_u64,
+            "d": {"C": 100_u64, "M": 1768217874986000000_u64, "O": 100_u64,
+                  "a": [["90701.2", "0.5771583"]], "b": [["90701.1", "0.13918404"]], "s": "BTC-USDT"}
+        });
+        let mut outbound = Vec::new();
+        process_kucoin_text_message(&feed, &first.to_string(), 1.0, &mut outbound)
+            .await
+            .expect("snapshot");
+        assert!(matches!(
+            events.try_recv().expect("event"),
+            crate::feed::FeedEvent::L2Book(cryptofeed_orderbook::L2Book::Snapshot(_))
+        ));
+        let second = serde_json::json!({
+            "T": "obu.SPOT", "dp": "5", "t": "snapshot", "P": 1768217875990007701_u64,
+            "d": {"C": 101_u64, "M": 1768217875986000000_u64, "O": 101_u64,
+                  "a": [["90701.2", "0.5771583"]], "b": [["90700.0", "0.25"]], "s": "BTC-USDT"}
+        });
+        process_kucoin_text_message(&feed, &second.to_string(), 2.0, &mut outbound)
+            .await
+            .expect("replacement");
+        assert!(matches!(
+            events.try_recv().expect("event"),
+            crate::feed::FeedEvent::L2Book(cryptofeed_orderbook::L2Book::Snapshot(_))
+        ));
+        {
+            let states = feed.orderbook_states.lock().expect("lock");
+            let state = states.get("BTC-USDT").expect("state");
+            assert_eq!(state.bids()[0].price.to_string(), "90700.0");
+        }
+
+        let delta = serde_json::json!({
+            "T": "obu.SPOT", "dp": "5", "t": "delta", "P": 1768217876990007701_u64,
+            "d": {"C": 102_u64, "M": 1768217876986000000_u64, "O": 102_u64,
+                  "a": [], "b": [["90700.0", "0"]], "s": "BTC-USDT"}
+        });
+        assert!(matches!(
+            process_kucoin_text_message(&feed, &delta.to_string(), 3.0, &mut outbound).await,
+            Err(Error::Parse(message)) if message.contains("snapshot-only")
+        ));
+    }
+
+    #[tokio::test]
+    async fn kucoin_rejected_subscription_is_terminal() {
+        let feed = Kucoin::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        let mut outbound = Vec::new();
+        assert!(matches!(
+            process_kucoin_text_message(
+                &feed,
+                r#"{"id":"cf-0","result":false,"message":"invalid request data"}"#,
+                1.0,
+                &mut outbound
+            )
+            .await,
+            Err(Error::Subscription(message)) if message.contains("invalid request data")
+        ));
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn kraken_full_session_subscribes_acknowledges_and_delivers() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let feed = Kraken::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .symbol("BTC-USD")
+            .exchange_symbol("BTC/USD")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Kraken).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let session = tokio::spawn(async move {
+            super::consume_kraken_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        let subscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected subscribe frame, got {other:?}"),
+        };
+        let subscribe: serde_json::Value = serde_json::from_str(&subscribe).expect("json");
+        assert_eq!(subscribe["method"], "subscribe");
+        assert_eq!(subscribe["params"]["channel"], "trade");
+        assert_eq!(
+            subscribe["params"]["symbol"],
+            serde_json::json!(["BTC/USD"])
+        );
+        server
+            .send(Message::Text(
+                serde_json::json!({
+                    "method": "subscribe",
+                    "req_id": subscribe["req_id"],
+                    "result": {"channel": "trade", "snapshot": false, "symbol": "BTC/USD"},
+                    "success": true,
+                    "time_in": "2026-11-03T07:02:36.769747Z",
+                    "time_out": "2026-11-03T07:02:36.769804Z"
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("send subscribe ack");
+        let trade = serde_json::json!({
+            "channel": "trade", "type": "update",
+            "data": [{"symbol": "BTC/USD", "side": "buy", "price": 76449.6,
+                      "qty": 0.00043059, "ord_type": "limit",
+                      "trade_id": 114005505,
+                      "timestamp": "2026-11-03T07:02:37.171033Z"}]
+        });
+        server
+            .send(Message::Text(trade.to_string().into()))
+            .await
+            .expect("send trade");
+
+        wait_for_seen(|| *trade_seen.lock().expect("lock") == 1).await;
+
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        assert!(matches!(
+            server.next().await,
+            Some(Ok(Message::Close(_))) | None
+        ));
+    }
+
+    #[cfg(all(feature = "ticker", feature = "candles"))]
+    #[tokio::test]
+    async fn kraken_ticker_and_ohlc_dispatch_normalized_events() {
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        handler.add_feed(
+            Kraken::new()
+                .ticker()
+                .candles()
+                .candles_interval("1m")
+                .symbol("BTC-USD")
+                .exchange_symbol("BTC/USD")
+                .build(),
+        );
+        let feed = handler.into_feeds().pop().unwrap();
+        let ticker = serde_json::json!({
+            "channel": "ticker", "type": "snapshot",
+            "data": [{"symbol": "BTC/USD", "bid": 76497.5, "bid_qty": 0.00065022,
+                      "ask": 76497.6, "ask_qty": 0.83895981, "last": 76497.6,
+                      "timestamp": "2026-11-03T07:01:22.016355Z"}]
+        });
+        let mut outbound = Vec::new();
+        process_kraken_text_message(&feed, &ticker.to_string(), 1.0, &mut outbound)
+            .await
+            .expect("ticker");
+        let crate::feed::FeedEvent::Ticker(value) = events.try_recv().expect("ticker event") else {
+            panic!("expected ticker");
+        };
+        assert_eq!(value.symbol.as_str(), "BTC-USD");
+        assert_eq!(value.bid.to_string(), "76497.5");
+
+        let ohlc = serde_json::json!({
+            "channel": "ohlc", "type": "snapshot",
+            "timestamp": "2026-11-03T07:01:24.187297694Z",
+            "data": [{"symbol": "BTC/USD", "open": 76381.0, "high": 76399.4,
+                      "low": 76376.7, "close": 76399.4, "trades": 70,
+                      "volume": 0.63763428, "vwap": 76384.9,
+                      "interval_begin": "2026-11-03T06:52:00.000000000Z",
+                      "interval": 1,
+                      "timestamp": "2026-11-03T06:53:00.000000Z"}]
+        });
+        process_kraken_text_message(&feed, &ohlc.to_string(), 2.0, &mut outbound)
+            .await
+            .expect("ohlc");
+        let crate::feed::FeedEvent::Candle(value) = events.try_recv().expect("candle event") else {
+            panic!("expected candle");
+        };
+        assert_eq!(value.symbol.as_str(), "BTC-USD");
+        assert_eq!(value.interval, "1m");
+        assert_eq!(value.end - value.start, 60.0);
+        assert_eq!(value.trades, Some(70));
+        assert_eq!(value.closed, None);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn kraken_checksum_mismatch_requests_resnapshot_and_never_publishes_corrupt_book() {
+        use crate::exchange::kraken::book_sync::checksum_of_state;
+
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        handler.add_feed(
+            Kraken::new()
+                .l2_book()
+                .symbol("BTC-USD")
+                .exchange_symbol("BTC/USD")
+                .build(),
+        );
+        let feed = handler.into_feeds().pop().unwrap();
+        let mut state = cryptofeed_orderbook::L2BookState::new(
+            cryptofeed_core::symbol::Symbol::spot("BTC", "USD"),
+        );
+        state.apply(cryptofeed_orderbook::L2Book::Snapshot(
+            cryptofeed_orderbook::L2BookSnapshot {
+                exchange: ExchangeId::Kraken,
+                symbol: cryptofeed_core::symbol::Symbol::spot("BTC", "USD"),
+                bids: vec![cryptofeed_orderbook::PriceLevel {
+                    price: rust_decimal::Decimal::from_str_exact("100.0").unwrap(),
+                    amount: rust_decimal::Decimal::from_str_exact("1.0").unwrap(),
+                }],
+                asks: vec![cryptofeed_orderbook::PriceLevel {
+                    price: rust_decimal::Decimal::from_str_exact("101.0").unwrap(),
+                    amount: rust_decimal::Decimal::from_str_exact("2.0").unwrap(),
+                }],
+                exchange_ts: 1.0,
+                received_ts: 2.0,
+            },
+        ));
+        let checksum = checksum_of_state(&state);
+        let snapshot = serde_json::json!({
+            "channel": "book", "type": "snapshot",
+            "data": [{
+                "symbol": "BTC/USD",
+                "bids": [{"price": 100.0, "qty": 1.0}],
+                "asks": [{"price": 101.0, "qty": 2.0}],
+                "checksum": checksum,
+                "timestamp": "2026-11-03T07:01:24.552449Z"
+            }]
+        });
+        let mut outbound = Vec::new();
+        process_kraken_text_message(&feed, &snapshot.to_string(), 1.0, &mut outbound)
+            .await
+            .expect("snapshot");
+        assert!(outbound.is_empty());
+        assert!(matches!(
+            events.try_recv().expect("snapshot event"),
+            crate::feed::FeedEvent::L2Book(cryptofeed_orderbook::L2Book::Snapshot(_))
+        ));
+
+        // A corrupt update must not publish; it clears the book and asks for a
+        // replacement snapshot.
+        let corrupt = serde_json::json!({
+            "channel": "book", "type": "update",
+            "data": [{
+                "symbol": "BTC/USD",
+                "bids": [{"price": 100.0, "qty": 0.0}],
+                "asks": [],
+                "checksum": 0xDEAD_BEEFu32,
+                "timestamp": "2026-11-03T07:01:24.564465Z"
+            }]
+        });
+        process_kraken_text_message(&feed, &corrupt.to_string(), 2.0, &mut outbound)
+            .await
+            .expect("corrupt update");
+        assert_eq!(outbound.len(), 2, "{outbound:?}");
+        let unsubscribe: serde_json::Value = serde_json::from_str(&outbound[0]).expect("json");
+        let resubscribe: serde_json::Value = serde_json::from_str(&outbound[1]).expect("json");
+        assert_eq!(unsubscribe["method"], "unsubscribe");
+        assert_eq!(resubscribe["method"], "subscribe");
+        assert_eq!(resubscribe["params"]["snapshot"], true);
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+        assert!(
+            feed.kraken_book_syncs
+                .lock()
+                .expect("lock")
+                .get("BTC-USD")
+                .expect("sync")
+                .awaiting_snapshot()
+        );
+
+        // The replacement snapshot is verified and published.
+        process_kraken_text_message(&feed, &snapshot.to_string(), 3.0, &mut outbound)
+            .await
+            .expect("replacement snapshot");
+        assert!(matches!(
+            events.try_recv().expect("snapshot"),
+            crate::feed::FeedEvent::L2Book(cryptofeed_orderbook::L2Book::Snapshot(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn kraken_rejected_subscription_is_terminal() {
+        let feed = Kraken::new()
+            .trade()
+            .symbol("BTC-USD")
+            .exchange_symbol("BTC/USD")
+            .build();
+        let mut outbound = Vec::new();
+        assert!(matches!(
+            process_kraken_text_message(
+                &feed,
+                r#"{"error":"Currency pair not supported XBT/USD","method":"subscribe","req_id":1,"success":false,"symbol":"XBT/USD"}"#,
+                1.0,
+                &mut outbound
+            )
+            .await,
+            Err(Error::Subscription(message)) if message.contains("Currency pair not supported")
         ));
     }
 

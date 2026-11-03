@@ -39,6 +39,16 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Event delivery and receiver diagnostics](event-streams.md): shared retention,
   explicit lag, configurable event rings, backlog and final drain accounting.
 
+## Exchange expansion (in progress)
+
+- [Additional CEX research](cex-expansion-research-2026-11-03.md): candidate
+  matrix, selection criteria and why KuCoin and Kraken are the first additions.
+- [KuCoin UTA WebSocket V2 baseline](kucoin-protocol.md) and
+  [Kraken Spot WebSocket v2 baseline](kraken-protocol.md): endpoints, channel to
+  normalized-model mapping, sequence/checksum rules and open questions.
+- [Expansion design and implementation plan](cex-expansion-plan-2026-11-03.md):
+  layer-by-layer changes, ordered work and verification gates.
+
 ## Acceptance verification
 
 - [Issue #9/#10 acceptance verification](reports/issue-9-10-acceptance-verification-2026-11-03.md):

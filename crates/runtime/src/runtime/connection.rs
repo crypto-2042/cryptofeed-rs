@@ -1,4 +1,7 @@
-use crate::exchange::{bybit::adapter::BybitAdapter, okx::adapter::OkxAdapter};
+use crate::exchange::{
+    bybit::adapter::BybitAdapter, kraken::adapter::KrakenAdapter, kucoin::adapter::KucoinAdapter,
+    okx::adapter::OkxAdapter,
+};
 use cryptofeed_core::{
     error::{Error, Result},
     exchange::ExchangeId,
@@ -56,6 +59,13 @@ impl HeartbeatPolicy {
                 Duration::from_secs(20),
                 Duration::from_secs(OkxAdapter::IDLE_TIMEOUT_SECS),
             ),
+            // The public push host advertises `pingInterval: 18000` in its
+            // welcome frame; `{"op":"ping"}` is answered with `{"op":"pong"}`.
+            ExchangeId::Kucoin => (
+                HeartbeatKind::Text(KucoinAdapter::heartbeat_message()),
+                Duration::from_secs(18),
+                Duration::from_secs(45),
+            ),
             ExchangeId::Gateio => {
                 let channel = if url.host_str().is_some_and(|host| host.contains("fx-ws")) {
                     "futures.ping"
@@ -68,7 +78,13 @@ impl HeartbeatPolicy {
                     Duration::from_secs(45),
                 )
             }
-            ExchangeId::Coinbase | ExchangeId::Kraken => (
+            // `{"method":"ping"}` is answered by `{"method":"pong"}`.
+            ExchangeId::Kraken => (
+                HeartbeatKind::Text(KrakenAdapter::heartbeat_message()),
+                Duration::from_secs(30),
+                Duration::from_secs(60),
+            ),
+            ExchangeId::Coinbase => (
                 HeartbeatKind::None,
                 Duration::from_secs(60),
                 DEFAULT_IDLE_TIMEOUT,
@@ -111,6 +127,7 @@ impl HeartbeatPolicy {
 
     fn is_response_value(self, value: &serde_json::Value) -> bool {
         value.get("op").and_then(|value| value.as_str()) == Some("pong")
+            || value.get("method").and_then(|value| value.as_str()) == Some("pong")
             || value.get("ret_msg").and_then(|value| value.as_str()) == Some("pong")
             || value
                 .get("channel")

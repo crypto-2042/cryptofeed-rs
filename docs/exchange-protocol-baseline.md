@@ -6,7 +6,8 @@ services on 2026-08-09.
 This document is the protocol input to the offline parity harness. It records
 wire facts separately from SDK normalization decisions so that a fixture cannot
 silently turn a project assumption into an exchange guarantee. The supported
-scope remains public market data for Binance, Bitget, Bybit, OKX, and Gate.io.
+scope remains public market data for Binance, Bitget, Bybit, OKX, Gate.io,
+KuCoin and Kraken Spot (2026-11-03 additions; see the venue sections below).
 For the 0.1 release, only spot, perpetual/swap, and dated-futures products are
 runtime capabilities. Option and MARGIN sections below document retained
 parser/catalog evidence, not enabled capability-matrix cells.
@@ -33,7 +34,9 @@ fetchers.
 | Bitget | REST `/api/v3/market/instruments`; `/v3/ws/public`; v3 `instType/topic/symbol` envelopes | [Guide](https://www.bitget.com/docs/uta/quick-start), [instruments](https://www.bitget.com/docs/catalog/market-market-data/market-instruments), [depth](https://www.bitget.com/docs/uta/websocket/public/Order-Book-Channel), [ticker](https://www.bitget.com/docs/uta/websocket/public/Tickers-Channel), [candles](https://www.bitget.com/docs/uta/websocket/public/Candlesticks-Channel). Current v3 surfaces, not v1/v2 subscriptions. |
 | Bybit | REST v5 instruments; v5 spot/linear/inverse WS; allLiquidation and derivative tickers | [Connect](https://bybit-exchange.github.io/docs/v5/ws/connect), [instruments](https://bybit-exchange.github.io/docs/v5/market/instrument), [all liquidation](https://bybit-exchange.github.io/docs/v5/websocket/public/all-liquidation), [ticker](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker). Retired funding topics remain parser references only. |
 | OKX | REST v5 instruments; WS v5 public/business | [Changelog](https://www.okx.com/docs-v5/log_en/): use recommended `openapi.okx.com` REST domain and default WS TLS port 443; migration details below. |
-| Gate.io | REST v4; spot/perpetual/delivery WS v4; public liquidation topic | [Spot REST](https://www.gate.com/docs/developers/apiv4/en/spot/), [spot WS](https://www.gate.com/docs/developers/apiv4/ws/), [futures WS](https://www.gate.com/docs/developers/futures/ws/), [delivery WS](https://www.gate.com/docs/developers/delivery/ws/en/). Current v4 service paths; public liquidations are distinct from private liquidates. |
+| Gate.io | REST v4; spot/perpetual/delivery WS v4; public liquidation topic |
+| KuCoin | UTA REST V2 `/api/ua/v2/market/instrument`; public push hosts `x-push-spot`/`x-push-futures` | [UTA WS V2 introduction](https://www.kucoin.com/docs-new/websocket-api/introduction), [instrument](https://www.kucoin.com/docs-new/v2/rest/ua/instrument), [ticker](https://www.kucoin.com/docs-new/3470355w0), [trade](https://www.kucoin.com/docs-new/3470359w0), [orderbook](https://www.kucoin.com/docs-new/3470354w0), [kline](https://www.kucoin.com/docs-new/3470356w0), [mark price](https://www.kucoin.com/docs-new/3470358w0), [funding](https://www.kucoin.com/docs-new/3470357w0). Public channels require no token; `pingInterval` welcome, `{"op":"ping"}`/`{"op":"pong"}` liveness, `id`/`result` acknowledgements. | [Spot REST](https://www.gate.com/docs/developers/apiv4/en/spot/), [spot WS](https://www.gate.com/docs/developers/apiv4/ws/), [futures WS](https://www.gate.com/docs/developers/futures/ws/), [delivery WS](https://www.gate.com/docs/developers/delivery/ws/en/). Current v4 service paths; public liquidations are distinct from private liquidates. |
+| Kraken Spot | REST `/0/public/AssetPairs`; WebSocket v2 `wss://ws.kraken.com/v2` | [WebSocket v2 overview](https://docs.kraken.com/api/docs/websocket-v2/ticker), [book](https://docs.kraken.com/api/docs/websocket-v2/book), [book checksum guide](https://docs.kraken.com/exchange/guides/websockets/book-checksum-v2), [AssetPairs](https://docs.kraken.com/api/docs/rest-api/get-tradable-asset-pairs). Method-based subscribe/unsubscribe with per-symbol acks and echoed `req_id`; `method` ping/pong; CRC32 over the top ten book levels. |
 
 ### OKX endpoint migration and catalog boundary
 
@@ -85,6 +88,9 @@ never become a CI dependency.
 | OKX v5 spot/swap/futures | `GET /api/v5/public/instruments` and product-aware book bootstrap | public market-data channels use `/ws/v5/public`; candle channels that OKX classifies as business data use `/ws/v5/business` | Keep `instType` through discovery, routing, parsing, and callbacks. Text `ping` expects text `pong`. |
 | Gate.io v4 spot | spot currency-pair discovery and spot book bootstrap | `wss://api.gateio.ws/ws/v4/` | Subscription timestamps are seconds and must be fresh. Subscription acknowledgements are control messages. |
 | Gate.io v4 futures/delivery | settlement-specific contract catalogs and matching book endpoints | settlement/product-specific futures or delivery WebSocket URL | Catalog identity is derived from contract name/type/settlement. `quanto_multiplier` has no documented positive-value restriction and is not a symbol-identity gate. Funding, mark price, open interest, and index price ride the `futures.tickers` stream; `book_ticker` doubles as L1. The delivery service serves `futures.*` channel names. |
+| KuCoin UTA spot | `GET /api/ua/v2/market/instrument?tradeType=SPOT` | `wss://x-push-spot.kucoin.com` | Spot native symbols are `BASE-QUOTE`; only `TradingEnabled` rows are eligible. `ticker` is trade-driven and is not advertised as L1; `obu depth=1` is the precise L1 source but stays an L2 partial book. |
+| KuCoin UTA futures | `GET /api/ua/v2/market/instrument?tradeType=FUTURES` | `wss://x-push-futures.kucoin.com` | Perpetual native symbols are `{BASE}{QUOTE}M` with the `XBT`->`BTC` alias; dated contracts normalize from catalog `expiryTime`. `mark-price` carries mark/index/open interest in one payload and `funding-fee` is futures-only. `obu depth=increment@10ms` is snapshot then `O`/`C` deltas; `1/5/50` are snapshot-only. |
+| Kraken Spot | `GET /0/public/AssetPairs` | `wss://ws.kraken.com/v2` | REST `wsname` uses legacy `XBT`/`XDG` codes; WebSocket v2 accepts canonical `BTC`/`DOGE` only (live-verified 2026-11-03). `ticker` is BBO + last and not L1; `book` depth 10/25/100/500/1000 is CRC32-checked over the top ten levels; `ohlc` uses `interval_begin` and minute intervals. |
 
 ## Binance
 
@@ -859,3 +865,119 @@ No native parser, endpoint or bridge rule changed.
 sync/crossed-book checks, not a native channel/depth change. Full book state is
 retained; synthetic snapshot/delete/promote examples and Bybit replay assertions
 were added together. No official payload, parser or sequence expectation changed.
+
+## KuCoin UTA WebSocket V2
+
+Verified against the official KuCoin documentation and the unauthenticated
+public push hosts on 2026-11-03. This section records the wire facts used by
+the runtime; implementation details and open-question answers are in
+[the KuCoin protocol baseline](kucoin-protocol.md).
+
+### Endpoints and lifecycle
+
+- Public spot push: `wss://x-push-spot.kucoin.com`; public futures push:
+  `wss://x-push-futures.kucoin.com`. No token or authentication frame is
+  required for public market data.
+- On connect the server sends
+  `{"sessionId":"...","message":"welcome","pingInterval":18000}`. The
+  recommended client ping cadence is 18 s; the client sends
+  `{"id":"...","op":"ping"}` and receives `{"id":"...","op":"pong",...}`.
+  An unanswered heartbeat is an idle reconnect, not a protocol error.
+- Subscribe/unsubscribe frames carry `id`, `action`
+  (`SUBSCRIBE`/`UNSUBSCRIBE`), `channel`, `tradeType` (`SPOT`/`FUTURES`),
+  `symbols` (or `symbol`), plus the channel-specific `depth`/`interval`.
+  Success is `{"id":"...","result":true}`; rejection is
+  `{"id":"...","result":false,"message":"..."}` and is a permanent
+  configuration failure.
+
+### Channels
+
+- `ticker`, `trade`, `kline`, `obu` topics carry a `.SPOT`/`.FUTURES` suffix;
+  `mark-price` and `funding-fee` topics carry no suffix and are futures-only.
+- `ticker` publishes best bid/ask with sizes and last trade, but only on trade
+  events. It is not a standalone L1 stream; the documented `obu depth=1`
+  partial book is the precise L1 source and is exposed only as a
+  snapshot-only L2 depth.
+- `obu` is top-level `t` (`snapshot`/`delta`) plus `dp`
+  (`1`/`5`/`50`/`increment`/`increment@10ms`). `increment@10ms` starts with a
+  snapshot and then deltas whose `O`/`C` ranges are contiguous. `increment`
+  without `@10ms` is documented deprecated and is not implemented.
+- `kline` labels are `1min`..`1month`; `6hour` is documented unavailable for
+  futures and is rejected by capability preflight there.
+- `mark-price` is one payload with `mp`, `ip`, `oi` and `ts` (ms); the runtime
+  emits independent `MarkPrice`, `IndexPrice` and `OpenInterest` events under
+  one native subscription.
+- `funding-fee` `ft` is the current settlement time (becomes
+  `next_funding_time`); `nt` is one period later and is not substituted.
+- No public liquidation stream is documented; liquidation warnings are a
+  private channel and stay unsupported.
+
+### Catalog
+
+- `GET /api/ua/v2/market/instrument?tradeType=SPOT|FUTURES` returns
+  `{"code":"200000","data":{"tradeType":...,"list":[...]}}`.
+- Spot rows carry `symbol`, `baseCurrency`, `quoteCurrency`, `tradingStatus`;
+  futures rows add `contractType` (`"0"` perpetual, `"1"` dated),
+  `expiryTime`, `settlementCurrency`, `isInverse` and `marketStage`.
+- Eligibility: `TradingEnabled` (spot), `Open` + `NORMAL` (futures). Pre-market
+  rows and other statuses are skipped, not guessed.
+- Product identity is qualified before reverse mapping: `XBT` -> `BTC`, and
+  perpetual native names are `{BASE}{QUOTE}M`.
+
+## Kraken Spot WebSocket v2
+
+Verified against the official Kraken documentation and the unauthenticated
+WebSocket v2 endpoint on 2026-11-03. Implementation details and open-question
+answers are in [the Kraken protocol baseline](kraken-protocol.md).
+
+### Endpoint and lifecycle
+
+- Public spot WebSocket: `wss://ws.kraken.com/v2`.
+- Frames are single JSON objects. Subscriptions are
+  `{"method":"subscribe","params":{"channel":...,"symbol":[...]}}`; the
+  optional `req_id` is echoed in each acknowledgement, which is emitted once per
+  requested symbol. A rejection is `success: false` with an `error` string and
+  is a permanent configuration failure.
+- The server sends a `status` channel frame on connect and periodic
+  `{"channel":"heartbeat"}` frames; both are control frames, not market data.
+- Liveness is `{"method":"ping"}` -> `{"method":"pong"}`.
+- Timestamps are RFC 3339 UTC with nanoseconds (`2026-11-03T07:02:36.699826Z`).
+
+### Channels
+
+- `ticker` publishes both BBO sides with sizes plus last-trade statistics;
+  `event_trigger` may be `trades` (default) or `bbo`. The SDK subscribes with
+  `bbo` so the normalized `Ticker` follows best-bid/ask changes. It is not an
+  `L1Book` channel.
+- `trade` rows carry `side`, `price`, `qty`, `ord_type`, `trade_id`, `timestamp`.
+- `book` rows carry object levels `{"price","qty"}`, a `checksum`, and a
+  `timestamp`; `qty: 0` removes a level. Depth is `10/25/100/500/1000`.
+- `ohlc` rows carry `interval_begin` (RFC 3339) and `interval` in minutes;
+  the deprecated `timestamp` is ignored. Kraken does not mark bars final.
+  Documented intervals are `1/5/15/30/60/240/1440/10080/21600` minutes; the
+  normalized vocabulary cannot express 15 days, so `21600` is not enabled.
+
+### Book checksum
+
+The checksum is CRC32 over the top ten levels of the resulting book:
+asks sorted price low-to-high followed by bids sorted price high-to-low, each
+level formatted as `price + qty` with `.` removed and leading zeros stripped.
+The official example (`3310070434`) is reproduced by a unit test. A live probe
+on 2026-11-03 matched every snapshot and update at depth 25/100; at depth 10
+updates only matched after truncating the local book to the subscribed depth,
+because out-of-scope levels never receive a `qty: 0` removal. A mismatch clears
+the local book and triggers the bounded in-session unsubscribe/resubscribe
+resnapshot path (at most three cumulative requests per connection); a corrupt
+book is never published.
+
+### Catalog
+
+- `GET https://api.kraken.com/0/public/AssetPairs` returns `{"error":[],"result":
+  {pair: {...}}}`; success uses an empty `error` array.
+- Each row carries `altname`, `wsname`, `base`, `quote`, `status`, tick/lot
+  precision and minimums. `wsname` is authoritative for the wire form;
+  `altname` is cross-checked as the slash-less legacy form.
+- Only `status: online` pairs are eligible; `cancel_only`/`post_only` are
+  skipped.
+- Wire aliases `XBT` -> `BTC` and `XDG` -> `DOGE` apply to both pair sides;
+  quote currencies (`USD`, `USDT`, `EUR`, ...) are preserved.

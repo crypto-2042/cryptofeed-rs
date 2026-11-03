@@ -164,8 +164,9 @@ Key API surface:
   install a tracing subscriber in your application to observe transient failures.
 - `FeedHandler::subscribe_status()` exposes terminal feed failures
   programmatically while healthy feeds continue running independently.
-- Per-exchange builders: `Binance`, `Bitget`, `Bybit`, `Okx`, `Gateio`
-  (Coinbase/Kraken builders exist but are rejected by capability validation).
+- Per-exchange builders: `Binance`, `Bitget`, `Bybit`, `Okx`, `Gateio`,
+  `Kucoin`, `Kraken` (the Coinbase builder exists but is rejected by capability
+  validation until its runtime path lands).
 - `ExchangeFeedBuilder` methods: `symbol("BTC-USDT")` /
   `symbol("BTC-USDT-PERP")` / `symbol("BTC-USDT-240628")` (normalized forms),
   `instrument(Symbol)` (typed product identity; option/MARGIN variants are
@@ -209,6 +210,8 @@ dated futures. Options and MARGIN remain implementation references and fail pref
 | Bybit v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 | OKX v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (explicit index symbol) |
 | Gate.io v4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| KuCoin UTA WS V2 | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
+| Kraken WS v2 | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
 
 The OKX Index entry is the SDK's explicit spot-index-symbol entrypoint. Spot
 feeds do not expose funding, liquidations, open interest, or derivative mark price.
@@ -222,6 +225,7 @@ feeds do not expose funding, liquidations, open interest, or derivative mark pri
 | Bybit v5 linear / inverse perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | OKX v5 SWAP | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Gate.io v4 (USDT/BTC perpetual) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| KuCoin UTA WS V2 perpetual (USDT/USDC/coin-margined) | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
 
 ### 交割合约 (Dated Futures)
 
@@ -277,6 +281,27 @@ Notes:
   without authentication; delivery liquidations remain rejected. This is a
   sampled stream (at most one order per contract per second), not a complete
   liquidation ledger.
+- KuCoin UTA WebSocket V2 routes spot to `wss://x-push-spot.kucoin.com` and
+  futures to `wss://x-push-futures.kucoin.com` without a token. `ticker` is
+  trade-driven and is not advertised as L1; the precise L1 source is
+  `obu depth=1`, which is exposed only as a snapshot-only L2 depth. One
+  `mark-price` payload is split into `MarkPrice`, `IndexPrice` and
+  `OpenInterest`; `funding-fee` is futures-only. `obu` defaults to
+  `increment@10ms` (snapshot then `O`/`C` deltas, bounded in-session
+  resnapshot on gaps) and accepts snapshot-only `l2_book_depth(1/5/50)`.
+  KuCoin `6hour` candles are rejected on futures preflight, dated futures
+  are catalogued but have no capability row yet, and there is no documented
+  public liquidation stream.
+- Kraken Spot WebSocket v2 is spot-only. `ticker` carries BBO sizes but is not
+  an L1 channel; funding/open interest/mark price/liquidations are on the
+  separate Derivatives platform and are rejected. `book` depth is
+  `10/25/100/500/1000` and every push is CRC32-verified over the top ten
+  levels; a mismatch enters the bounded unsubscribe/resubscribe resnapshot path
+  and a corrupt book is never published. Local books are truncated to the
+  subscribed depth (out-of-scope levels never receive `qty: 0`). `ohlc`
+  supports Kraken's minute set (1m/5m/15m/30m/1h/4h/1d/1w); 15-day bars are not
+  expressible in the normalized interval vocabulary. Catalog aliases
+  `XBT`->`BTC` and `XDG`->`DOGE` are live-verified wire-name requirements.
 - The additions above have deterministic offline regression coverage.
   [The 2026-10-08 smoke](docs/reports/live-smoke-2026-10-08.md) received Bitget
   spot/perpetual L1, derivative ticker fields, and OKX SWAP index events.
