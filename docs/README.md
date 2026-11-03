@@ -18,6 +18,9 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
 - [Release-package verification](reports/release-package-verification-2026-10-13.md):
   eleven real package builds, extracted consumers/tests, security and license evidence.
+- [Release validation, packaging track re-run](reports/release-validation-2026-10-13.md):
+  independent re-run at `3851298` — gates, archive hashes, extracted consumer/tests,
+  RustSec and license evidence, with long-running live stages still NOT RUN.
 
 - [Compatibility policy](compatibility.md): 0.1 API, MSRV, feature and data contracts.
 - [Release verification and sustained-run plan](release-validation.md): packaging,
