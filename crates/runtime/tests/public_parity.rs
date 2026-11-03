@@ -1399,6 +1399,44 @@ fn okx_funding_rate_without_ts_falls_back_to_received_ts() {
 }
 
 #[test]
+fn okx_funding_rate_push_frame_passes_downstream_freshness_gates() {
+    // Issue #9's downstream gates: max_future_skew_ms = 1000 and
+    // max_event_delay_ms = 3000. A periodic `funding-rate` push carries a `ts`
+    // tens of milliseconds old; only the first snapshot frame is older. This
+    // covers the parse-to-freshness path that previously rejected every row.
+    let message = json!({
+        "arg": {"channel": "funding-rate", "instId": "BTC-USDT-SWAP"},
+        "data": [{
+            "instId": "BTC-USDT-SWAP",
+            "fundingRate": "0.0000376259479002",
+            "fundingTime": "1792569600000",
+            "nextFundingTime": "1792598400000",
+            "prevFundingTime": "1792540800000",
+            "ts": "1792560006264",
+            "settState": "settled",
+            "method": "current_period"
+        }]
+    });
+
+    let received_ts = 1792560006.3;
+    let funding = okx_parser::parse_funding(&message, received_ts).expect("funding");
+
+    let future_skew_ms = (funding.exchange_ts - funding.received_ts) * 1_000.0;
+    assert!(
+        future_skew_ms <= 1_000.0,
+        "push frames must not look futuristic: {future_skew_ms} ms"
+    );
+    let event_delay_ms = (funding.received_ts - funding.exchange_ts) * 1_000.0;
+    assert!(
+        event_delay_ms <= 3_000.0,
+        "push frames must stay inside the delay gate: {event_delay_ms} ms"
+    );
+    // The settlement time stays in its own field and remains in the future.
+    assert_eq!(funding.next_funding_time, Some(1792569600.0));
+    assert!(funding.next_funding_time.unwrap() > funding.received_ts);
+}
+
+#[test]
 fn okx_open_interest_matches_public_baseline() {
     let message = json!({
         "arg": {"channel": "open-interest", "instId": "BTC-USDT-SWAP"},
