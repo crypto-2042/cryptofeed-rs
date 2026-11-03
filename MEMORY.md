@@ -225,8 +225,10 @@ Project-specific memory for `rust/cryptofeed-rs`.
 - Verify actual packaged builds and consumer use before publishing; follow
   docs/release-validation.md and docs/compatibility.md. Sustained-run acceptance
   and registry ownership/publication remain separate release gates.
-- Coinbase/Kraken and additional public channel families require a new explicit
-  plan before implementation.
+- KuCoin UTA WS V2 (spot + perpetual) and Kraken Spot WS v2 are implemented as
+  of 2026-11-03; see docs/cex-expansion-*.md and PARITY capability rows.
+- Coinbase and any further venue/channel family still require a new explicit
+  plan and current official protocol evidence before implementation.
 
 ## Scope Memory
 
