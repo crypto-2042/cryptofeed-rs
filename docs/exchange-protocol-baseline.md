@@ -36,6 +36,8 @@ fetchers.
 | OKX | REST v5 instruments; WS v5 public/business | [Changelog](https://www.okx.com/docs-v5/log_en/): use recommended `openapi.okx.com` REST domain and default WS TLS port 443; migration details below. |
 | Gate.io | REST v4; spot/perpetual/delivery WS v4; public liquidation topic |
 | KuCoin | UTA REST V2 `/api/ua/v2/market/instrument`; public push hosts `x-push-spot`/`x-push-futures` | [UTA WS V2 introduction](https://www.kucoin.com/docs-new/websocket-api/introduction), [instrument](https://www.kucoin.com/docs-new/v2/rest/ua/instrument), [ticker](https://www.kucoin.com/docs-new/3470355w0), [trade](https://www.kucoin.com/docs-new/3470359w0), [orderbook](https://www.kucoin.com/docs-new/3470354w0), [kline](https://www.kucoin.com/docs-new/3470356w0), [mark price](https://www.kucoin.com/docs-new/3470358w0), [funding](https://www.kucoin.com/docs-new/3470357w0). Public channels require no token; `pingInterval` welcome, `{"op":"ping"}`/`{"op":"pong"}` liveness, `id`/`result` acknowledgements. | [Spot REST](https://www.gate.com/docs/developers/apiv4/en/spot/), [spot WS](https://www.gate.com/docs/developers/apiv4/ws/), [futures WS](https://www.gate.com/docs/developers/futures/ws/), [delivery WS](https://www.gate.com/docs/developers/delivery/ws/en/). Current v4 service paths; public liquidations are distinct from private liquidates. |
+| Upbit | REST `/v1/market/all`; Korean quotation WebSocket `wss://api.upbit.com/websocket/v1` | [Ticker](https://docs.upbit.com/kr/reference/websocket-ticker), [Trade](https://docs.upbit.com/kr/reference/websocket-trade), [Orderbook](https://docs.upbit.com/kr/reference/websocket-orderbook), [Candle](https://docs.upbit.com/kr/reference/websocket-candle), [Trading pairs](https://docs.upbit.com/kr/reference/list-trading-pairs). Ticket/type/codes/format array request; no subscription acknowledgement; text `PING` / `{"status":"UP"}` liveness. |
+| Bithumb | REST `/v1/market/all`; public WebSocket v1 `wss://ws-api.bithumb.com/websocket/v1` | [Basic information](https://apidocs.bithumb.com/reference/기본-정보), [Ticker](https://apidocs.bithumb.com/reference/현재가-ticker), [Trade](https://apidocs.bithumb.com/reference/체결-trade), [Orderbook](https://apidocs.bithumb.com/reference/호가-orderbook). Same request array family; optional RFC 7692 compression not requested; no subscription acknowledgement. |
 | Kraken Spot | REST `/0/public/AssetPairs`; WebSocket v2 `wss://ws.kraken.com/v2` | [WebSocket v2 overview](https://docs.kraken.com/api/docs/websocket-v2/ticker), [book](https://docs.kraken.com/api/docs/websocket-v2/book), [book checksum guide](https://docs.kraken.com/exchange/guides/websockets/book-checksum-v2), [AssetPairs](https://docs.kraken.com/api/docs/rest-api/get-tradable-asset-pairs). Method-based subscribe/unsubscribe with per-symbol acks and echoed `req_id`; `method` ping/pong; CRC32 over the top ten book levels. |
 
 ### OKX endpoint migration and catalog boundary
@@ -90,6 +92,8 @@ never become a CI dependency.
 | Gate.io v4 futures/delivery | settlement-specific contract catalogs and matching book endpoints | settlement/product-specific futures or delivery WebSocket URL | Catalog identity is derived from contract name/type/settlement. `quanto_multiplier` has no documented positive-value restriction and is not a symbol-identity gate. Funding, mark price, open interest, and index price ride the `futures.tickers` stream; `book_ticker` doubles as L1. The delivery service serves `futures.*` channel names. |
 | KuCoin UTA spot | `GET /api/ua/v2/market/instrument?tradeType=SPOT` | `wss://x-push-spot.kucoin.com` | Spot native symbols are `BASE-QUOTE`; only `TradingEnabled` rows are eligible. `ticker` is trade-driven and is not advertised as L1; `obu depth=1` is the precise L1 source but stays an L2 partial book. |
 | KuCoin UTA futures | `GET /api/ua/v2/market/instrument?tradeType=FUTURES` | `wss://x-push-futures.kucoin.com` | Perpetual native symbols are `{BASE}{QUOTE}M` with the `XBT`->`BTC` alias; dated contracts normalize from catalog `expiryTime`. `mark-price` carries mark/index/open interest in one payload and `funding-fee` is futures-only. `obu depth=increment@10ms` is snapshot then `O`/`C` deltas; `1/5/50` are snapshot-only. |
+| Upbit Korean quotation | `GET https://api.upbit.com/v1/market/all?is_details=true` | `wss://api.upbit.com/websocket/v1` | `{QUOTE}-{BASE}` market codes become `BASE-QUOTE` with the quote preserved. `ticker` has no bid/ask, so it is not a `Ticker`/`L1Book` cell. `orderbook` is a complete snapshot with documented units 1/5/15/30 (plain code = 30); no delta/sequence/checksum. `candle.<unit>` covers 1s/1m/3m/5m/10m/15m/30m/60m/240m and never marks a bar final. |
+| Bithumb public v1 | `GET https://api.bithumb.com/v1/market/all?isDetails=true` | `wss://ws-api.bithumb.com/websocket/v1` | `{QUOTE}-{BASE}` codes with KRW/BTC quotes (live 2026-11-03). `ticker` has no bid/ask, so it is not a `Ticker`/`L1Book` cell. `orderbook` is a complete snapshot of at most 15 units; `level` is price aggregation, not depth. No public WS candle stream: candles are REST history only and are not exposed live. |
 | Kraken Spot | `GET /0/public/AssetPairs` | `wss://ws.kraken.com/v2` | REST `wsname` uses legacy `XBT`/`XDG` codes; WebSocket v2 accepts canonical `BTC`/`DOGE` only (live-verified 2026-11-03). `ticker` is BBO + last and not L1; `book` depth 10/25/100/500/1000 is CRC32-checked over the top ten levels; `ohlc` uses `interval_begin` and minute intervals. |
 
 ## Binance
@@ -981,3 +985,97 @@ book is never published.
   skipped.
 - Wire aliases `XBT` -> `BTC` and `XDG` -> `DOGE` apply to both pair sides;
   quote currencies (`USD`, `USDT`, `EUR`, ...) are preserved.
+
+## Upbit Korean quotation WebSocket
+
+Verified against the official Korean/global Upbit documentation and the public
+REST catalog on 2026-11-03. Implementation details and open-question answers are
+in [the Upbit protocol baseline](upbit-protocol.md).
+
+### Endpoint and lifecycle
+
+- Public Korean quotation WebSocket: `wss://api.upbit.com/websocket/v1`;
+  regional hosts (`sg-`, `id-`, `th-`) are documented but not routed.
+- Requests are one JSON array: ticket object, one data-type object per channel,
+  format object. `codes` are uppercase `{QUOTE}-{BASE}` market codes; order-book
+  unit counts use the `{code}.{count}` form (`1/5/15/30`, default 30).
+- No subscription acknowledgement is documented; a rejected request returns
+  `{"error":{"name":...,"message":...}}` and otherwise data streams. Names are
+  `INVALID_AUTH`, `WRONG_FORMAT`, `NO_TICKET`, `NO_TYPE`, `NO_CODES`,
+  `INVALID_PARAM`, `Too Many Requests`, `I'm a teapot`.
+- Liveness: text `PING` -> periodic `{"status":"UP"}`; ~120 s idle close.
+- Timestamps are epoch milliseconds; `trade_timestamp` (trade time) and
+  `timestamp` (frame time) are distinct. Candle
+  `candle_date_time_utc` is `yyyy-MM-dd'T'HH:mm:ss` UTC.
+
+### Channels
+
+- `trade` carries price, size, `ask_bid` side, `sequential_id` and trade-time
+  BBO prices/sizes; the BBO fields are not a subscription.
+- `orderbook` carries paired `orderbook_units` (`ask_price`/`bid_price`/
+  `ask_size`/`bid_size`); every push is a complete snapshot for the selected
+  unit count. No delta, sequence or checksum exists; any other shape fails
+  closed. The aggregation `level` field is not used.
+- `candle.{unit}` covers `1s/1m/3m/5m/10m/15m/30m/60m/240m` (normalized
+  `1s..4h`); completion is never transmitted and repeated pushes of the same
+  `candle_date_time_utc` bar are normal.
+- `ticker` is not enabled: it is a last-price/24h-statistics snapshot without
+  best bid/ask, so it cannot satisfy the normalized BBO `Ticker` contract and
+  must not be relabeled as L1.
+
+### Catalog
+
+- `GET https://api.upbit.com/v1/market/all?is_details=true` returns a flat array
+  of `market`/`korean_name`/`english_name`/`market_event`.
+- `market` is `{QUOTE}-{BASE}`; normalization preserves the quote exactly
+  (`KRW-BTC` -> `BTC-KRW`). Live 2026-11-03: 875 markets (299 KRW, 331 BTC,
+  245 USDT).
+- `market_event.warning`/`caution` are surfaced as catalog status
+  (`WARNING`/`CAUTION`/`NONE`) and are never used as an eligibility gate; no
+  suspension/delisting state exists on this REST surface.
+
+## Bithumb public WebSocket v1
+
+Verified against the official Bithumb API 2.0 documentation and the public REST
+catalog on 2026-11-03. Implementation details and open-question answers are in
+[the Bithumb protocol baseline](bithumb-protocol.md).
+
+### Endpoint and lifecycle
+
+- Public WebSocket v1: `wss://ws-api.bithumb.com/websocket/v1` (Private v2 uses
+  a separate `/websocket/v2/private` endpoint and is out of scope). Public v1 is
+  not part of the 2026-11-13 private v1 retirement.
+- Requests use the same ticket/type/codes/format JSON-array family as Upbit,
+  with `format: DEFAULT|SIMPLE`. No subscription acknowledgement is documented;
+  a rejected request returns `{"error":{"name":...,"message":...}}`
+  (`WRONG_FORMAT`, `NO_TICKET`, `NO_TYPE`, `NO_CODES`, `INVALID_PARAM`,
+  `INVALID_PARAM_FORMAT`).
+- Liveness: text `PING` -> periodic `{"status":"UP"}`; ~120 s idle close.
+  Optional RFC 7692 message compression is not requested, so plain JSON frames
+  are unchanged.
+- Timestamps are epoch milliseconds; `trade_date`/`trade_time` are KST display
+  strings and are not event times. `stream_type` is `SNAPSHOT`/`REALTIME`
+  delivery, not candle completion.
+
+### Channels
+
+- `trade` carries price, size, `ask_bid` side and `sequential_id`.
+- `orderbook` carries paired `orderbook_units` (at most 15) and every push is a
+  complete snapshot; no delta, sequence or checksum exists. `level` is a price
+  aggregation unit (default 1), not a level count, so no depth parameter is
+  accepted.
+- `ticker` is not enabled for the same no-BBO reason as Upbit.
+- No public WebSocket candle stream is documented. Candles exist as REST history
+  only (`/v1/candles/minutes/{1,3,5,10,15,30,60,240}`, days/weeks/months with a
+  KST `to` cursor, newest-first, no completion flag); a live normalized candle
+  channel would require a polling delivery model and is not implemented.
+
+### Catalog
+
+- `GET https://api.bithumb.com/v1/market/all?isDetails=true` returns
+  `market`/`korean_name`/`english_name`/`market_warning`.
+- `market` is `{QUOTE}-{BASE}` with the quote preserved. Live 2026-11-03: 500
+  markets with KRW and BTC quotes and `market_warning` `NONE`/`CAUTION`.
+- `CAUTION` is metadata, not a tradability gate: those pairs are kept and the
+  official string is surfaced as catalog status. Investment-caution levels come
+  from a separate documented REST endpoint and are not inferred here.

@@ -1666,3 +1666,47 @@ feature boundaries.
   [Bounded public observations](docs/reports/dependency-transport-smoke-2026-10-13.md)
   confirm actual HTTPS catalog and WSS data/clean shutdown; they do not claim
   broad live coverage or throughput. PR #2 remote acceptance remains on its PR.
+
+## Korean CEX public data — Upbit and Bithumb (2026-11-03)
+
+- Added `ExchangeId::Upbit` and `ExchangeId::Bithumb` with spot-only capability
+  rows: Upbit `Trade`/`L2Book`/`Candles`, Bithumb `Trade`/`L2Book`. Both
+  `ticker` frames are last-price/24h-statistics snapshots without a best bid or
+  ask, so neither venue advertises the normalized `Ticker` (BBO) contract or an
+  `L1Book` cell; this gap is documented instead of being filled with a
+  fabricated zero-spread quote. Bithumb documents no public WebSocket candle
+  stream, so its `Candles` cell is rejected (REST history is recorded in the
+  protocol baseline as an explicit, unimplemented gap).
+- Upbit Korean quotation WebSocket (`wss://api.upbit.com/websocket/v1`):
+  ticket/type/codes/format array subscription, `trade` and
+  `candle.<unit>` normalization for the documented
+  1s/1m/3m/5m/10m/15m/30m/60m/240m units (normalized 1s..4h, completion
+  unknown), snapshot-only L2 with documented unit counts 1/5/15/30 (plain code
+  for the default 30, `{code}.{count}` otherwise), documented error-envelope
+  handling and text `PING` / `{"status":"UP"}` liveness.
+- Bithumb public WebSocket v1 (`wss://ws-api.bithumb.com/websocket/v1`) with the
+  same request-array family, plain JSON frames (optional RFC 7692 compression
+  not requested), `trade` and snapshot L2 of at most 15 units; `level` is a price
+  aggregation unit, so no depth parameter is accepted and delta-shaped frames
+  fail closed.
+- Catalogs: `GET https://api.upbit.com/v1/market/all?is_details=true` and
+  `GET https://api.bithumb.com/v1/market/all?isDetails=true`, normalized from
+  `{QUOTE}-{BASE}` with the quote preserved (`KRW-BTC` -> `BTC-KRW`). KRW is a
+  fiat quote and is never inferred; alert flags/warnings are catalog metadata,
+  not subscription gates. Live checks on 2026-11-03: 875 Upbit markets
+  (299 KRW/331 BTC/245 USDT) and 500 Bithumb markets (KRW/BTC).
+- Readiness: both venues document no subscription acknowledgement, so their
+  pending subscription entries confirm when the request is sent; a documented
+  error envelope still fails the session (Upbit `Too Many Requests`/`I'm a
+  teapot` map to the shared rate-limited class). Other venues keep their
+  acknowledgement rules unchanged.
+- Deterministic coverage: documented-frame parser/adaptor/book-sync unit tests,
+  catalog mapping and malformed-code rejection, Korean preflight accept/reject
+  matrix, dispatch tests, readiness confirmation/error tests, `public_parity`
+  Korean fixtures and a full-session WebSocket double per venue. No live-network
+  test was added and no live capture is committed.
+- Docs: `docs/upbit-protocol.md`, `docs/bithumb-protocol.md`,
+  `docs/korean-cex-plan-2026-11-03.md`, `PARITY.md` matrix rows and protocol
+  gates, README exchange/capability tables, `docs/feature-status.html`,
+  `docs/exchange-protocol-baseline.md`, `docs/README.md` and
+  `sample_data/SOURCES.md` provenance.

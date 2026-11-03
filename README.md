@@ -165,8 +165,8 @@ Key API surface:
 - `FeedHandler::subscribe_status()` exposes terminal feed failures
   programmatically while healthy feeds continue running independently.
 - Per-exchange builders: `Binance`, `Bitget`, `Bybit`, `Okx`, `Gateio`,
-  `Kucoin`, `Kraken` (the Coinbase builder exists but is rejected by capability
-  validation until its runtime path lands).
+  `Kucoin`, `Kraken`, `Upbit`, `Bithumb` (the Coinbase builder exists but is
+  rejected by capability validation until its runtime path lands).
 - `ExchangeFeedBuilder` methods: `symbol("BTC-USDT")` /
   `symbol("BTC-USDT-PERP")` / `symbol("BTC-USDT-240628")` (normalized forms),
   `instrument(Symbol)` (typed product identity; option/MARGIN variants are
@@ -212,9 +212,16 @@ dated futures. Options and MARGIN remain implementation references and fail pref
 | Gate.io v4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 | KuCoin UTA WS V2 | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
 | Kraken WS v2 | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
+| Upbit quotation WS | ✗ | ✓ | ✓ | ✗ | ✓ | ✗ |
+| Bithumb public WS | ✗ | ✓ | ✓ | ✗ | ✗ | ✗ |
 
 The OKX Index entry is the SDK's explicit spot-index-symbol entrypoint. Spot
 feeds do not expose funding, liquidations, open interest, or derivative mark price.
+The Korean venues have no `Ticker` cell: their public `ticker` frames carry a
+last price and 24-hour statistics but no best bid/ask, so they cannot satisfy the
+normalized `Ticker` (BBO) contract. Bithumb also has no public WebSocket candle
+stream (REST history only), hence its `Candles` gap; Upbit candles support
+`1s`/`1m`/`3m`/`5m`/`10m`/`15m`/`30m`/`1h`/`4h`.
 
 ### 永续合约 (Perpetual / Swap)
 
@@ -302,6 +309,22 @@ Notes:
   supports Kraken's minute set (1m/5m/15m/30m/1h/4h/1d/1w); 15-day bars are not
   expressible in the normalized interval vocabulary. Catalog aliases
   `XBT`->`BTC` and `XDG`->`DOGE` are live-verified wire-name requirements.
+- Upbit's Korean quotation WebSocket (`wss://api.upbit.com/websocket/v1`) and
+  Bithumb's public WebSocket v1 (`wss://ws-api.bithumb.com/websocket/v1`) share
+  a ticket/type/codes/format JSON-array request. Both are spot-only; their
+  `ticker` frames are last-price/24h-statistics snapshots with no bid/ask, so no
+  `Ticker` or `L1Book` cell is advertised. Order books are complete snapshots:
+  Upbit uses documented unit counts `1/5/15/30` (default 30 via a plain code,
+  otherwise `{code}.{count}`) and Bithumb at most 15 units with no depth
+  parameter. Neither stream documents a delta, sequence or checksum, so every
+  push replaces the book and any other shape fails closed. KRW is a fiat quote
+  and is preserved (`KRW-BTC` -> `BTC-KRW`), never guessed; alert flags are
+  catalog metadata and never a subscription gate. Both venues document no
+  subscription acknowledgement, so readiness confirms their subscription on send
+  while a documented error envelope still fails the session; liveness is text
+  `PING` with filtered `{"status":"UP"}` frames. Bithumb candles are REST-only
+  (minutes 1/3/5/10/15/30/60/240 plus days/weeks/months) and are not exposed as a
+  normalized live channel in this increment.
 - The additions above have deterministic offline regression coverage.
   [The 2026-10-08 smoke](docs/reports/live-smoke-2026-10-08.md) received Bitget
   spot/perpetual L1, derivative ticker fields, and OKX SWAP index events.

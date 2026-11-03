@@ -590,3 +590,65 @@ and the depth-truncation requirement reproduced by comparing local CRC32
 values at depth 10/25/100. Prices, sizes, timestamps, identifiers and symbol
 selections in the tests are substituted or shortened while preserving the
 documented wire shape and precision relevant to normalization.
+
+## 2026-11-03 Upbit Korean quotation WebSocket
+
+The Upbit fixtures are sanitized documented examples from the official Korean
+and global documentation plus sanitized live-shape references from the public
+REST catalog on 2026-11-03. No raw capture is stored in this directory; the
+deterministic parser, adapter, book-sync and full-session-double tests embed the
+same shapes inline.
+
+Official sources:
+
+- [Korean documentation index](https://docs.upbit.com/llms.txt),
+  [global index](https://global-docs.upbit.com/llms.txt).
+- [WebSocket usage and errors](https://docs.upbit.com/kr/reference/websocket-guide):
+  ticket/type/codes/format request array, `format: DEFAULT`, error envelope and
+  text `PING` / `{"status":"UP"}` liveness.
+- [Trade](https://docs.upbit.com/kr/reference/websocket-trade),
+  [Orderbook](https://docs.upbit.com/kr/reference/websocket-orderbook),
+  [Candle](https://docs.upbit.com/kr/reference/websocket-candle): documented
+  payload field tables and example frames used for the fixtures.
+- [Trading pairs](https://docs.upbit.com/kr/reference/list-trading-pairs):
+  `market`/`korean_name`/`english_name`/`market_event` catalog rows.
+
+Live-shape observations (sanitized, not retained): the Korean quotation catalog
+returned 875 markets with KRW/BTC/USDT quote prefixes and the documented
+`market_event` object; no WebSocket capture was taken. Prices, sizes,
+timestamps, identifiers and symbol selections in the tests are substituted or
+shortened while preserving the documented wire shape and precision relevant to
+normalization. The `orderbook` example uses documented paired units; the
+`candle.1s` example keeps the documented `candle_date_time_utc` form.
+
+## 2026-11-03 Bithumb public WebSocket v1
+
+The Bithumb fixtures are sanitized documented examples from the official API
+2.0 documentation plus sanitized live-shape references from the public REST
+catalog on 2026-11-03. No raw capture is stored in this directory; the
+deterministic parser, adapter, book-sync and full-session-double tests embed the
+same shapes inline.
+
+Official sources:
+
+- [Bithumb documentation index](https://apidocs.bithumb.com/llms.txt).
+- [Basic information](https://apidocs.bithumb.com/reference/기본-정보): public v1
+  endpoint `wss://ws-api.bithumb.com/websocket/v1`, streams `ticker`/`trade`/
+  `orderbook`, optional RFC 7692 compression.
+- [Request format](https://apidocs.bithumb.com/reference/요청-포맷) and
+  [connection management](https://apidocs.bithumb.com/reference/연결-관리):
+  ticket/type/format request array and text `PING` / `{"status":"UP"}`
+  life cycle.
+- [Trade](https://apidocs.bithumb.com/reference/체결-trade),
+  [Orderbook](https://apidocs.bithumb.com/reference/호가-orderbook): documented
+  payload field tables and example frames (at most 15 units) used for the
+  fixtures.
+- [Trading pairs](https://apidocs.bithumb.com/reference/거래-대상-목록-조회):
+  `market`/`korean_name`/`english_name`/`market_warning` catalog rows.
+
+Live-shape observations (sanitized, not retained): the catalog returned 500
+markets with KRW/BTC quote prefixes and `market_warning` `NONE`/`CAUTION`; the
+host needed HTTP/1.1 for this environment's curl (local TLS-stack detail). No
+WebSocket capture was taken. Prices, sizes, timestamps, identifiers and symbol
+selections in the tests are substituted or shortened while preserving the
+documented wire shape and precision relevant to normalization.
