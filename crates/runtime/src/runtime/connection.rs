@@ -1,4 +1,6 @@
-use crate::exchange::{bybit::adapter::BybitAdapter, okx::adapter::OkxAdapter};
+use crate::exchange::{
+    bybit::adapter::BybitAdapter, kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter,
+};
 use cryptofeed_core::{
     error::{Error, Result},
     exchange::ExchangeId,
@@ -55,6 +57,13 @@ impl HeartbeatPolicy {
                 HeartbeatKind::Text(OkxAdapter::heartbeat_message()),
                 Duration::from_secs(20),
                 Duration::from_secs(OkxAdapter::IDLE_TIMEOUT_SECS),
+            ),
+            // The public push host advertises `pingInterval: 18000` in its
+            // welcome frame; `{"op":"ping"}` is answered with `{"op":"pong"}`.
+            ExchangeId::Kucoin => (
+                HeartbeatKind::Text(KucoinAdapter::heartbeat_message()),
+                Duration::from_secs(18),
+                Duration::from_secs(45),
             ),
             ExchangeId::Gateio => {
                 let channel = if url.host_str().is_some_and(|host| host.contains("fx-ws")) {

@@ -445,6 +445,7 @@ impl ConnectionAttempt {
         match self.tracker.monitor.exchange {
             ExchangeId::Binance => vec![(format!("b:{}", payload["id"]), None)],
             ExchangeId::Bybit => vec![(format!("y:{}", payload["req_id"]), None)],
+            ExchangeId::Kucoin => vec![(format!("k:{}", payload["id"]), None)],
             ExchangeId::Gateio => vec![(
                 format!("g:{}:{}", payload["id"], payload["channel"]),
                 payload.get("payload").cloned(),
@@ -467,6 +468,7 @@ impl ConnectionAttempt {
                 self.sequence += 1;
                 match self.tracker.monitor.exchange {
                     ExchangeId::Bybit => payload["req_id"] = json!(format!("cf-{}", self.sequence)),
+                    ExchangeId::Kucoin => payload["id"] = json!(format!("cf-{}", self.sequence)),
                     ExchangeId::Gateio => payload["id"] = json!(self.sequence),
                     _ => {}
                 }
@@ -534,6 +536,7 @@ impl ConnectionAttempt {
                 payload["event"] == "subscribe" || payload["event"] == "error"
             }
             ExchangeId::Gateio => payload["event"] == "subscribe",
+            ExchangeId::Kucoin => payload.get("id").is_some() && payload.get("result").is_some(),
             _ => false,
         };
         if !is_control {
@@ -560,6 +563,7 @@ impl ConnectionAttempt {
                         && payload.pointer("/result/status").and_then(Value::as_str)
                             != Some("success"))
             }
+            ExchangeId::Kucoin => payload["result"] != true,
             _ => false,
         };
         if rejected {
@@ -582,6 +586,7 @@ impl ConnectionAttempt {
             ExchangeId::Binance => format!("b:{}", payload["id"]),
             ExchangeId::Bybit => format!("y:{}", payload["req_id"]),
             ExchangeId::Gateio => format!("g:{}:{}", payload["id"], payload["channel"]),
+            ExchangeId::Kucoin => format!("k:{}", payload["id"]),
             _ => arg_key(exchange, &payload["arg"]),
         };
         for pending in &mut self.pending {

@@ -10,6 +10,7 @@ use cryptofeed_rs::gateio::{
     adapter::{GateioInstrument, GateioProduct},
     parser as gateio_parser,
 };
+use cryptofeed_rs::kucoin::parser as kucoin_parser;
 use cryptofeed_rs::okx::parser as okx_parser;
 use rust_decimal::Decimal;
 use serde_json::json;
@@ -2782,4 +2783,122 @@ fn gateio_perpetual_sequence_bridge_uses_ids_not_timestamp_guesses() {
     };
     assert!(sync.apply_next_delta(gap).is_err());
     assert_eq!(sync.last_update_id(), Some(102));
+}
+
+// ---------- KuCoin UTA WebSocket V2 documented frames ----------
+//
+// Frames below follow the official channel examples recorded in
+// docs/kucoin-protocol.md and the sanitized live shape observed on 2026-11-03
+// (see sample_data/SOURCES.md). Values are rounded/rewritten test data.
+
+#[test]
+fn kucoin_ticker_and_trade_match_the_documented_shape() {
+    let ticker = json!({
+        "T": "ticker.SPOT", "P": 1768206966101166007_u64,
+        "d": {"A": "0.97675941", "B": "0.02052839", "E": 25958853459_u64,
+              "M": 1768206966096000000_u64, "S": "BUY",
+              "a": "90968.2", "b": "90968.1", "l": "90968.2",
+              "q": "0.00109929", "s": "BTC-USDT"}
+    });
+    let ticker = kucoin_parser::parse_ticker(&ticker, 1768206966.2).expect("ticker");
+    assert_eq!(ticker.symbol.as_str(), "BTC-USDT");
+    assert_eq!(ticker.bid, Decimal::from_str_exact("90968.1").unwrap());
+    assert_eq!(ticker.ask, Decimal::from_str_exact("90968.2").unwrap());
+    assert_eq!(ticker.exchange_ts, 1768206966.096);
+
+    let trade = json!({
+        "T": "trade.FUTURES", "P": 1768802538491160904_u64,
+        "d": {"E": 20631804219899904_u64, "M": 1768802538480000000_u64,
+              "S": "sell", "p": "92525.6", "q": "0.00008036",
+              "s": "XBTUSDTM", "ti": "20631804219899904"}
+    });
+    let trade = kucoin_parser::parse_trade(&trade, 1768802538.5).expect("trade");
+    assert_eq!(trade.symbol.as_str(), "BTC-USDT-PERP");
+    assert_eq!(trade.side, cryptofeed_rs::prelude::Side::Sell);
+    assert_eq!(trade.id.as_deref(), Some("20631804219899904"));
+}
+
+#[test]
+fn kucoin_kline_and_funding_follow_documented_fields() {
+    let candle = json!({
+        "T": "kline.SPOT", "P": 1776090720846219590_u64,
+        "d": {"o": "71725.1", "c": "71728.1", "l": "71725.1", "h": "71728.1",
+              "S": false, "v": "0.01504768", "i": "1min", "a": "1079.297822768",
+              "C": 1776090780, "s": "BTC-USDT", "O": 1776090720}
+    });
+    let candle = kucoin_parser::parse_candle(&candle, 1776090721.0).expect("candle");
+    assert_eq!(candle.interval, "1m");
+    assert_eq!(candle.start, 1776090720.0);
+    assert_eq!(candle.end, 1776090780.0);
+    assert_eq!(candle.closed, Some(false));
+
+    let funding = json!({
+        "T": "funding-fee", "P": 1786809901214267234_u64,
+        "d": {"s": "XBTUSDTM", "fr": "0.000072", "ft": 1786809600000_u64,
+              "lfr": "0.000069", "nt": 1786838400000_u64, "gl": 28800000_u64,
+              "fc": "0.003", "ff": "-0.003"}
+    });
+    let funding = kucoin_parser::parse_funding(&funding, 1786809901.2).expect("funding");
+    assert_eq!(
+        funding.rate.unwrap(),
+        Decimal::from_str_exact("0.000072").unwrap()
+    );
+    // `ft` is the current settlement time; `nt` is one period later and must
+    // not be substituted.
+    assert_eq!(funding.next_funding_time, Some(1786809600.0));
+}
+
+#[test]
+fn kucoin_mark_price_payload_splits_into_three_categories() {
+    let message = json!({
+        "T": "mark-price", "P": 1731899129000_u64,
+        "d": {"s": "XBTUSDTM", "mp": "90445", "ip": "90445", "oi": "23445", "ts": 1731899128999_u64}
+    });
+    let mark = kucoin_parser::parse_mark_price(&message, 1731899129.5).expect("mark");
+    let index = kucoin_parser::parse_index_price(&message, 1731899129.5).expect("index");
+    let open_interest = kucoin_parser::parse_open_interest(&message, 1731899129.5).expect("oi");
+    assert_eq!(mark.symbol.as_str(), "BTC-USDT-PERP");
+    assert_eq!(index.price, Decimal::from_str_exact("90445").unwrap());
+    assert_eq!(
+        open_interest.open_interest,
+        Decimal::from_str_exact("23445").unwrap()
+    );
+    assert_eq!(mark.exchange_ts, 1731899128.999);
+}
+
+#[test]
+fn kucoin_obu_sequence_handling_fails_closed_on_gaps() {
+    use cryptofeed_rs::exchange::kucoin::book_sync::{
+        KucoinBookMode, KucoinBookOutcome, KucoinBookSync,
+    };
+    let snapshot = json!({
+        "T": "obu.SPOT", "dp": "increment@10ms", "t": "snapshot", "P": 1768217874990007701_u64,
+        "d": {"C": 100_u64, "M": 1768217874986000000_u64, "O": 100_u64,
+              "a": [["90701.2", "0.5771583"]], "b": [["90701.1", "0.13918404"]], "s": "BTC-USDT"}
+    });
+    let delta = json!({
+        "T": "obu.SPOT", "dp": "increment@10ms", "t": "delta", "P": 1768217909684719896_u64,
+        "d": {"C": 102_u64, "M": 1768217909683000000_u64, "O": 101_u64,
+              "a": [], "b": [["90700.0", "2.0"]], "s": "BTC-USDT"}
+    });
+    let gap = json!({
+        "T": "obu.SPOT", "dp": "increment@10ms", "t": "delta", "P": 1768217909684719896_u64,
+        "d": {"C": 106_u64, "M": 1768217909683000000_u64, "O": 105_u64,
+              "a": [], "b": [["90700.0", "2.0"]], "s": "BTC-USDT"}
+    });
+    let mut sync = KucoinBookSync::new(Symbol::spot("BTC", "USDT"), KucoinBookMode::Incremental);
+    let snapshot = kucoin_parser::parse_book(&snapshot, 1.0).expect("snapshot");
+    assert!(matches!(
+        sync.apply(snapshot).unwrap(),
+        KucoinBookOutcome::Publish(_)
+    ));
+    let delta = kucoin_parser::parse_book(&delta, 2.0).expect("delta");
+    assert!(matches!(
+        sync.apply(delta).unwrap(),
+        KucoinBookOutcome::Publish(_)
+    ));
+    let gap = kucoin_parser::parse_book(&gap, 3.0).expect("gap");
+    assert_eq!(sync.apply(gap).unwrap(), KucoinBookOutcome::Resnapshot);
+    assert!(sync.awaiting_snapshot());
+    assert!(sync.state().bids().is_empty());
 }

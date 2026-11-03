@@ -1,9 +1,11 @@
 # KuCoin UTA WebSocket V2 protocol baseline
 
-Status: **protocol reference for the phase-1 addition.** Facts below were read
-from the official KuCoin documentation on 2026-11-03. No live capture was taken
-for this note; implementation must add sanitized fixtures from the documented
-examples and confirm the open questions during verification.
+Status: **protocol reference for the phase-1 addition, implemented.** Facts
+below were read from the official KuCoin documentation on 2026-11-03 and the
+open questions were resolved against the public push hosts on the same day; the
+verification section at the end records the observed shapes. Fixtures in the
+test suite are sanitized documented examples plus sanitized live-shape
+references (see `sample_data/SOURCES.md`), not recordings.
 
 ## Endpoints and handshake
 
@@ -80,6 +82,9 @@ Notes:
 
 ## Open questions to resolve during implementation
 
+All five questions were answered during implementation; see
+[Implementation verification](#implementation-verification--2026-11-03).
+
 1. Does the public push host require an initial handshake frame, or are channel
    frames accepted directly after the WebSocket upgrade?
 2. Exact acknowledgement shape for `SUBSCRIBE` (success vs error) and whether
@@ -99,3 +104,88 @@ Notes:
   [Orderbook](https://www.kucoin.com/docs-new/3470354w0), [Kline](https://www.kucoin.com/docs-new/3470356w0),
   [Mark Price](https://www.kucoin.com/docs-new/3470358w0), [Funding Fee Rate](https://www.kucoin.com/docs-new/3470357w0)
 - [UTA REST V2 market data](https://www.kucoin.com/docs-new/v2/rest/ua/instrument)
+
+## Implementation verification — 2026-11-03
+
+The public push hosts were probed without a token on 2026-11-03. Observations
+are sanitized wire-shape references, not retained captures.
+
+### Handshake and heartbeat
+
+- The server sends a welcome frame immediately after the upgrade:
+  `{"sessionId":"...","message":"welcome","pingInterval":18000}`. No token or
+  authentication frame is required for public channels; `SUBSCRIBE` frames are
+  accepted directly. The welcome frame is ignored by the runtime.
+- Liveness is the documented JSON exchange, not a market channel: the client
+  sends `{"id":"...","op":"ping"}` and receives `{"id":"...","op":"pong",
+  "timestamp":...}`. The `pingInterval` recommendation is 18 000 ms; the SDK
+  heartbeat policy uses an 18 s interval and a 45 s idle watchdog. An
+  unanswered heartbeat is an idle reconnect, not a protocol error.
+- The session also tolerates the server closing public connections during load
+  balancing; the normal reconnect/backoff supervisor covers it.
+
+### Subscription acknowledgement
+
+- Request: `{"id":"<client>","action":"SUBSCRIBE","channel":"<name>",
+  "tradeType":"SPOT"|"FUTURES","symbols":["<native>", ...]}` plus the
+  channel-specific `depth`/`interval` parameter.
+- Success: `{"id":"<client>","result":true}`. Rejection:
+  `{"id":"<client>","result":false,"message":"invalid request data"}`; a
+  rejected subscription is a permanent configuration error and fails fast
+  instead of burning reconnect attempts.
+- One acknowledgement covers one request frame, including a frame that carries
+  several `symbols`. `UNSUBSCRIBE` uses the same envelope and is acknowledged
+  the same way.
+- Per-connection subscription limits are still not documented. The SDK uses a
+  conservative 64 KiB generated-subscription budget and shards larger feeds;
+  this is a local budget, not a claimed exchange limit.
+
+### Order book (`obu`)
+
+- `t` and `dp` are top-level frame fields, not payload fields; the payload is
+  `d` with `s`, `M`, `b`, `a` and the sequence range.
+- `depth=increment@10ms` first pushes `t: "snapshot"` with `O == C`, then
+  `t: "delta"` pushes whose ranges are contiguous (`O == previous C + 1`).
+  A gap triggers the bounded in-session resnapshot path (unsubscribe/subscribe
+  for that symbol, at most three cumulative requests per connection) and then
+  the existing reconnect supervisor. Deltas with `C <= anchor` are stale and
+  dropped; buffered deltas bridge the replacement snapshot only when their
+  range continues it.
+- `depth=1/5/50` pushes are snapshot-only (`t: "snapshot"` on every push,
+  `O == C`); they replace the local book and carry no incremental state. A
+  delta on such a subscription is a protocol violation and fails closed.
+- `dp=increment` (without `@10ms`) remains unimplemented as documented
+  deprecated in July 2026.
+
+### Channels and timestamps
+
+- `ticker`/`trade`/`kline`/`obu` topics carry a product suffix (`ticker.SPOT`,
+  `trade.FUTURES`, ...). `mark-price` and `funding-fee` topics carry no suffix;
+  both are futures-only.
+- `M` is the matching-engine time in nanoseconds and `P` the publish time in
+  nanoseconds; both are converted to seconds. `mark-price` uses `ts`
+  (milliseconds) with `P` as fallback.
+- One `mark-price` payload is normalized into independent `MarkPrice`,
+  `IndexPrice` and `OpenInterest` events; the native `mark-price` subscription
+  is emitted once even when all three categories are requested.
+- `funding-fee` `ft` is the current settlement time and becomes
+  `next_funding_time`; `nt` is one period later and is not substituted.
+- `kline` `S` is the documented closed flag. The endpoint accepts `6hour`
+  subscriptions for futures without an immediate error, but the channel
+  documentation marks it unavailable there; capability preflight rejects
+  `6h` for futures and the runtime never relies on an empty subscription.
+
+### Catalog
+
+- `GET /api/ua/v2/market/instrument?tradeType=SPOT` returns
+  `{"code":"200000","data":{"tradeType":"SPOT","list":[...]}}`; rows carry
+  `symbol`, `baseCurrency`, `quoteCurrency`, `tradingStatus` and order-size
+  fields. Only `TradingEnabled` rows are eligible.
+- `GET /api/ua/v2/market/instrument?tradeType=FUTURES` rows add
+  `contractType` (`"0"` perpetual, `"1"` dated), `expiryTime` (milliseconds for
+  dated), `settlementCurrency`, `isInverse`, `marketStage` and `tickSize`.
+  Only `tradingStatus: "Open"` and `marketStage: "NORMAL"` rows are eligible;
+  pre-market stages are skipped instead of guessed.
+- Perpetual native names are `{BASE}{QUOTE}M` (`XBTUSDTM`, `XBTUSDM`), and the
+  `XBT` -> `BTC` alias is applied before product qualification. Dated contracts
+  (`XBTMZ26`) normalize from the catalog expiry.

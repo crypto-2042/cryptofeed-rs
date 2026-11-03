@@ -529,3 +529,36 @@ its existing v1 public Trade example with a producer anchor (identity 1/1,
 connection 1, epoch 10). It is not exchange traffic. Inline
 `recording::anchored_tests` asserts the exact bytes and original anchor through
 bounded write/read/replay. No credentials, URLs or lifecycle errors are included.
+
+## 2026-11-03 KuCoin UTA WebSocket V2
+
+The KuCoin fixtures are sanitized documented examples plus sanitized live-shape
+references from the unauthenticated public push hosts on 2026-11-03. No raw
+capture is stored in this directory; the deterministic parser, adapter,
+book-sync and full-session-double tests embed the same shapes inline.
+
+Official sources:
+
+- [UTA WebSocket V2 introduction](https://www.kucoin.com/docs-new/websocket-api/introduction):
+  welcome frame with `pingInterval`, `{"op":"ping"}`/`{"op":"pong"}` liveness,
+  `id`/`action`/`tradeType`/`symbols` subscription framing and
+  `{"id":"...","result":...}` acknowledgement.
+- [Ticker](https://www.kucoin.com/docs-new/3470355w0),
+  [Trade](https://www.kucoin.com/docs-new/3470359w0),
+  [Orderbook](https://www.kucoin.com/docs-new/3470354w0),
+  [Kline](https://www.kucoin.com/docs-new/3470356w0),
+  [Mark Price](https://www.kucoin.com/docs-new/3470358w0),
+  [Funding Fee Rate](https://www.kucoin.com/docs-new/3470357w0).
+- [UTA REST V2 market data](https://www.kucoin.com/docs-new/v2/rest/ua/instrument):
+  `/api/ua/v2/market/instrument?tradeType=SPOT|FUTURES` rows and the
+  `200000` success envelope.
+
+Live-shape observations (sanitized, not retained): `welcome` with
+`pingInterval: 18000`; `{"id":"...","result":true}` acknowledgements and
+`result:false` rejections; `ticker.SPOT`/`trade.SPOT`/`kline.SPOT`/
+`obu.SPOT` topics; `obu` top-level `t`/`dp` with contiguous `O`/`C` for
+`increment@10ms` and snapshot-only `depth=1/5/50`; suffix-less
+`mark-price`/`funding-fee` futures topics; `ping`/`pong` control exchange.
+Prices, sizes, timestamps, identifiers and symbol selections in the tests are
+substituted or shortened while preserving the documented wire shape and
+precision relevant to normalization.

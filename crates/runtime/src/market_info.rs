@@ -243,6 +243,21 @@ pub(crate) fn parse(
             info.contract_multiplier = decimal(row, "quanto_multiplier")?;
             info.settlement_currency = settlement.map(str::to_ascii_uppercase);
         }
+        ExchangeId::Kucoin if spot => {
+            info.native_status = text(row, "tradingStatus")?;
+            info.price_increment = decimal(row, "tickSize")?;
+            info.quantity_increment = decimal(row, "baseOrderStep")?;
+            info.minimum_quantity = decimal(row, "minBaseOrderSize")?;
+            info.minimum_notional = decimal(row, "minQuoteOrderSize")?;
+        }
+        ExchangeId::Kucoin => {
+            info.native_status = text(row, "tradingStatus")?;
+            info.native_contract_type = text(row, "contractType")?;
+            info.price_increment = decimal(row, "tickSize")?;
+            info.quantity_increment = decimal(row, "lotSize")?;
+            info.minimum_quantity = decimal(row, "minBaseOrderSize")?;
+            info.settlement_currency = text(row, "settlementCurrency")?;
+        }
         _ => {}
     }
     Ok(info)

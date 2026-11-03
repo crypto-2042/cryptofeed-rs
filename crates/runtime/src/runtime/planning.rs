@@ -1,7 +1,8 @@
 mod optimal;
 use crate::exchange::{
     ExchangeFeed, binance::adapter::BinanceAdapter, bitget::adapter::BitgetAdapter,
-    bybit::adapter::BybitAdapter, gateio::adapter::GateioAdapter, okx::adapter::OkxAdapter,
+    bybit::adapter::BybitAdapter, gateio::adapter::GateioAdapter, kucoin::adapter::KucoinAdapter,
+    okx::adapter::OkxAdapter,
 };
 use cryptofeed_core::{
     error::{Error, Result},
@@ -13,6 +14,10 @@ const BINANCE_STREAMS: usize = 1024;
 const BITGET_TOPICS: usize = 49;
 const BYBIT_BYTES: usize = 21000;
 const OKX_BYTES: usize = 64 * 1024;
+/// SDK subscription-message ceiling for the KuCoin public push hosts. The
+/// per-connection limit is not documented; this is a conservative local
+/// budget, not a claimed exchange limit.
+const KUCOIN_BYTES: usize = 64 * 1024;
 const GATE_MESSAGES: usize = 1024;
 const GATE_MESSAGE_BYTES: usize = 64 * 1024;
 const REQUEST_METADATA_BYTES: usize = 64;
@@ -49,6 +54,11 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
             let planned = super::okx_feed_for_url(feed, url);
             OkxAdapter::subscription_message(&planned).len() <= OKX_BYTES
         })),
+        ExchangeId::Kucoin => Ok(KucoinAdapter::subscription_messages(feed)?
+            .iter()
+            .map(|message| message.len() + REQUEST_METADATA_BYTES)
+            .sum::<usize>()
+            <= KUCOIN_BYTES),
         ExchangeId::Gateio => Ok(GateioAdapter::connection_plans(feed)?.iter().all(|plan| {
             // SDK resource ceilings; these are not claimed as Gate limits.
             plan.subscription_messages.len() <= GATE_MESSAGES
@@ -69,6 +79,7 @@ fn native_routes(feed: &ExchangeFeed) -> Result<Vec<String>> {
             .collect(),
         ExchangeId::Bybit => BybitAdapter::subscription_urls(feed),
         ExchangeId::Okx => OkxAdapter::subscription_urls(feed),
+        ExchangeId::Kucoin => vec![KucoinAdapter::subscription_url(feed)],
         ExchangeId::Gateio => GateioAdapter::connection_plans(feed)?
             .into_iter()
             .map(|plan| plan.websocket_url)

@@ -23,6 +23,8 @@ use crate::exchange::bybit::book_sync::BybitBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::gateio::book_sync::GateioBookSync;
 #[cfg(feature = "orderbook")]
+use crate::exchange::kucoin::book_sync::KucoinBookSync;
+#[cfg(feature = "orderbook")]
 use crate::exchange::okx::book_sync::OkxBookSync;
 #[cfg(feature = "candles")]
 use cryptofeed_candles::CandleHandler;
@@ -145,6 +147,8 @@ pub struct ExchangeFeed {
     pub(crate) gateio_book_syncs: Arc<Mutex<HashMap<String, GateioBookSync>>>,
     #[cfg(feature = "orderbook")]
     pub(crate) okx_book_syncs: Arc<Mutex<HashMap<String, OkxBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    pub(crate) kucoin_book_syncs: Arc<Mutex<HashMap<String, KucoinBookSync>>>,
     /// Event-stream sender injected by `FeedHandler::add_feed` when the user
     /// subscribed via `FeedHandler::subscribe()`.
     pub(crate) event_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedEvent>>,
@@ -209,6 +213,10 @@ impl ExchangeFeed {
                 .lock()
                 .expect("book sync lock")
                 .remove(key);
+            self.kucoin_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
             self.invalidate_book_readiness(key);
         }
     }
@@ -264,6 +272,7 @@ impl ExchangeFeed {
             self.bybit_book_syncs = Default::default();
             self.gateio_book_syncs = Default::default();
             self.okx_book_syncs = Default::default();
+            self.kucoin_book_syncs = Default::default();
         }
     }
 
@@ -669,6 +678,8 @@ pub struct ExchangeFeedBuilder {
     gateio_book_syncs: Arc<Mutex<HashMap<String, GateioBookSync>>>,
     #[cfg(feature = "orderbook")]
     okx_book_syncs: Arc<Mutex<HashMap<String, OkxBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    kucoin_book_syncs: Arc<Mutex<HashMap<String, KucoinBookSync>>>,
 }
 
 impl ExchangeFeedBuilder {
@@ -742,6 +753,8 @@ impl ExchangeFeedBuilder {
             gateio_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             okx_book_syncs: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            kucoin_book_syncs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1163,6 +1176,8 @@ impl ExchangeFeedBuilder {
             gateio_book_syncs: self.gateio_book_syncs,
             #[cfg(feature = "orderbook")]
             okx_book_syncs: self.okx_book_syncs,
+            #[cfg(feature = "orderbook")]
+            kucoin_book_syncs: self.kucoin_book_syncs,
             event_sender: None,
             status_sender: None,
             event_counts: None,

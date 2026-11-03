@@ -4,6 +4,11 @@
 //! `docs/kucoin-protocol.md`. Every parser takes the raw frame and the local
 //! receive clock, and returns normalized models only; sequence handling for
 //! order books lives in the book-sync layer.
+//!
+//! Product identity is resolved by the adapter from the configured catalog
+//! mapping (`data.s` -> normalized symbol) before these helpers run. The
+//! standalone `parse_*` helpers derive a best-effort symbol from the native
+//! form for fixtures and single-frame tests.
 
 use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 use rust_decimal::Decimal;
@@ -64,9 +69,11 @@ impl TradeType {
 /// Maps a native KuCoin symbol to the normalized model.
 ///
 /// Spot symbols are `BASE-QUOTE`. Futures contracts add a trailing `M`
-/// (`XBTUSDTM`); the legacy alias `XBT` becomes `BTC`. Unknown shapes fall
-/// back to a spot symbol with the raw value as the base so dispatch can still
-/// reject them against the configured catalog instead of panicking.
+/// (`XBTUSDTM`); the legacy alias `XBT` becomes `BTC`. Dated contracts and
+/// inverse contracts are resolved by the adapter from the catalog mapping;
+/// unknown shapes fall back to a spot symbol with the raw value as the base so
+/// dispatch can still reject them against the configured catalog instead of
+/// panicking.
 pub fn normalize_symbol(raw: &str, trade_type: TradeType) -> Symbol {
     match trade_type {
         TradeType::Spot => {
@@ -100,7 +107,7 @@ fn alias_base(base: &str) -> &str {
     }
 }
 
-fn parse_decimal(value: &Value) -> Option<Decimal> {
+pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
         Value::String(text) => Decimal::from_str_exact(text).ok(),
         Value::Number(number) => Decimal::from_str_exact(&number.to_string()).ok(),
@@ -130,45 +137,68 @@ fn payload(message: &Value) -> Option<&Value> {
     message.get("d")
 }
 
+/// Native symbol of the payload (`data.s`).
+pub fn native_symbol(message: &Value) -> Option<&str> {
+    payload(message)?.get("s").and_then(Value::as_str)
+}
+
+/// Whether a frame carries the documented publish clock `P`.
+pub fn is_market_frame(message: &Value) -> bool {
+    message.get("T").and_then(Value::as_str).is_some()
+}
+
 fn raw_symbol(data: &Value) -> Option<&str> {
     data.get("s").and_then(Value::as_str)
 }
 
-#[cfg(feature = "ticker")]
-pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
+fn message_symbol(message: &Value) -> Option<Symbol> {
     let trade_type = TradeType::from_message(message)?;
+    Some(normalize_symbol(raw_symbol(payload(message)?)?, trade_type))
+}
+
+fn exchange_ts(message: &Value, data: &Value, received_ts: f64) -> f64 {
+    parse_nanos(data.get("M").unwrap_or(&Value::Null))
+        .or_else(|| message.get("P").and_then(parse_nanos))
+        .unwrap_or(received_ts)
+}
+
+#[cfg(feature = "ticker")]
+pub fn parse_ticker_for_symbol(
+    message: &Value,
+    received_ts: f64,
+    symbol: &Symbol,
+) -> Option<Ticker> {
     let data = payload(message)?;
-    let symbol = normalize_symbol(raw_symbol(data)?, trade_type);
     Some(Ticker {
         exchange: ExchangeId::Kucoin,
-        symbol,
+        symbol: symbol.clone(),
         bid: parse_decimal(data.get("b")?)?,
         ask: parse_decimal(data.get("a")?)?,
-        exchange_ts: parse_nanos(data.get("M")?)
-            .or_else(|| parse_nanos(message.get("P")?))
-            .unwrap_or(received_ts),
+        exchange_ts: exchange_ts(message, data, received_ts),
         received_ts,
         implied_volatility: None,
     })
 }
 
+#[cfg(feature = "ticker")]
+pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
+    let symbol = message_symbol(message)?;
+    parse_ticker_for_symbol(message, received_ts, &symbol)
+}
+
 #[cfg(feature = "trade")]
-pub fn parse_trade(message: &Value, received_ts: f64) -> Option<Trade> {
-    let trade_type = TradeType::from_message(message)?;
+pub fn parse_trade_for_symbol(message: &Value, received_ts: f64, symbol: &Symbol) -> Option<Trade> {
     let data = payload(message)?;
-    let symbol = normalize_symbol(raw_symbol(data)?, trade_type);
     Some(Trade {
         exchange: ExchangeId::Kucoin,
-        symbol,
+        symbol: symbol.clone(),
         side: match data.get("S")?.as_str()? {
             "sell" | "SELL" => Side::Sell,
             _ => Side::Buy,
         },
         amount: parse_decimal(data.get("q")?)?,
         price: parse_decimal(data.get("p")?)?,
-        exchange_ts: parse_nanos(data.get("M")?)
-            .or_else(|| parse_nanos(message.get("P")?))
-            .unwrap_or(received_ts),
+        exchange_ts: exchange_ts(message, data, received_ts),
         received_ts,
         id: data
             .get("ti")
@@ -176,6 +206,12 @@ pub fn parse_trade(message: &Value, received_ts: f64) -> Option<Trade> {
             .map(ToOwned::to_owned),
         implied_volatility: None,
     })
+}
+
+#[cfg(feature = "trade")]
+pub fn parse_trade(message: &Value, received_ts: f64) -> Option<Trade> {
+    let symbol = message_symbol(message)?;
+    parse_trade_for_symbol(message, received_ts, &symbol)
 }
 
 /// Maps a documented KuCoin kline label to the normalized interval.
@@ -200,14 +236,16 @@ pub fn normalize_interval(wire: &str) -> Option<&'static str> {
 }
 
 #[cfg(feature = "candles")]
-pub fn parse_candle(message: &Value, received_ts: f64) -> Option<Candle> {
-    let trade_type = TradeType::from_message(message)?;
+pub fn parse_candle_for_symbol(
+    message: &Value,
+    received_ts: f64,
+    symbol: &Symbol,
+) -> Option<Candle> {
     let data = payload(message)?;
-    let symbol = normalize_symbol(raw_symbol(data)?, trade_type);
     let interval = normalize_interval(data.get("i")?.as_str()?)?;
     Some(Candle {
         exchange: ExchangeId::Kucoin,
-        symbol,
+        symbol: symbol.clone(),
         start: data.get("O")?.as_f64()?,
         end: data.get("C")?.as_f64()?,
         interval: interval.to_owned(),
@@ -223,68 +261,105 @@ pub fn parse_candle(message: &Value, received_ts: f64) -> Option<Candle> {
     })
 }
 
+#[cfg(feature = "candles")]
+pub fn parse_candle(message: &Value, received_ts: f64) -> Option<Candle> {
+    let symbol = message_symbol(message)?;
+    parse_candle_for_symbol(message, received_ts, &symbol)
+}
+
+/// `mark-price` payload timestamp (`ts`, milliseconds); falls back to `P`.
+fn mark_ts(message: &Value, data: &Value, received_ts: f64) -> f64 {
+    parse_millis(data.get("ts").unwrap_or(&Value::Null))
+        .or_else(|| message.get("P").and_then(parse_nanos))
+        .unwrap_or(received_ts)
+}
+
 #[cfg(feature = "markprice")]
-pub fn parse_mark_price(message: &Value, received_ts: f64) -> Option<MarkPrice> {
+pub fn parse_mark_price_for_symbol(
+    message: &Value,
+    received_ts: f64,
+    symbol: &Symbol,
+) -> Option<MarkPrice> {
     let data = payload(message)?;
-    let symbol = normalize_symbol(raw_symbol(data)?, TradeType::Futures);
     Some(MarkPrice {
         exchange: ExchangeId::Kucoin,
-        symbol,
+        symbol: symbol.clone(),
         price: parse_decimal(data.get("mp")?)?,
         next_funding_time: None,
         predicted_rate: None,
-        exchange_ts: parse_millis(data.get("ts")?)
-            .or_else(|| parse_nanos(message.get("P")?))
-            .unwrap_or(received_ts),
+        exchange_ts: mark_ts(message, data, received_ts),
+        received_ts,
+    })
+}
+
+#[cfg(feature = "markprice")]
+pub fn parse_mark_price(message: &Value, received_ts: f64) -> Option<MarkPrice> {
+    let symbol = normalize_symbol(native_symbol(message)?, TradeType::Futures);
+    parse_mark_price_for_symbol(message, received_ts, &symbol)
+}
+
+#[cfg(feature = "index")]
+pub fn parse_index_price_for_symbol(
+    message: &Value,
+    received_ts: f64,
+    symbol: &Symbol,
+) -> Option<IndexPrice> {
+    let data = payload(message)?;
+    Some(IndexPrice {
+        exchange: ExchangeId::Kucoin,
+        symbol: symbol.clone(),
+        price: parse_decimal(data.get("ip")?)?,
+        open_24h: None,
+        high_24h: None,
+        low_24h: None,
+        exchange_ts: mark_ts(message, data, received_ts),
         received_ts,
     })
 }
 
 #[cfg(feature = "index")]
 pub fn parse_index_price(message: &Value, received_ts: f64) -> Option<IndexPrice> {
+    let symbol = normalize_symbol(native_symbol(message)?, TradeType::Futures);
+    parse_index_price_for_symbol(message, received_ts, &symbol)
+}
+
+#[cfg(feature = "openinterest")]
+pub fn parse_open_interest_for_symbol(
+    message: &Value,
+    received_ts: f64,
+    symbol: &Symbol,
+) -> Option<OpenInterest> {
     let data = payload(message)?;
-    let symbol = normalize_symbol(raw_symbol(data)?, TradeType::Futures);
-    Some(IndexPrice {
+    Some(OpenInterest {
         exchange: ExchangeId::Kucoin,
-        symbol,
-        price: parse_decimal(data.get("ip")?)?,
-        open_24h: None,
-        high_24h: None,
-        low_24h: None,
-        exchange_ts: parse_millis(data.get("ts")?)
-            .or_else(|| parse_nanos(message.get("P")?))
-            .unwrap_or(received_ts),
+        symbol: symbol.clone(),
+        open_interest: parse_decimal(data.get("oi")?)?,
+        coin_quantity: None,
+        value_usd: None,
+        exchange_ts: mark_ts(message, data, received_ts),
         received_ts,
     })
 }
 
 #[cfg(feature = "openinterest")]
 pub fn parse_open_interest(message: &Value, received_ts: f64) -> Option<OpenInterest> {
-    let data = payload(message)?;
-    let symbol = normalize_symbol(raw_symbol(data)?, TradeType::Futures);
-    Some(OpenInterest {
-        exchange: ExchangeId::Kucoin,
-        symbol,
-        open_interest: parse_decimal(data.get("oi")?)?,
-        coin_quantity: None,
-        value_usd: None,
-        exchange_ts: parse_millis(data.get("ts")?)
-            .or_else(|| parse_nanos(message.get("P")?))
-            .unwrap_or(received_ts),
-        received_ts,
-    })
+    let symbol = normalize_symbol(native_symbol(message)?, TradeType::Futures);
+    parse_open_interest_for_symbol(message, received_ts, &symbol)
 }
 
 /// `funding-fee` payload. `ft` is the settlement time of the current rate and
 /// becomes `next_funding_time`; `nt` is one period further and is deliberately
 /// not substituted (the same rule as OKX `fundingTime`/`nextFundingTime`).
 #[cfg(feature = "funding")]
-pub fn parse_funding(message: &Value, received_ts: f64) -> Option<Funding> {
+pub fn parse_funding_for_symbol(
+    message: &Value,
+    received_ts: f64,
+    symbol: &Symbol,
+) -> Option<Funding> {
     let data = payload(message)?;
-    let symbol = normalize_symbol(raw_symbol(data)?, TradeType::Futures);
     Some(Funding {
         exchange: ExchangeId::Kucoin,
-        symbol,
+        symbol: symbol.clone(),
         mark_price: None,
         rate: data.get("fr").and_then(parse_decimal),
         next_funding_time: data.get("ft").and_then(parse_millis),
@@ -294,6 +369,12 @@ pub fn parse_funding(message: &Value, received_ts: f64) -> Option<Funding> {
         exchange_ts: received_ts,
         received_ts,
     })
+}
+
+#[cfg(feature = "funding")]
+pub fn parse_funding(message: &Value, received_ts: f64) -> Option<Funding> {
+    let symbol = normalize_symbol(native_symbol(message)?, TradeType::Futures);
+    parse_funding_for_symbol(message, received_ts, &symbol)
 }
 
 #[cfg(feature = "orderbook")]
@@ -319,18 +400,18 @@ fn parse_levels(value: Option<&Value>) -> Vec<PriceLevel> {
 /// documented depth modes; `t: "delta"` carries absolute sizes per level and
 /// the `O`/`C` sequence range.
 #[cfg(feature = "orderbook")]
-pub fn parse_book(message: &Value, received_ts: f64) -> Option<BookMessage> {
-    let trade_type = TradeType::from_message(message)?;
+pub fn parse_book_for_symbol(
+    message: &Value,
+    received_ts: f64,
+    symbol: &Symbol,
+) -> Option<BookMessage> {
     let data = payload(message)?;
-    let symbol = normalize_symbol(raw_symbol(data)?, trade_type);
     let snapshot = match message.get("t").and_then(Value::as_str)? {
         "snapshot" => true,
         "delta" => false,
         _ => return None,
     };
-    let exchange_ts = parse_nanos(data.get("M").unwrap())
-        .or_else(|| parse_nanos(message.get("P")?))
-        .unwrap_or(received_ts);
+    let exchange_ts = exchange_ts(message, data, received_ts);
     let bids = parse_levels(data.get("b"));
     let asks = parse_levels(data.get("a"));
     let book = if snapshot {
@@ -353,12 +434,19 @@ pub fn parse_book(message: &Value, received_ts: f64) -> Option<BookMessage> {
         })
     };
     Some(BookMessage {
-        symbol,
+        symbol: symbol.clone(),
         snapshot,
         first_seq: data.get("O").and_then(Value::as_u64),
         last_seq: data.get("C").and_then(Value::as_u64),
         book,
     })
+}
+
+#[cfg(feature = "orderbook")]
+pub fn parse_book(message: &Value, received_ts: f64) -> Option<BookMessage> {
+    let trade_type = TradeType::from_message(message)?;
+    let symbol = normalize_symbol(raw_symbol(payload(message)?)?, trade_type);
+    parse_book_for_symbol(message, received_ts, &symbol)
 }
 
 #[cfg(test)]
@@ -376,6 +464,14 @@ mod tests {
             normalize_symbol("XBTUSDTM", TradeType::Futures).as_str(),
             "BTC-USDT-PERP"
         );
+    }
+
+    #[test]
+    fn exposes_the_native_payload_symbol() {
+        let message = json!({"T": "ticker.SPOT", "d": {"s": "BTC-USDT"}});
+        assert_eq!(native_symbol(&message), Some("BTC-USDT"));
+        assert!(is_market_frame(&message));
+        assert!(!is_market_frame(&json!({"id": "1", "result": true})));
     }
 
     #[cfg(feature = "ticker")]
@@ -505,6 +601,21 @@ mod tests {
         assert_eq!(book.first_seq, Some(25984544839));
         assert_eq!(book.last_seq, Some(25984544840));
         assert!(matches!(book.book, L2Book::Delta(_)));
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn feed_resolved_dated_contract_keeps_catalog_identity() {
+        let message = json!({
+            "T": "obu.FUTURES", "dp": "increment@10ms", "t": "snapshot",
+            "P": 1793689190011225806_u64,
+            "d": {"O": 1749017370449_u64, "C": 1749017370449_u64,
+                  "M": 1793689190009000000_u64, "a": [], "b": [], "s": "XBTMZ26"}
+        });
+        let symbol = Symbol::futures("BTC", "USD", "261225");
+        let book = parse_book_for_symbol(&message, 1.0, &symbol).expect("book");
+        assert_eq!(book.symbol.as_str(), "BTC-USD-261225");
+        assert_eq!(book.last_seq, Some(1749017370449));
     }
 
     #[test]
