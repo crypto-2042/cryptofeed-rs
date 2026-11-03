@@ -251,6 +251,34 @@ pub(crate) fn parse(
             info.minimum_quantity = decimal(row, "ordermin")?;
             info.minimum_notional = decimal(row, "costmin")?;
         }
+        // Korean venues publish alert metadata, not order-size fields. The
+        // official flags are surfaced verbatim as the native status; a pair is
+        // never dropped or reinterpreted because a flag is set.
+        ExchangeId::Upbit => {
+            if let Some(event) = row.get("market_event").filter(|event| event.is_object()) {
+                let warning = event
+                    .get("warning")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let caution = event
+                    .get("caution")
+                    .and_then(Value::as_object)
+                    .is_some_and(|flags| flags.values().any(|flag| flag == &Value::Bool(true)));
+                info.native_status = Some(
+                    if warning {
+                        "WARNING"
+                    } else if caution {
+                        "CAUTION"
+                    } else {
+                        "NONE"
+                    }
+                    .to_owned(),
+                );
+            }
+        }
+        ExchangeId::Bithumb => {
+            info.native_status = text(row, "market_warning")?;
+        }
         ExchangeId::Kucoin if spot => {
             info.native_status = text(row, "tradingStatus")?;
             info.price_increment = decimal(row, "tickSize")?;

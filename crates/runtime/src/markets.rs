@@ -197,6 +197,18 @@ const KUCOIN_PERPETUAL_CHANNELS: &[Channel] = &[
     Channel::OpenInterest,
 ];
 
+/// Upbit Korean quotation WebSocket exposes `trade`, snapshot `orderbook`
+/// (documented unit counts 1/5/15/30, default 30) and `candle.<unit>`. Its
+/// `ticker` frame is a last-price/24h-statistics snapshot without a best bid or
+/// ask, so it is not a normalized `Ticker` (BBO) capability; there is no native
+/// top-of-book channel and no public derivative stream.
+const UPBIT_SPOT_CHANNELS: &[Channel] = &[Channel::Trade, Channel::L2Book, Channel::Candles];
+/// Bithumb public WebSocket v1 exposes `trade` and a snapshot `orderbook` of at
+/// most 15 units with no depth parameter. Its `ticker` frame also has no
+/// best bid/ask (no `Ticker` capability), and no public WebSocket candle stream
+/// is documented, so `Candles` is not advertised.
+const BITHUMB_SPOT_CHANNELS: &[Channel] = &[Channel::Trade, Channel::L2Book];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capability {
     pub exchange: ExchangeId,
@@ -295,6 +307,16 @@ const CAPABILITIES: &[Capability] = &[
         product: InstrumentKind::Spot,
         channels: KRAKEN_SPOT_CHANNELS,
     },
+    Capability {
+        exchange: ExchangeId::Upbit,
+        product: InstrumentKind::Spot,
+        channels: UPBIT_SPOT_CHANNELS,
+    },
+    Capability {
+        exchange: ExchangeId::Bithumb,
+        product: InstrumentKind::Spot,
+        channels: BITHUMB_SPOT_CHANNELS,
+    },
 ];
 
 pub fn capability_matrix() -> &'static [Capability] {
@@ -379,6 +401,10 @@ fn validate_candle_interval(feed: &ExchangeFeed, product: InstrumentKind) -> Res
             )
             .is_some()
         }
+        ExchangeId::Upbit => {
+            crate::exchange::upbit::adapter::UpbitAdapter::candle_type(&feed.candle_interval)
+                .is_some()
+        }
         ExchangeId::Kucoin => {
             let product = if product == InstrumentKind::Spot {
                 crate::exchange::kucoin::adapter::KucoinProduct::Spot
@@ -439,6 +465,12 @@ fn validate_l2_book_depth(feed: &ExchangeFeed, product: InstrumentKind) -> Resul
         ExchangeId::Kraken => {
             crate::exchange::kraken::adapter::KrakenAdapter::l2_book_depth_supported(level)
         }
+        ExchangeId::Upbit => {
+            crate::exchange::upbit::adapter::UpbitAdapter::l2_book_depth_supported(level)
+        }
+        // Bithumb documents no unit-count/depth request parameter; the
+        // documented `level` field aggregates price steps and is not a depth.
+        ExchangeId::Bithumb => false,
         _ => false,
     };
     if supported {
@@ -831,6 +863,38 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
                 )));
             }
         },
+        ExchangeId::Upbit => {
+            if product != InstrumentKind::Spot {
+                return Err(Error::UnsupportedCapability(format!(
+                    "{:?}/{:?} symbol discovery; Upbit exposes Korean spot quotation data only",
+                    exchange, product
+                )));
+            }
+            let payload = fetch_json(
+                "https://api.upbit.com/v1/market/all?is_details=true",
+                refresh,
+                transport,
+                exchange,
+            )
+            .await?;
+            add_korean_spot_catalog(&mut registry, &payload, ExchangeId::Upbit, "market")?;
+        }
+        ExchangeId::Bithumb => {
+            if product != InstrumentKind::Spot {
+                return Err(Error::UnsupportedCapability(format!(
+                    "{:?}/{:?} symbol discovery; Bithumb exposes public spot data only",
+                    exchange, product
+                )));
+            }
+            let payload = fetch_json(
+                "https://api.bithumb.com/v1/market/all?isDetails=true",
+                refresh,
+                transport,
+                exchange,
+            )
+            .await?;
+            add_korean_spot_catalog(&mut registry, &payload, ExchangeId::Bithumb, "market")?;
+        }
         ExchangeId::Kraken => {
             if product != InstrumentKind::Spot {
                 return Err(Error::UnsupportedCapability(format!(
@@ -1444,6 +1508,33 @@ fn catalog_status(item: &Value, field: &str, eligible: &[&str]) -> Result<bool> 
     }
 }
 
+/// Korean venues expose one flat array of `{QUOTE}-{BASE}` market codes. The
+/// quote prefix is preserved exactly (`KRW-BTC` -> `BTC-KRW`); no fiat quote is
+/// rewritten or inferred. Duplicate normalized identities are rejected by the
+/// registry instead of being silently overwritten.
+fn add_korean_spot_catalog(
+    registry: &mut SymbolRegistry,
+    payload: &Value,
+    exchange: ExchangeId,
+    market_field: &str,
+) -> Result<()> {
+    for item in payload
+        .as_array()
+        .map(Vec::as_slice)
+        .ok_or_else(|| Error::MalformedData("Korean market catalog is not an array".to_owned()))?
+    {
+        let market = required_str(item, market_field)?;
+        let (quote, base) = market
+            .split_once('-')
+            .filter(|(quote, base)| !quote.is_empty() && !base.is_empty() && !base.contains('-'))
+            .ok_or_else(|| {
+                Error::MalformedData(format!("{exchange:?} market {market} is not QUOTE-BASE"))
+            })?;
+        registry.insert_market(Symbol::spot(base, quote), market, exchange, item, None)?;
+    }
+    Ok(())
+}
+
 /// Legacy Kraken asset codes that the WebSocket v2 symbol namespace spells
 /// differently from the REST `AssetPairs` `wsname`. Verified live on
 /// 2026-11-03: `XBT/USD` and `XDG/USD` are rejected as unsupported while
@@ -1861,12 +1952,16 @@ mod tests {
     use super::{
         SymbolRegistry, add_binance_markets, add_binance_option_market, add_bitget_markets,
         add_bybit_option_market, add_bybit_option_page, add_bybit_page,
-        add_gateio_delivery_markets, add_gateio_perpetual_markets, add_kraken_spot_catalog,
-        add_kucoin_futures_markets, add_kucoin_spot_catalog, add_okx_markets, capability_matrix,
-        record_bybit_cursor, resolve_feed_symbols, validate_catalog_envelope, validate_feed,
+        add_gateio_delivery_markets, add_gateio_perpetual_markets, add_korean_spot_catalog,
+        add_kraken_spot_catalog, add_kucoin_futures_markets, add_kucoin_spot_catalog,
+        add_okx_markets, capability_matrix, record_bybit_cursor, resolve_feed_symbols,
+        validate_catalog_envelope, validate_feed,
     };
     use crate::exchange::binance::Binance;
-    use crate::exchange::{ExchangeFeedBuilder, gateio::Gateio, kraken::Kraken, kucoin::Kucoin};
+    use crate::exchange::{
+        ExchangeFeedBuilder, bithumb::Bithumb, gateio::Gateio, kraken::Kraken, kucoin::Kucoin,
+        upbit::Upbit,
+    };
     use cryptofeed_core::{
         error::Error,
         exchange::ExchangeId,
@@ -2367,6 +2462,233 @@ mod tests {
             "XBTMZ26"
         );
         assert_eq!(dated.into_entries().len(), 1);
+    }
+
+    #[test]
+    fn korean_spot_catalogs_preserve_the_quote_prefix_and_alert_metadata() {
+        let upbit = json!([
+            {"market": "KRW-BTC", "korean_name": "비트코인", "english_name": "Bitcoin",
+             "market_event": {"warning": false, "caution": {
+                "PRICE_FLUCTUATIONS": false, "TRADING_VOLUME_SOARING": false,
+                "DEPOSIT_AMOUNT_SOARING": false, "GLOBAL_PRICE_DIFFERENCES": false,
+                "CONCENTRATION_OF_SMALL_ACCOUNTS": false}}},
+            {"market": "BTC-ETH", "korean_name": "이더리움", "english_name": "Ethereum",
+             "market_event": {"warning": false, "caution": {"PRICE_FLUCTUATIONS": true}}},
+            {"market": "USDT-BTC", "korean_name": "비트코인", "english_name": "Bitcoin",
+             "market_event": {"warning": true, "caution": {}}}
+        ]);
+        let mut registry = SymbolRegistry::default();
+        add_korean_spot_catalog(&mut registry, &upbit, ExchangeId::Upbit, "market").unwrap();
+
+        // KRW is preserved as a fiat quote; it is never rewritten to USDT.
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("BTC", "KRW")).unwrap(),
+            "KRW-BTC"
+        );
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("ETH", "BTC")).unwrap(),
+            "BTC-ETH"
+        );
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("BTC", "USDT")).unwrap(),
+            "USDT-BTC"
+        );
+        assert_eq!(
+            registry
+                .to_normalized("KRW-BTC", InstrumentKind::Spot)
+                .unwrap()
+                .as_str(),
+            "BTC-KRW"
+        );
+        let markets = registry.into_markets(ExchangeId::Upbit);
+        let status = |symbol: &str| {
+            markets
+                .iter()
+                .find(|info| info.symbol.as_str() == symbol)
+                .and_then(|info| info.native_status.clone())
+        };
+        assert_eq!(status("BTC-KRW").as_deref(), Some("NONE"));
+        assert_eq!(status("ETH-BTC").as_deref(), Some("CAUTION"));
+        assert_eq!(status("BTC-USDT").as_deref(), Some("WARNING"));
+
+        let bithumb = json!([
+            {"market": "KRW-BTC", "korean_name": "비트코인", "english_name": "Bitcoin",
+             "market_warning": "NONE"},
+            {"market": "KRW-ZIL", "korean_name": "질리카", "english_name": "Zilliqa",
+             "market_warning": "CAUTION"}
+        ]);
+        let mut bithumb_registry = SymbolRegistry::default();
+        add_korean_spot_catalog(
+            &mut bithumb_registry,
+            &bithumb,
+            ExchangeId::Bithumb,
+            "market",
+        )
+        .unwrap();
+        // Alert metadata is not a tradability gate: the cautious pair is kept.
+        assert_eq!(
+            bithumb_registry
+                .to_exchange(&Symbol::spot("ZIL", "KRW"))
+                .unwrap(),
+            "KRW-ZIL"
+        );
+        let markets = bithumb_registry.into_markets(ExchangeId::Bithumb);
+        assert_eq!(markets.len(), 2);
+        assert_eq!(
+            markets
+                .iter()
+                .find(|info| info.symbol.as_str() == "ZIL-KRW")
+                .and_then(|info| info.native_status.as_deref()),
+            Some("CAUTION")
+        );
+    }
+
+    #[test]
+    fn korean_catalog_rejects_malformed_market_codes_instead_of_guessing() {
+        for payload in [
+            json!([{"market": "BTC", "korean_name": "비트코인", "english_name": "Bitcoin"}]),
+            json!([{"market": "KRW-BTC-EXTRA", "korean_name": "x", "english_name": "x"}]),
+            json!([{"market": "-BTC", "korean_name": "x", "english_name": "x"}]),
+            json!([{"market": "KRW-", "korean_name": "x", "english_name": "x"}]),
+            json!({"market": "KRW-BTC"}),
+        ] {
+            let mut registry = SymbolRegistry::default();
+            assert!(
+                add_korean_spot_catalog(&mut registry, &payload, ExchangeId::Upbit, "market")
+                    .is_err(),
+                "{payload}"
+            );
+        }
+    }
+
+    #[cfg(all(
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles",
+        feature = "ticker",
+        feature = "funding",
+        feature = "index",
+        feature = "markprice",
+        feature = "openinterest",
+        feature = "liquidations"
+    ))]
+    #[test]
+    fn preflight_allows_the_korean_capability_rows_only() {
+        let upbit = Upbit::new()
+            .trade()
+            .l2_book()
+            .candles()
+            .symbol("BTC-KRW")
+            .build();
+        assert_eq!(validate_feed(&upbit).unwrap(), InstrumentKind::Spot);
+        let upbit = Upbit::new()
+            .trade()
+            .l2_book()
+            .l2_book_depth(5)
+            .symbol("BTC-KRW")
+            .build();
+        assert_eq!(validate_feed(&upbit).unwrap(), InstrumentKind::Spot);
+
+        let bithumb = Bithumb::new().trade().l2_book().symbol("BTC-KRW").build();
+        assert_eq!(validate_feed(&bithumb).unwrap(), InstrumentKind::Spot);
+
+        // Neither venue has a normalized Ticker (its ticker frame carries no
+        // bid/ask), L1, derivative channels or public liquidations.
+        for feed in [
+            Upbit::new().ticker().symbol("BTC-KRW").build(),
+            Upbit::new().l1_book().symbol("BTC-KRW").build(),
+            Upbit::new().funding().symbol("BTC-KRW").build(),
+            Upbit::new().index().symbol("BTC-KRW").build(),
+            Upbit::new().mark_price().symbol("BTC-KRW").build(),
+            Upbit::new().open_interest().symbol("BTC-KRW").build(),
+            Upbit::new().liquidations().symbol("BTC-KRW").build(),
+            Bithumb::new().ticker().symbol("BTC-KRW").build(),
+            Bithumb::new().l1_book().symbol("BTC-KRW").build(),
+            Bithumb::new().candles().symbol("BTC-KRW").build(),
+            Bithumb::new().funding().symbol("BTC-KRW").build(),
+            Bithumb::new().liquidations().symbol("BTC-KRW").build(),
+        ] {
+            assert!(
+                matches!(validate_feed(&feed), Err(Error::UnsupportedCapability(_))),
+                "{feed:?}",
+                feed = (&feed.exchange, &feed.channels)
+            );
+        }
+
+        // Upbit exposes the documented units only; Bithumb exposes none.
+        for level in [1u16, 5, 15, 30] {
+            let feed = Upbit::new()
+                .l2_book()
+                .l2_book_depth(level)
+                .symbol("BTC-KRW")
+                .build();
+            assert_eq!(validate_feed(&feed).unwrap(), InstrumentKind::Spot);
+        }
+        for (feed, label) in [
+            (
+                Upbit::new()
+                    .l2_book()
+                    .l2_book_depth(10)
+                    .symbol("BTC-KRW")
+                    .build(),
+                "upbit depth",
+            ),
+            (
+                Bithumb::new()
+                    .l2_book()
+                    .l2_book_depth(15)
+                    .symbol("BTC-KRW")
+                    .build(),
+                "bithumb depth",
+            ),
+        ] {
+            assert!(
+                matches!(validate_feed(&feed), Err(Error::UnsupportedCapability(_))),
+                "{label}"
+            );
+        }
+
+        // Upbit candle units are the documented 1s..240m set only.
+        for interval in ["1s", "1m", "3m", "5m", "10m", "15m", "30m", "1h", "4h"] {
+            let feed = Upbit::new()
+                .candles()
+                .candles_interval(interval)
+                .symbol("BTC-KRW")
+                .build();
+            assert_eq!(
+                validate_feed(&feed).unwrap(),
+                InstrumentKind::Spot,
+                "{interval}"
+            );
+        }
+        for interval in ["2m", "2h", "6h", "1d", "1w", "1M"] {
+            let feed = Upbit::new()
+                .candles()
+                .candles_interval(interval)
+                .symbol("BTC-KRW")
+                .build();
+            assert!(
+                matches!(validate_feed(&feed), Err(Error::UnsupportedCapability(_))),
+                "{interval}"
+            );
+        }
+
+        // Korean venues are spot-only: derivative products have no row.
+        for feed in [
+            Upbit::new()
+                .trade()
+                .instrument(Symbol::perpetual("BTC", "KRW"))
+                .build(),
+            Bithumb::new()
+                .trade()
+                .instrument(Symbol::futures("BTC", "KRW", "261225"))
+                .build(),
+        ] {
+            assert!(matches!(
+                validate_feed(&feed),
+                Err(Error::UnsupportedCapability(_))
+            ));
+        }
     }
 
     #[test]

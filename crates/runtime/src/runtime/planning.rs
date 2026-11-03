@@ -1,8 +1,9 @@
 mod optimal;
 use crate::exchange::{
     ExchangeFeed, binance::adapter::BinanceAdapter, bitget::adapter::BitgetAdapter,
-    bybit::adapter::BybitAdapter, gateio::adapter::GateioAdapter, kraken::adapter::KrakenAdapter,
-    kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter,
+    bithumb::adapter::BithumbAdapter, bybit::adapter::BybitAdapter, gateio::adapter::GateioAdapter,
+    kraken::adapter::KrakenAdapter, kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter,
+    upbit::adapter::UpbitAdapter,
 };
 use cryptofeed_core::{
     error::{Error, Result},
@@ -22,6 +23,10 @@ const KUCOIN_BYTES: usize = 64 * 1024;
 /// documents message limits without a per-connection subscription count, so
 /// this is a conservative local budget, not a claimed exchange limit.
 const KRAKEN_BYTES: usize = 64 * 1024;
+/// SDK subscription-message ceiling for the Korean public WebSocket endpoints.
+/// Neither venue documents a per-connection message/subscription maximum, so
+/// this is a conservative local budget, not a claimed exchange limit.
+const KOREAN_BYTES: usize = 64 * 1024;
 const GATE_MESSAGES: usize = 1024;
 const GATE_MESSAGE_BYTES: usize = 64 * 1024;
 const REQUEST_METADATA_BYTES: usize = 64;
@@ -68,6 +73,16 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
             .map(|message| message.len() + REQUEST_METADATA_BYTES)
             .sum::<usize>()
             <= KUCOIN_BYTES),
+        ExchangeId::Upbit => Ok(UpbitAdapter::subscription_messages(feed)?
+            .iter()
+            .map(|message| message.len() + REQUEST_METADATA_BYTES)
+            .sum::<usize>()
+            <= KOREAN_BYTES),
+        ExchangeId::Bithumb => Ok(BithumbAdapter::subscription_messages(feed)?
+            .iter()
+            .map(|message| message.len() + REQUEST_METADATA_BYTES)
+            .sum::<usize>()
+            <= KOREAN_BYTES),
         ExchangeId::Gateio => Ok(GateioAdapter::connection_plans(feed)?.iter().all(|plan| {
             // SDK resource ceilings; these are not claimed as Gate limits.
             plan.subscription_messages.len() <= GATE_MESSAGES
@@ -90,6 +105,8 @@ fn native_routes(feed: &ExchangeFeed) -> Result<Vec<String>> {
         ExchangeId::Okx => OkxAdapter::subscription_urls(feed),
         ExchangeId::Kucoin => vec![KucoinAdapter::subscription_url(feed)],
         ExchangeId::Kraken => vec![KrakenAdapter::websocket_url().to_owned()],
+        ExchangeId::Upbit => vec![UpbitAdapter::websocket_url().to_owned()],
+        ExchangeId::Bithumb => vec![BithumbAdapter::websocket_url().to_owned()],
         ExchangeId::Gateio => GateioAdapter::connection_plans(feed)?
             .into_iter()
             .map(|plan| plan.websocket_url)

@@ -1,11 +1,13 @@
 pub mod binance;
 pub mod bitget;
+pub mod bithumb;
 pub mod bybit;
 pub mod coinbase;
 pub mod gateio;
 pub mod kraken;
 pub mod kucoin;
 pub mod okx;
+pub mod upbit;
 
 #[cfg(feature = "orderbook")]
 use std::collections::HashMap;
@@ -19,6 +21,8 @@ use crate::exchange::binance::book_sync::BinanceBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::bitget::book_sync::BitgetBookSync;
 #[cfg(feature = "orderbook")]
+use crate::exchange::bithumb::book_sync::BithumbBookSync;
+#[cfg(feature = "orderbook")]
 use crate::exchange::bybit::book_sync::BybitBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::gateio::book_sync::GateioBookSync;
@@ -28,6 +32,8 @@ use crate::exchange::kraken::book_sync::KrakenBookSync;
 use crate::exchange::kucoin::book_sync::KucoinBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::okx::book_sync::OkxBookSync;
+#[cfg(feature = "orderbook")]
+use crate::exchange::upbit::book_sync::UpbitBookSync;
 #[cfg(feature = "candles")]
 use cryptofeed_candles::CandleHandler;
 use cryptofeed_core::{
@@ -153,6 +159,10 @@ pub struct ExchangeFeed {
     pub(crate) kucoin_book_syncs: Arc<Mutex<HashMap<String, KucoinBookSync>>>,
     #[cfg(feature = "orderbook")]
     pub(crate) kraken_book_syncs: Arc<Mutex<HashMap<String, KrakenBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    pub(crate) upbit_book_syncs: Arc<Mutex<HashMap<String, UpbitBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    pub(crate) bithumb_book_syncs: Arc<Mutex<HashMap<String, BithumbBookSync>>>,
     /// Event-stream sender injected by `FeedHandler::add_feed` when the user
     /// subscribed via `FeedHandler::subscribe()`.
     pub(crate) event_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedEvent>>,
@@ -225,6 +235,14 @@ impl ExchangeFeed {
                 .lock()
                 .expect("book sync lock")
                 .remove(key);
+            self.upbit_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.bithumb_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
             self.invalidate_book_readiness(key);
         }
     }
@@ -282,6 +300,8 @@ impl ExchangeFeed {
             self.okx_book_syncs = Default::default();
             self.kucoin_book_syncs = Default::default();
             self.kraken_book_syncs = Default::default();
+            self.upbit_book_syncs = Default::default();
+            self.bithumb_book_syncs = Default::default();
         }
     }
 
@@ -691,6 +711,10 @@ pub struct ExchangeFeedBuilder {
     kucoin_book_syncs: Arc<Mutex<HashMap<String, KucoinBookSync>>>,
     #[cfg(feature = "orderbook")]
     kraken_book_syncs: Arc<Mutex<HashMap<String, KrakenBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    upbit_book_syncs: Arc<Mutex<HashMap<String, UpbitBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    bithumb_book_syncs: Arc<Mutex<HashMap<String, BithumbBookSync>>>,
 }
 
 impl ExchangeFeedBuilder {
@@ -768,6 +792,10 @@ impl ExchangeFeedBuilder {
             kucoin_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             kraken_book_syncs: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            upbit_book_syncs: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            bithumb_book_syncs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1193,6 +1221,10 @@ impl ExchangeFeedBuilder {
             kucoin_book_syncs: self.kucoin_book_syncs,
             #[cfg(feature = "orderbook")]
             kraken_book_syncs: self.kraken_book_syncs,
+            #[cfg(feature = "orderbook")]
+            upbit_book_syncs: self.upbit_book_syncs,
+            #[cfg(feature = "orderbook")]
+            bithumb_book_syncs: self.bithumb_book_syncs,
             event_sender: None,
             status_sender: None,
             event_counts: None,
