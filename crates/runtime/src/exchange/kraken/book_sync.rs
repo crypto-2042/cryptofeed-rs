@@ -399,7 +399,7 @@ mod tests {
             exchange_ts: 1.0,
             received_ts: 2.0,
         }));
-        let mut trimmed = post.to_snapshot_with_depth(ExchangeId::Kraken, 1.0, 2.0, 10);
+        let trimmed = post.to_snapshot_with_depth(ExchangeId::Kraken, 1.0, 2.0, 10);
         let expected = {
             let mut state = cryptofeed_orderbook::L2BookState::new(symbol());
             state.apply(L2Book::Snapshot(trimmed.clone()));
@@ -415,7 +415,6 @@ mod tests {
         assert_eq!(sync.state().bids().len(), 10);
         assert_eq!(sync.state().asks().len(), 10);
         // The best bid is the newly added level.
-        trimmed.bids.sort_by(|a, b| b.price.cmp(&a.price));
         assert_eq!(sync.state().bids()[0].price.to_string(), "45283.6");
         assert_eq!(checksum_of_state(sync.state()), expected);
     }
