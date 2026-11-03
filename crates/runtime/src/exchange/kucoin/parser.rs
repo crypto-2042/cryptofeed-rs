@@ -186,6 +186,12 @@ pub fn parse_ticker(message: &Value, received_ts: f64) -> Option<Ticker> {
     parse_ticker_for_symbol(message, received_ts, &symbol)
 }
 
+/// Normalizes a documented `trade` payload.
+///
+/// Units follow the native channel and are not converted here: KuCoin spot `q`
+/// is base-asset quantity, while futures `q` is a contract count (`UNIT`) that
+/// must be converted with catalog metadata via
+/// [`crate::kucoin::units::contracts_to_base`]. See `docs/kucoin-protocol.md`.
 #[cfg(feature = "trade")]
 pub fn parse_trade_for_symbol(message: &Value, received_ts: f64, symbol: &Symbol) -> Option<Trade> {
     let data = payload(message)?;
@@ -323,6 +329,11 @@ pub fn parse_index_price(message: &Value, received_ts: f64) -> Option<IndexPrice
     parse_index_price_for_symbol(message, received_ts, &symbol)
 }
 
+/// Normalizes a documented `mark-price` open-interest value.
+///
+/// KuCoin futures report `oi` as a number of contracts, not base-asset
+/// quantity; convert it with [`crate::kucoin::units::contracts_to_base`] when a
+/// base quantity is needed.
 #[cfg(feature = "openinterest")]
 pub fn parse_open_interest_for_symbol(
     message: &Value,
@@ -377,6 +388,9 @@ pub fn parse_funding(message: &Value, received_ts: f64) -> Option<Funding> {
     parse_funding_for_symbol(message, received_ts, &symbol)
 }
 
+/// Parses `[price, absolute size]` levels. Sizes are kept in their native unit:
+/// contracts on futures feeds and base quantity on spot; conversion is the
+/// caller's explicit responsibility (see `docs/kucoin-protocol.md`).
 #[cfg(feature = "orderbook")]
 fn parse_levels(value: Option<&Value>) -> Vec<PriceLevel> {
     value
@@ -497,21 +511,42 @@ mod tests {
 
     #[cfg(feature = "trade")]
     #[test]
-    fn parses_futures_trade_and_keeps_native_id() {
+    fn parses_documented_futures_trade_in_contracts_and_keeps_native_id() {
+        // Official futures example: XBTUSDTM `q: "12"` is a contract count and
+        // is normalized without silent conversion to base quantity.
         let message = json!({
             "T": "trade.FUTURES",
+            "P": 1768218157098477768_u64,
+            "d": {
+                "E": 1905973690439_u64, "M": 1768218157097000000_u64,
+                "S": "buy", "p": "90551.8", "q": "12",
+                "s": "XBTUSDTM", "ti": "1905973690439", "rpi": false
+            }
+        });
+        let trade = parse_trade(&message, 1768218157.1).expect("trade");
+        assert_eq!(trade.symbol.as_str(), "BTC-USDT-PERP");
+        assert_eq!(trade.side, Side::Buy);
+        assert_eq!(trade.price.to_string(), "90551.8");
+        assert_eq!(trade.amount, Decimal::from(12));
+        assert_eq!(trade.id.as_deref(), Some("1905973690439"));
+    }
+
+    #[cfg(feature = "trade")]
+    #[test]
+    fn parses_documented_spot_trade_in_base_quantity() {
+        // Official spot example: BTC-USDT `q` is base quantity.
+        let message = json!({
+            "T": "trade.SPOT",
             "P": 1768802538491160904_u64,
             "d": {
                 "E": 20631804219899904_u64, "M": 1768802538480000000_u64,
                 "S": "sell", "p": "92525.6", "q": "0.00008036",
-                "s": "XBTUSDTM", "ti": "20631804219899904"
+                "s": "BTC-USDT", "ti": "20631804219899904"
             }
         });
         let trade = parse_trade(&message, 1768802538.5).expect("trade");
-        assert_eq!(trade.symbol.as_str(), "BTC-USDT-PERP");
-        assert_eq!(trade.side, Side::Sell);
-        assert_eq!(trade.price.to_string(), "92525.6");
-        assert_eq!(trade.id.as_deref(), Some("20631804219899904"));
+        assert_eq!(trade.symbol.as_str(), "BTC-USDT");
+        assert_eq!(trade.amount, parse_decimal(&json!("0.00008036")).unwrap());
     }
 
     #[cfg(feature = "candles")]
@@ -601,6 +636,26 @@ mod tests {
         assert_eq!(book.first_seq, Some(25984544839));
         assert_eq!(book.last_seq, Some(25984544840));
         assert!(matches!(book.book, L2Book::Delta(_)));
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[test]
+    fn documented_futures_obu_level_sizes_stay_contract_counts() {
+        // Official FUTURES-bbo example: level sizes are integer contract
+        // counts ("2236", "301") and are normalized without conversion.
+        let message = json!({
+            "T": "obu.FUTURES", "dp": "1", "t": "snapshot",
+            "P": 1768217994549513415_u64,
+            "d": {"a": [["90629.2", "2236"]], "b": [["90629.1", "301"]],
+                  "s": "XBTUSDTM", "C": 1732420529826_u64,
+                  "M": 1768217994548000000_u64, "O": 1732420529826_u64}
+        });
+        let book = parse_book(&message, 1768217994.549).expect("book");
+        let L2Book::Snapshot(snapshot) = book.book else {
+            panic!("expected snapshot")
+        };
+        assert_eq!(snapshot.bids[0].amount, Decimal::from(301));
+        assert_eq!(snapshot.asks[0].amount, Decimal::from(2236));
     }
 
     #[cfg(feature = "orderbook")]
