@@ -36,6 +36,12 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Event delivery and receiver diagnostics](event-streams.md): shared retention,
   explicit lag, configurable event rings, backlog and final drain accounting.
 
+## Acceptance verification
+
+- [Issue #9/#10 acceptance verification](reports/issue-9-10-acceptance-verification-2026-11-03.md):
+  fix audit, deterministic coverage of every requested acceptance case and the
+  remaining downstream/live gates.
+
 ## Reference and contribution guides
 
 - [Exchange protocol baseline](exchange-protocol-baseline.md): official wire
