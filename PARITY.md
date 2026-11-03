@@ -120,7 +120,9 @@ so the SDK advertises neither as an `L1Book` subscription. The futures
 together and is subscribed once; `funding-fee` is futures-only. `obu` is
 `increment@10ms` (snapshot then `O`/`C`-sequenced deltas) by default, or
 snapshot-only `depth=1/5/50`. KuCoin `6hour` klines are rejected on futures
-preflight.
+preflight. KuCoin futures quantities from those channels are contract units
+(`UNIT`), not base quantity: callers convert with the catalog `unitSize`
+metadata or `kucoin::units::contracts_to_base` rather than a venue constant.
 
 Kraken Spot WebSocket v2 is spot-only: `ticker` carries BBO sizes but is not an
 `L1Book` channel, and funding/open interest/mark price/liquidations live on the
@@ -314,6 +316,13 @@ remain offline-verified in this increment. See
   with product-qualified reverse mapping, `XBT` -> `BTC`, `{BASE}{QUOTE}M`
   perpetual contracts and catalog-expiry dated contracts. Pre-market rows and
   non-tradable statuses are skipped instead of guessed.
+- [x] Futures quantity units are explicit: trade `q`, `obu` level sizes and
+  `mark-price` open interest stay native contract counts (`UNIT`), while spot
+  trade/OBU sizes are base quantity. Catalog rows retain `unitSize` as
+  `contract_value` with a base (linear) or quote (inverse) value currency and
+  keep raw `settlementCurrency` separate; no separate UTA V2 multiplier exists.
+  `kucoin::units::contracts_to_base` performs the explicit base conversion and
+  fails closed on missing/zero metadata. No existing normalized amount changed.
 - [x] Full-session WebSocket double: subscription framing, `id` acknowledgement,
   trade delivery and clean shutdown; order-book gap/bridge and snapshot-only
   replacements are covered by deterministic dispatch tests.

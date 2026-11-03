@@ -551,7 +551,21 @@ Official sources:
   [Funding Fee Rate](https://www.kucoin.com/docs-new/3470357w0).
 - [UTA REST V2 market data](https://www.kucoin.com/docs-new/v2/rest/ua/instrument):
   `/api/ua/v2/market/instrument?tradeType=SPOT|FUTURES` rows and the
-  `200000` success envelope.
+  `200000` success envelope, including futures `unitSize`, `isInverse` and
+  `lotSize`.
+- [UTA REST V2 Place Order](https://www.kucoin.com/docs-new/v2/rest/ua/place-order):
+  FUTURES `size` uses `UNIT` (contracts) and `sizeUnit: UNIT` is "Contracts
+  (only for Futures)".
+- [UTA REST V2 Get Trades](https://www.kucoin.com/docs-new/v2/rest/ua/get-trades)
+  and [Get Futures Open Interest](https://www.kucoin.com/docs-new/v2/rest/ua/get-futures-open-interest):
+  integer futures fill sizes and openInterest "By No. of Contracts" ("1
+  contract = 0.001 BTC").
+- [Classic futures Get Symbol](https://www.kucoin.com/docs-new/rest/futures-trading/market-data/get-symbol):
+  lots are the contract-API basic unit, `multiplier = 0.001` for XBTUSDTM
+  (0.001 BTC per contract), and coin-swap contracts such as XBTUSDM are 1 USD.
+- [Classic futures Add Order](https://www.kucoin.com/docs-new/rest/futures-trading/orders/add-order):
+  `size` is specified in lots, an integer, and coin-swap contracts support only
+  `size` (lot).
 
 Live-shape observations (sanitized, not retained): `welcome` with
 `pingInterval: 18000`; `{"id":"...","result":true}` acknowledgements and
@@ -559,9 +573,26 @@ Live-shape observations (sanitized, not retained): `welcome` with
 `obu.SPOT` topics; `obu` top-level `t`/`dp` with contiguous `O`/`C` for
 `increment@10ms` and snapshot-only `depth=1/5/50`; suffix-less
 `mark-price`/`funding-fee` futures topics; `ping`/`pong` control exchange.
+The UTA V2 futures instrument rows returned `unitSize: "0.001"` with
+`isInverse: false` for XBTUSDTM and `unitSize: "1.0"` with `isInverse: true`
+for inverse XBTUSDM/ETHUSDM/SOLUSDM/XRPUSDM; the classic `/api/v1/contracts`
+`multiplier` for those inverse contracts was `-1.0` (sign convention only).
 Prices, sizes, timestamps, identifiers and symbol selections in the tests are
 substituted or shortened while preserving the documented wire shape and
 precision relevant to normalization.
+
+Quantity-unit fixtures use the documented futures examples rather than
+spot-derived fractional sizes: `trade.FUTURES` `q: "12"` (XBTUSDTM),
+FUTURES-bbo level sizes `"2236"`/`"301"`, and the integer futures fill sizes
+above. Inline assertions
+`parses_documented_futures_trade_in_contracts_and_keeps_native_id`,
+`parses_documented_spot_trade_in_base_quantity`,
+`documented_futures_obu_level_sizes_stay_contract_counts`,
+`kucoin_unit_size_is_the_contract_face_value_in_its_documented_currency`,
+`kucoin_missing_zero_or_invalid_contract_metadata_fails_closed` and the
+`kucoin::units` conversion tests document that parser amounts stay in native
+contract units and that catalog metadata, not a symbol-derived constant, is the
+only conversion input.
 
 ## 2026-11-03 Kraken Spot WebSocket v2
 

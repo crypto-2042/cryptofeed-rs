@@ -2,6 +2,28 @@
 
 Last updated: 2026-11-03
 
+## KuCoin contract quantity units and face-value metadata (#14, 2026-11-03)
+
+- Verified from the official UTA V2 and classic futures documentation that
+  futures trade `q`, `obu` level sizes and `mark-price` open interest are
+  native contract counts (`UNIT`/lots), while spot trade/OBU sizes are base
+  quantity. The UTA WebSocket field tables are rendered client-side, so the
+  conclusion cites the documented integer futures examples plus the Place
+  Order, Open Interest, Get Symbol and classic contract-API definitions.
+- Catalog rows now retain `unitSize` as `contract_value` with a base (linear)
+  or quote (inverse coin-swap) value currency; raw `settlementCurrency` stays
+  separate and UTA V2 has no independent multiplier, so `contract_multiplier`
+  remains None. Missing `unitSize`/`isInverse` metadata is left None rather
+  than guessed; zero is preserved; negative or malformed fields fail loading.
+- Added `kucoin::units::contracts_to_base`, an explicit fail-closed base
+  conversion, plus deterministic catalog, trade, OBU and conversion tests.
+  Parser amounts are unchanged; only unit semantics, docs and catalog metadata
+  are new. Pushed to `fix/kucoin-contract-units`; no PR or issue action.
+- Gates passed locally: formatting; strict Clippy; 945 all-feature workspace
+  tests; workspace no-default check; per-feature lib checks and
+  `feature_boundaries` tests for all ten features; rustdoc with warnings denied;
+  and the Rust 1.85 all-feature/all-target check.
+
 ## KuCoin and Kraken Spot expansion (2026-11-03)
 
 - Surveyed current official public APIs and selected KuCoin UTA WebSocket V2
