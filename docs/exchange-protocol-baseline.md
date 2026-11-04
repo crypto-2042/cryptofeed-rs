@@ -1,13 +1,15 @@
 # Current CEX Public Protocol Baseline
 
 Verified against the current official documentation and unauthenticated public
-services on 2026-08-09.
+services on 2026-08-09; the 2026-11-04 monitoring venue additions are recorded
+in their own section below.
 
 This document is the protocol input to the offline parity harness. It records
 wire facts separately from SDK normalization decisions so that a fixture cannot
 silently turn a project assumption into an exchange guarantee. The supported
 scope remains public market data for Binance, Bitget, Bybit, OKX, Gate.io,
-KuCoin and Kraken Spot (2026-11-03 additions; see the venue sections below).
+KuCoin, Kraken Spot (2026-11-03), Coinbase Advanced Trade, Deribit and HTX
+(2026-11-04; see the venue sections below).
 For the 0.1 release, only spot, perpetual/swap, and dated-futures products are
 runtime capabilities. Option and MARGIN sections below document retained
 parser/catalog evidence, not enabled capability-matrix cells.
@@ -59,9 +61,10 @@ fetchers.
   reference preserve both the preopen and malformed-live cases.
 
 Older option endpoints and legacy standalone funding/index parser references
-are not enabled subscriptions. Capability preflight remains authoritative;
-Coinbase/Kraken builders do not imply active runtimes. The Python sibling itself
-has local protocol updates, so its entire checkout should not be labeled old.
+are not enabled subscriptions. Capability preflight remains authoritative; a
+builder existing does not imply that every product/channel cell is enabled. The
+Python sibling itself has local protocol updates, so its entire checkout should
+not be labeled old.
 
 ## Evidence and change rule
 
@@ -1079,3 +1082,24 @@ catalog on 2026-11-03. Implementation details and open-question answers are in
 - `CAUTION` is metadata, not a tradability gate: those pairs are kept and the
   official string is surfaced as catalog status. Investment-caution levels come
   from a separate documented REST endpoint and are not inferred here.
+
+## Monitoring venue baselines — 2026-11-04
+
+Full per-venue references live in
+[coinbase-protocol.md](coinbase-protocol.md),
+[deribit-protocol.md](deribit-protocol.md) and
+[htx-protocol.md](htx-protocol.md). Selected facts:
+
+| Exchange | Enabled API selection | Official references / result |
+| --- | --- | --- |
+| Coinbase Advanced Trade | Public WS `wss://advanced-trade-ws.coinbase.com`; public REST `/api/v3/brokerage/market/products` (catalog) | [WS overview](https://docs.cdp.coinbase.com/coinbase-app/advanced-trade-apis/websocket/websocket-overview), [AsyncAPI contract](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/advanced-trade-asyncapi.json), [OpenAPI contract](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/advanced-trade-spec.yaml). Public channels need no JWT. `ticker` carries BBO **with sizes** (Ticker + L1Book); `level2` is snapshot + absolute updates with no per-product sequence/checksum; `candles` is five-minute-only; `heartbeats` is a product-less liveness channel. |
+| Deribit | Public JSON-RPC v2 WS `wss://www.deribit.com/ws/api/v2`; REST `public/get_instruments` | [JSON-RPC overview](https://docs.deribit.com/articles/json-rpc-overview), [get_instruments](https://docs.deribit.com/api-reference/market-data/public-get_instruments), [public/subscribe](https://docs.deribit.com/api-reference/subscription-management/public-subscribe), [book](https://docs.deribit.com/subscriptions/orderbook/bookinstrument_nameinterval), [trades](https://docs.deribit.com/subscriptions/trades/tradesinstrument_nameinterval), [ticker](https://docs.deribit.com/subscriptions/market-data/tickerinstrument_nameinterval), [chart.trades](https://docs.deribit.com/subscriptions/market-data/charttradesinstrument_nameresolution). Perpetual/dated futures only; options skipped and rejected. `ticker` splits into Ticker/MarkPrice/IndexPrice/OpenInterest/Funding; `book` uses `change_id`/`prev_change_id`; `chart.trades` maps the resolution enum; public `100ms` interval ( `raw` is authenticated-only). |
+| HTX | Spot WS `wss://api.huobi.pro/ws`; USDT-M WS `wss://api.hbdm.com/linear-swap-ws`; notifications `wss://api.hbdm.com/linear-swap-notification`; REST catalogs `/v1/common/symbols` and `/linear-swap-api/v1/swap_contract_info` | [Spot v1](https://huobiapi.github.io/docs/spot/v1/en/), [USDT-M v1](https://huobiapi.github.io/docs/usdt_swap/v1/en/). Live verification 2026-11-04: market data is GZIP binary, market topics use `sub`/`id` (the account `/ws/v2` endpoint rejected a market subscription), notification topics use `op`/`topic` on the notification host, heartbeats are integer `{"ping":..}` on market hosts and `{"op":"ping","ts":..}` on the notification host. Spot `depth.step0` is a replacement snapshot with a documented `version`; USDT-M `depth.size_20.high_freq` (`data_type=incremental`) is snapshot + per-connection `version` updates. No current public WS topic serves mark price/index price/open interest (`market.<contract>.mark_price.*`/`index.*` rejected live), so those cells stay unsupported. |
+
+Note the HTX source wording: the current official spot v1 page documents the
+market feed at `wss://api.huobi.pro/ws` and the account/order feed (with the
+`action`/`ch` framing and no GZIP) at `wss://api.huobi.pro/ws/v2`. The briefing
+assumption that the market feed lives at `/ws/v2` was checked live and is not
+current; the implementation follows the documented and live-verified market
+host. Likewise, the USDT-M public notification topics are served by the separate
+documented notification host rather than the market host.

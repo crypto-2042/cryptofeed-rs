@@ -3,7 +3,9 @@ pub mod bitget;
 pub mod bithumb;
 pub mod bybit;
 pub mod coinbase;
+pub mod deribit;
 pub mod gateio;
+pub mod htx;
 pub mod kraken;
 pub mod kucoin;
 pub mod okx;
@@ -25,7 +27,13 @@ use crate::exchange::bithumb::book_sync::BithumbBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::bybit::book_sync::BybitBookSync;
 #[cfg(feature = "orderbook")]
+use crate::exchange::coinbase::book_sync::CoinbaseBookSync;
+#[cfg(feature = "orderbook")]
+use crate::exchange::deribit::book_sync::DeribitBookSync;
+#[cfg(feature = "orderbook")]
 use crate::exchange::gateio::book_sync::GateioBookSync;
+#[cfg(feature = "orderbook")]
+use crate::exchange::htx::book_sync::HtxBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::kraken::book_sync::KrakenBookSync;
 #[cfg(feature = "orderbook")]
@@ -148,6 +156,12 @@ pub struct ExchangeFeed {
     #[cfg(feature = "orderbook")]
     pub(crate) binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
     #[cfg(feature = "orderbook")]
+    pub(crate) coinbase_book_syncs: Arc<Mutex<HashMap<String, CoinbaseBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    pub(crate) deribit_book_syncs: Arc<Mutex<HashMap<String, DeribitBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    pub(crate) htx_book_syncs: Arc<Mutex<HashMap<String, HtxBookSync>>>,
+    #[cfg(feature = "orderbook")]
     pub(crate) bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
     #[cfg(feature = "orderbook")]
     pub(crate) bybit_book_syncs: Arc<Mutex<HashMap<String, BybitBookSync>>>,
@@ -208,6 +222,18 @@ impl ExchangeFeed {
                 .expect("book state lock")
                 .remove(key);
             self.binance_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.coinbase_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.deribit_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.htx_book_syncs
                 .lock()
                 .expect("book sync lock")
                 .remove(key);
@@ -294,6 +320,9 @@ impl ExchangeFeed {
             self.orderbook_states = Default::default();
             self.book_projections = Default::default();
             self.binance_book_syncs = Default::default();
+            self.coinbase_book_syncs = Default::default();
+            self.deribit_book_syncs = Default::default();
+            self.htx_book_syncs = Default::default();
             self.bitget_book_syncs = Default::default();
             self.bybit_book_syncs = Default::default();
             self.gateio_book_syncs = Default::default();
@@ -700,6 +729,12 @@ pub struct ExchangeFeedBuilder {
     #[cfg(feature = "orderbook")]
     binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
     #[cfg(feature = "orderbook")]
+    coinbase_book_syncs: Arc<Mutex<HashMap<String, CoinbaseBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    deribit_book_syncs: Arc<Mutex<HashMap<String, DeribitBookSync>>>,
+    #[cfg(feature = "orderbook")]
+    htx_book_syncs: Arc<Mutex<HashMap<String, HtxBookSync>>>,
+    #[cfg(feature = "orderbook")]
     bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
     #[cfg(feature = "orderbook")]
     bybit_book_syncs: Arc<Mutex<HashMap<String, BybitBookSync>>>,
@@ -780,6 +815,12 @@ impl ExchangeFeedBuilder {
             book_projections: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             binance_book_syncs: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            coinbase_book_syncs: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            deribit_book_syncs: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            htx_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             bitget_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
@@ -1209,6 +1250,12 @@ impl ExchangeFeedBuilder {
             book_projections: self.book_projections,
             #[cfg(feature = "orderbook")]
             binance_book_syncs: self.binance_book_syncs,
+            #[cfg(feature = "orderbook")]
+            coinbase_book_syncs: self.coinbase_book_syncs,
+            #[cfg(feature = "orderbook")]
+            deribit_book_syncs: self.deribit_book_syncs,
+            #[cfg(feature = "orderbook")]
+            htx_book_syncs: self.htx_book_syncs,
             #[cfg(feature = "orderbook")]
             bitget_book_syncs: self.bitget_book_syncs,
             #[cfg(feature = "orderbook")]

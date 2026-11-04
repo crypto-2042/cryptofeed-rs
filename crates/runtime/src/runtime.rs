@@ -41,7 +41,10 @@ use crate::exchange::{
     bitget::adapter::{BitgetAdapter, BitgetEvent},
     bithumb::adapter::{BithumbAdapter, BithumbEvent},
     bybit::adapter::{BybitAdapter, BybitEvent, BybitProduct},
+    coinbase::adapter::{CoinbaseAdapter, CoinbaseEvent},
+    deribit::adapter::{DeribitAdapter, DeribitControl, DeribitEvent},
     gateio::adapter::{GateioAdapter, GateioConnectionPlan, GateioEvent},
+    htx::adapter::{HtxAdapter, HtxControl, HtxEvent},
     kraken::adapter::{KrakenAdapter, KrakenEvent},
     kucoin::adapter::{KucoinAdapter, KucoinEvent},
     okx::adapter::{OkxAdapter, OkxEvent},
@@ -55,10 +58,13 @@ use crate::exchange::{
     },
     bitget::book_sync::{BitgetBookAction, BitgetBookSync, BitgetDepthUpdate},
     bybit::book_sync::BybitBookSync,
+    coinbase::book_sync::{CoinbaseBookOutcome, CoinbaseBookSync},
+    deribit::book_sync::{DeribitBookOutcome, DeribitBookSync},
     gateio::{
         book_sync::{GateioBookSync, GateioBookUpdate, GateioDepthDelta},
         parser as gateio_parser,
     },
+    htx::book_sync::{HtxBookMode, HtxBookOutcome, HtxBookSync},
     kraken::{
         book_sync::{KrakenBookOutcome, KrakenBookSync},
         parser as kraken_parser,
@@ -70,9 +76,12 @@ use crate::exchange::{
     okx::{book_sync::OkxBookSync, parser as okx_parser},
     upbit::book_sync::UpbitBookSync,
 };
-// The Korean parsers expose the frame type/code helpers used by the always-built
-// text-message entry points (the book-sync types stay orderbook-gated).
-use crate::exchange::{bithumb::parser as bithumb_parser, upbit::parser as upbit_parser};
+// The wire-frame helpers used by the always-built text-message entry points;
+// the book-sync types stay orderbook-gated.
+use crate::exchange::{
+    bithumb::parser as bithumb_parser, coinbase::parser as coinbase_parser,
+    deribit::parser as deribit_parser, htx::parser as htx_parser, upbit::parser as upbit_parser,
+};
 use crate::feed::FeedHandler;
 use crate::markets;
 use crate::runtime::connection::Session;
@@ -214,9 +223,11 @@ async fn consume_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Re
         ExchangeId::Kraken => consume_kraken_feed(feed, shutdown).await,
         ExchangeId::Upbit => consume_upbit_feed(feed, shutdown).await,
         ExchangeId::Bithumb => consume_bithumb_feed(feed, shutdown).await,
-        // Builders that exist without a live runtime (Coinbase/Kraken)
-        // and any future exchange are rejected by capability validation
-        // before a feed reaches this point.
+        ExchangeId::Coinbase => consume_coinbase_feed(feed, shutdown).await,
+        ExchangeId::Deribit => consume_deribit_feed(feed, shutdown).await,
+        ExchangeId::Htx => consume_htx_feed(feed, shutdown).await,
+        // Any future exchange is rejected by capability validation before a
+        // feed reaches this point.
         _ => Ok(()),
     }
 }
@@ -255,7 +266,9 @@ fn planned_url(feed: &ExchangeFeed) -> String {
             .map_or_else(String::new, |plan| plan.websocket_url),
         ExchangeId::Bitget => BitgetAdapter::subscription_url(feed),
         ExchangeId::Bybit => BybitAdapter::subscription_url(feed),
-        ExchangeId::Coinbase => String::new(),
+        ExchangeId::Coinbase => CoinbaseAdapter::subscription_url(feed),
+        ExchangeId::Deribit => DeribitAdapter::subscription_url(feed),
+        ExchangeId::Htx => HtxAdapter::subscription_url(feed),
         ExchangeId::Gateio => GateioAdapter::connection_plans(feed)
             .ok()
             .and_then(|plans| plans.into_iter().next())
@@ -709,6 +722,105 @@ async fn consume_bithumb_feed(
     )
     .await
     .map(|_| ())
+}
+
+async fn consume_coinbase_feed(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
+        supervisor::Backoff::new(1, 8),
+        shutdown.clone(),
+        feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
+        move || {
+            let feed = feed.clone();
+            let shutdown = shutdown.clone();
+            async move { consume_coinbase_session(feed, shutdown).await }
+        },
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn consume_deribit_feed(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
+        supervisor::Backoff::new(1, 8),
+        shutdown.clone(),
+        feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
+        move || {
+            let feed = feed.clone();
+            let shutdown = shutdown.clone();
+            async move { consume_deribit_session(feed, shutdown).await }
+        },
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn consume_htx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+    let mut tasks = JoinSet::new();
+    for url in HtxAdapter::subscription_urls(&feed) {
+        let mut planned_feed = HtxAdapter::feed_for_url(&feed, &url);
+        let books = if planned_feed.channels.contains(&Channel::L2Book) {
+            planned_feed
+                .symbols
+                .iter()
+                .filter(|symbol| planned_feed.subscribes(Channel::L2Book, symbol))
+                .map(|symbol| symbol.as_str().to_owned())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        readiness::track(&mut planned_feed, &url, books);
+        let retry_shutdown = shutdown.clone();
+        tasks.spawn(async move {
+            supervisor::retry_with_progress(
+                planned_feed.runtime_options.retry_limit(),
+                supervisor::Backoff::new(1, 8),
+                retry_shutdown.clone(),
+                planned_feed.retry_progress.clone(),
+                planned_feed.runtime_options.startup_delay(),
+                move || {
+                    let feed = planned_feed.clone();
+                    let url = url.clone();
+                    let shutdown = retry_shutdown.clone();
+                    async move { consume_htx_session(feed, url, shutdown).await }
+                },
+            )
+            .await
+            .map(|_| ())
+        });
+    }
+    collect_connection_results("HTX", tasks).await
 }
 
 async fn collect_connection_results(label: &str, mut tasks: JoinSet<Result<()>>) -> Result<()> {
@@ -1383,6 +1495,170 @@ where
     Ok(())
 }
 
+async fn consume_coinbase_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.failed(&error, "connect");
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_coinbase_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
+}
+
+async fn consume_coinbase_session_with<S, E>(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+    session: &mut Session<S>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
+    E: Display,
+{
+    session.queue_subscriptions(CoinbaseAdapter::subscription_messages(&feed)?);
+    // The documented level2 stream has no in-session snapshot request; a
+    // reconnect is the documented recovery and clears this feed's book state.
+    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
+        session.processing();
+        process_coinbase_text_message(&feed, &text, received_ts).await?;
+    }
+    Ok(())
+}
+
+async fn consume_deribit_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.failed(&error, "connect");
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_deribit_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
+}
+
+async fn consume_deribit_session_with<S, E>(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+    session: &mut Session<S>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
+    E: Display,
+{
+    session.queue_subscriptions(DeribitAdapter::subscription_messages(&feed)?);
+    // In-session resnapshot requests for `book` change-id gaps and documented
+    // `test_request` liveness replies share the paced outbound queue.
+    let mut outbound: Vec<String> = Vec::new();
+    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
+        session.processing();
+        outbound.clear();
+        process_deribit_text_message(&feed, &text, received_ts, &mut outbound).await?;
+        if !outbound.is_empty() {
+            session.queue_subscriptions(std::mem::take(&mut outbound));
+        }
+    }
+    Ok(())
+}
+
+async fn consume_htx_session(
+    mut feed: ExchangeFeed,
+    url: String,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
+    let url = Url::parse(&url).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.failed(&error, "connect");
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_htx_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
+}
+
+async fn consume_htx_session_with<S, E>(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+    session: &mut Session<S>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
+    E: Display,
+{
+    session.queue_subscriptions(HtxAdapter::subscription_messages(&feed)?);
+    // Server heartbeat pongs and USDT-M incremental-depth resubscription pairs
+    // share the paced outbound queue.
+    let mut outbound: Vec<String> = Vec::new();
+    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
+        session.processing();
+        outbound.clear();
+        process_htx_text_message(&feed, &text, received_ts, &mut outbound).await?;
+        if !outbound.is_empty() {
+            session.queue_subscriptions(std::mem::take(&mut outbound));
+        }
+    }
+    Ok(())
+}
+
 async fn consume_gateio_session(
     mut feed: ExchangeFeed,
     plan: GateioConnectionPlan,
@@ -1726,6 +2002,76 @@ async fn dispatch_bithumb_event(feed: &ExchangeFeed, event: BithumbEvent) -> Res
         BithumbEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
     Ok(())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_coinbase_event(feed: &ExchangeFeed, event: CoinbaseEvent) -> Result<()> {
+    let _ = feed;
+    match event {
+        #[cfg(feature = "candles")]
+        CoinbaseEvent::Candle(candle) => dispatch_candle(feed, candle).await,
+        #[cfg(feature = "orderbook")]
+        CoinbaseEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
+        #[cfg(feature = "ticker")]
+        CoinbaseEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
+        #[cfg(feature = "trade")]
+        CoinbaseEvent::Trade(trade) => dispatch_trade(feed, trade).await,
+    }
+    Ok(())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_deribit_event(feed: &ExchangeFeed, event: DeribitEvent) -> Result<()> {
+    let _ = feed;
+    match event {
+        #[cfg(feature = "candles")]
+        DeribitEvent::Candle(candle) => dispatch_candle(feed, candle).await,
+        #[cfg(feature = "funding")]
+        DeribitEvent::Funding(funding) => dispatch_funding(feed, funding).await,
+        #[cfg(feature = "index")]
+        DeribitEvent::IndexPrice(index_price) => dispatch_index_price(feed, index_price).await,
+        #[cfg(feature = "markprice")]
+        DeribitEvent::MarkPrice(mark_price) => dispatch_mark_price(feed, mark_price).await,
+        #[cfg(feature = "openinterest")]
+        DeribitEvent::OpenInterest(open_interest) => {
+            dispatch_open_interest(feed, open_interest).await;
+        }
+        #[cfg(feature = "ticker")]
+        DeribitEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
+        #[cfg(feature = "trade")]
+        DeribitEvent::Trade(trade) => dispatch_trade(feed, trade).await,
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_deribit_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_htx_event(feed: &ExchangeFeed, event: HtxEvent) -> Result<()> {
+    let _ = feed;
+    match event {
+        #[cfg(feature = "candles")]
+        HtxEvent::Candle(candle) => dispatch_candle(feed, candle).await,
+        #[cfg(feature = "funding")]
+        HtxEvent::Funding(funding) => dispatch_funding(feed, funding).await,
+        #[cfg(feature = "liquidations")]
+        HtxEvent::Liquidation(liquidation) => dispatch_liquidation(feed, liquidation).await,
+        #[cfg(feature = "orderbook")]
+        HtxEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
+        #[cfg(feature = "ticker")]
+        HtxEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
+        #[cfg(feature = "trade")]
+        HtxEvent::Trade(trade) => dispatch_trade(feed, trade).await,
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_htx_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -3680,6 +4026,288 @@ async fn process_bithumb_orderbook_message(
     Ok(true)
 }
 
+async fn process_coinbase_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(control) = CoinbaseAdapter::parse_control_message(&message) {
+        control?;
+        return Ok(());
+    }
+    #[cfg(feature = "orderbook")]
+    if process_coinbase_orderbook_message(feed, &message, received_ts).await? {
+        return Ok(());
+    }
+    let events = CoinbaseAdapter::parse_messages_for_feed(feed, &message, received_ts);
+    let channel = coinbase_parser::channel(&message);
+    let configured = coinbase_parser::event_rows(&message).iter().any(|event| {
+        coinbase_parser::event_product(event)
+            .is_some_and(|native| CoinbaseAdapter::symbol_for_native(feed, native).is_some())
+    });
+    let market_channel = matches!(
+        channel,
+        Some("ticker" | "market_trades" | "candles" | "l2_data")
+    );
+    if configured && channel.is_some() && market_channel && events.is_empty() {
+        return Err(Error::MalformedData(format!(
+            "Coinbase message for {} produced no normalized events",
+            channel.unwrap_or("unknown channel")
+        )));
+    }
+    for event in events {
+        dispatch_coinbase_event(feed, event).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_coinbase_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+) -> Result<bool> {
+    if coinbase_parser::channel(message) != Some("l2_data") {
+        return Ok(false);
+    }
+    let exchange_ts = coinbase_parser::message_timestamp(message, received_ts);
+    let events = coinbase_parser::event_rows(message);
+    if events.is_empty() {
+        return Err(Error::Parse(
+            "Coinbase l2_data message has no events".to_owned(),
+        ));
+    }
+    for event in events {
+        let native = coinbase_parser::event_product(event).ok_or_else(|| {
+            Error::Parse("Coinbase l2_data event is missing product_id".to_owned())
+        })?;
+        let Some(symbol) = CoinbaseAdapter::symbol_for_native(feed, native).cloned() else {
+            // A connection may carry products this feed does not subscribe.
+            continue;
+        };
+        if !feed.subscribes(Channel::L2Book, &symbol) {
+            continue;
+        }
+        let update = coinbase_parser::parse_book_event(event, exchange_ts, received_ts, &symbol)
+            .ok_or_else(|| Error::Parse("failed to parse Coinbase level2 event".to_owned()))?;
+        let symbol_key = symbol.as_str().to_owned();
+        let outcome = {
+            let mut syncs = feed.coinbase_book_syncs.lock().expect("coinbase sync lock");
+            let sync = syncs
+                .entry(symbol_key)
+                .or_insert_with(|| CoinbaseBookSync::new(symbol));
+            sync.apply(update)?
+        };
+        match outcome {
+            CoinbaseBookOutcome::Publish(book) => dispatch_l2_book(feed, book).await?,
+        }
+    }
+    Ok(true)
+}
+
+async fn process_deribit_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+    outbound: &mut Vec<String>,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(control) = DeribitAdapter::parse_control_message(&message) {
+        match control? {
+            DeribitControl::Subscribed | DeribitControl::Heartbeat => {}
+            DeribitControl::TestRequest => {
+                // The documented answer to a server test request.
+                outbound.push(
+                    serde_json::json!({
+                        "jsonrpc": "2.0", "id": "cf-test", "method": "public/test"
+                    })
+                    .to_string(),
+                );
+            }
+        }
+        return Ok(());
+    }
+    #[cfg(feature = "orderbook")]
+    if process_deribit_orderbook_message(feed, &message, received_ts, outbound).await? {
+        return Ok(());
+    }
+    if deribit_parser::method(&message) != Some("subscription") {
+        // Non-market JSON-RPC traffic (e.g. a heartbeat response filtered by an
+        // older session) is not a normalized event.
+        return Ok(());
+    }
+    let Some(channel) = deribit_parser::channel(&message) else {
+        // Heartbeat/test_request notifications carry no channel and were
+        // classified above.
+        return Ok(());
+    };
+    let events = DeribitAdapter::parse_messages_for_feed(feed, &message, received_ts);
+    let configured = deribit_parser::channel_instrument(channel)
+        .is_some_and(|native| DeribitAdapter::symbol_for_native(feed, native).is_some());
+    let market_channel = matches!(
+        deribit_parser::channel_family(channel),
+        "ticker" | "trades" | "chart" | "book"
+    );
+    if configured && market_channel && events.is_empty() {
+        #[cfg(feature = "orderbook")]
+        if deribit_parser::channel_family(channel) == "book" {
+            // The book path above owns this family; an empty event list here is
+            // impossible for a configured instrument.
+        }
+        return Err(Error::MalformedData(format!(
+            "Deribit message for {channel} produced no normalized events"
+        )));
+    }
+    for event in events {
+        dispatch_deribit_event(feed, event).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_deribit_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+    outbound: &mut Vec<String>,
+) -> Result<bool> {
+    let Some(channel) = deribit_parser::channel(message) else {
+        return Ok(false);
+    };
+    if deribit_parser::channel_family(channel) != "book" {
+        return Ok(false);
+    }
+    let Some(native) = deribit_parser::channel_instrument(channel) else {
+        return Err(Error::Parse(
+            "Deribit book notification has no instrument".to_owned(),
+        ));
+    };
+    let Some(symbol) = DeribitAdapter::symbol_for_native(feed, native).cloned() else {
+        return Ok(true);
+    };
+    if !feed.subscribes(Channel::L2Book, &symbol) {
+        return Ok(true);
+    }
+    let data = deribit_parser::data(message)
+        .ok_or_else(|| Error::Parse("Deribit book notification has no data".to_owned()))?;
+    let update = deribit_parser::parse_book_for_symbol(data, received_ts, &symbol)
+        .ok_or_else(|| Error::Parse("failed to parse Deribit book notification".to_owned()))?;
+    let symbol_key = symbol.as_str().to_owned();
+    let outcome = {
+        let mut syncs = feed.deribit_book_syncs.lock().expect("deribit sync lock");
+        let sync = syncs
+            .entry(symbol_key)
+            .or_insert_with(|| DeribitBookSync::new(symbol.clone()));
+        sync.apply(update)?
+    };
+    match outcome {
+        DeribitBookOutcome::Publish(book) => dispatch_deribit_l2_book(feed, book).await?,
+        DeribitBookOutcome::Stale => {}
+        DeribitBookOutcome::Resnapshot => {
+            outbound.extend(DeribitAdapter::book_resubscribe_messages(feed, &symbol)?);
+        }
+    }
+    Ok(true)
+}
+
+async fn process_htx_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+    outbound: &mut Vec<String>,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(control) = HtxAdapter::parse_control_message(&message) {
+        match control? {
+            HtxControl::Ack => {}
+            HtxControl::Ping(_) => {
+                if let Some(pong) = HtxAdapter::pong_message(&message) {
+                    outbound.push(pong);
+                }
+            }
+        }
+        return Ok(());
+    }
+    #[cfg(feature = "orderbook")]
+    if process_htx_orderbook_message(feed, &message, received_ts, outbound).await? {
+        return Ok(());
+    }
+    let events = HtxAdapter::parse_messages_for_feed(feed, &message, received_ts);
+    let configured = htx_parser::channel(&message)
+        .and_then(htx_parser::topic_parts)
+        .map(|(native, _, _)| native)
+        .or_else(|| htx_parser::topic(&message).and_then(htx_parser::notification_symbol))
+        .is_some_and(|native| HtxAdapter::symbol_for_native(feed, native).is_some());
+    let data_frame =
+        htx_parser::op(&message) == Some("notify") || htx_parser::channel(&message).is_some();
+    if configured && data_frame && events.is_empty() {
+        return Err(Error::MalformedData(format!(
+            "HTX message for {} produced no normalized events",
+            htx_parser::channel(&message)
+                .or_else(|| htx_parser::topic(&message))
+                .unwrap_or("unknown topic")
+        )));
+    }
+    for event in events {
+        dispatch_htx_event(feed, event).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_htx_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+    outbound: &mut Vec<String>,
+) -> Result<bool> {
+    let Some(channel) = htx_parser::channel(message) else {
+        return Ok(false);
+    };
+    let Some((native, "depth", _)) = htx_parser::topic_parts(channel) else {
+        return Ok(false);
+    };
+    let Some(symbol) = HtxAdapter::symbol_for_native(feed, native).cloned() else {
+        return Ok(true);
+    };
+    if !feed.subscribes(Channel::L2Book, &symbol) {
+        return Ok(true);
+    }
+    let tick = message
+        .get("tick")
+        .ok_or_else(|| Error::Parse("HTX depth message has no tick".to_owned()))?;
+    let product = HtxAdapter::product_for_feed(feed)?;
+    let (update, mode) = match product {
+        crate::exchange::htx::adapter::HtxProduct::Spot => (
+            htx_parser::parse_spot_depth(tick, received_ts, &symbol)
+                .ok_or_else(|| Error::Parse("failed to parse HTX spot depth".to_owned()))?,
+            HtxBookMode::SpotSnapshot,
+        ),
+        crate::exchange::htx::adapter::HtxProduct::Perpetual => (
+            htx_parser::parse_swap_depth(tick, received_ts, &symbol)
+                .ok_or_else(|| Error::Parse("failed to parse HTX swap depth".to_owned()))?,
+            HtxBookMode::SwapIncremental,
+        ),
+    };
+    let symbol_key = symbol.as_str().to_owned();
+    let outcome = {
+        let mut syncs = feed.htx_book_syncs.lock().expect("htx sync lock");
+        let sync = syncs
+            .entry(symbol_key)
+            .or_insert_with(|| HtxBookSync::new(symbol.clone(), mode));
+        sync.apply(update)?
+    };
+    match outcome {
+        HtxBookOutcome::Publish(book) => dispatch_htx_l2_book(feed, book).await?,
+        HtxBookOutcome::Stale => {}
+        HtxBookOutcome::Resnapshot => {
+            outbound.extend(HtxAdapter::book_resubscribe_messages(feed, &symbol)?);
+        }
+    }
+    Ok(true)
+}
+
 #[cfg_attr(not(test), allow(dead_code))]
 async fn process_gateio_text_message(
     feed: &ExchangeFeed,
@@ -3962,7 +4590,10 @@ mod tests {
         },
         exchange::bithumb::Bithumb,
         exchange::bybit::Bybit,
+        exchange::coinbase::Coinbase,
+        exchange::deribit::Deribit,
         exchange::gateio::Gateio,
+        exchange::htx::Htx,
         exchange::kraken::Kraken,
         exchange::kucoin::Kucoin,
         exchange::okx::Okx,
@@ -6732,6 +7363,299 @@ mod tests {
         )
     }
 
+    /// GZIP-compressed binary frame, as every HTX market/notification push
+    /// (including acknowledgements) is transmitted.
+    fn htx_frame(value: serde_json::Value) -> Message {
+        use std::io::Write;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder
+            .write_all(value.to_string().as_bytes())
+            .expect("gzip write");
+        Message::Binary(encoder.finish().expect("gzip finish").into())
+    }
+
+    #[cfg(all(feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn htx_spot_full_session_subscribes_acknowledges_and_delivers() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let feed = Htx::new()
+            .trade()
+            .l2_book()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .build();
+        let observed = feed.clone();
+        let (mut client, mut server) = duplex_session(ExchangeId::Htx).await;
+        client.set_exchange_for_test(ExchangeId::Htx);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_htx_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        let mut topics = Vec::new();
+        for _ in 0..2 {
+            let frame = match server.next().await {
+                Some(Ok(Message::Text(text))) => text.to_string(),
+                other => panic!("expected text subscribe frame, got {other:?}"),
+            };
+            let frame: serde_json::Value = serde_json::from_str(&frame).expect("json");
+            topics.push(frame["sub"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(
+            topics,
+            vec![
+                "market.btcusdt.trade.detail".to_owned(),
+                "market.btcusdt.depth.step0".to_owned()
+            ]
+        );
+        server
+            .send(htx_frame(serde_json::json!({
+                "id": "cf-1", "status": "ok", "subbed": "market.btcusdt.trade.detail",
+                "ts": 1793757092943_i64
+            })))
+            .await
+            .expect("trade ack");
+        server
+            .send(htx_frame(serde_json::json!({
+                "ch": "market.btcusdt.depth.step0", "ts": 1793757092943_i64,
+                "tick": {
+                    "bids": [[76760.06, 0.5]], "asks": [[76760.07, 0.25]],
+                    "version": 136_998_124_622_u64, "ts": 1793757092940_i64
+                }
+            })))
+            .await
+            .expect("depth");
+        server
+            .send(htx_frame(serde_json::json!({
+                "ch": "market.btcusdt.trade.detail", "ts": 1793757092950_i64,
+                "tick": {"id": 1370054451093592864_i64, "ts": 1793757092948_i64,
+                    "data": [{"id": 1370054451093592864_i64,
+                        "ts": 1793757092948_i64, "tradeId": 102523573486_i64,
+                        "amount": 0.006754, "price": 52648.62, "direction": "buy"}]}
+            })))
+            .await
+            .expect("trade");
+        wait_for_seen(|| {
+            *trade_seen.lock().expect("lock") == 1 && *book_seen.lock().expect("lock") == 1
+        })
+        .await;
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        let states = observed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USDT").expect("book state");
+        assert_eq!(state.bids()[0].amount.to_string(), "0.5");
+        assert_eq!(state.asks()[0].amount.to_string(), "0.25");
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn htx_swap_incremental_depth_gap_resubscribes_and_replaces() {
+        let book_seen = Arc::new(Mutex::new(0));
+        let feed = Htx::new()
+            .l2_book()
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .symbol("BTC-USDT-PERP")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        let observed = feed.clone();
+        let (mut client, mut server) = duplex_session(ExchangeId::Htx).await;
+        client.set_exchange_for_test(ExchangeId::Htx);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_htx_session_with(feed, shutdown_rx, &mut client).await
+        });
+        let subscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text.to_string(),
+            other => panic!("expected subscribe, got {other:?}"),
+        };
+        let subscribe: serde_json::Value = serde_json::from_str(&subscribe).expect("json");
+        assert_eq!(subscribe["sub"], "market.BTC-USDT.depth.size_20.high_freq");
+        assert_eq!(subscribe["data_type"], "incremental");
+        server
+            .send(htx_frame(
+                serde_json::json!({"ch": subscribe["sub"].as_str().unwrap(),
+                "ts": 1_i64, "tick": {"asks": [[101, 1]], "bids": [[100, 1]],
+                "event": "snapshot", "version": 10_u64, "ts": 1_i64}}),
+            ))
+            .await
+            .expect("snapshot");
+        server
+            .send(htx_frame(
+                serde_json::json!({"ch": subscribe["sub"].as_str().unwrap(),
+                "ts": 2_i64, "tick": {"asks": [], "bids": [[100, 2]],
+                "event": "update", "version": 11_u64, "ts": 2_i64}}),
+            ))
+            .await
+            .expect("update");
+        server
+            .send(htx_frame(
+                serde_json::json!({"ch": subscribe["sub"].as_str().unwrap(),
+                "ts": 4_i64, "tick": {"asks": [], "bids": [[100, 3]],
+                "event": "update", "version": 13_u64, "ts": 4_i64}}),
+            ))
+            .await
+            .expect("gap update");
+        let unsubscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text.to_string(),
+            other => panic!("expected unsubscribe, got {other:?}"),
+        };
+        let unsubscribe: serde_json::Value = serde_json::from_str(&unsubscribe).expect("json");
+        assert_eq!(
+            unsubscribe["unsub"],
+            "market.BTC-USDT.depth.size_20.high_freq"
+        );
+        let resubscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text.to_string(),
+            other => panic!("expected resubscribe, got {other:?}"),
+        };
+        let resubscribe: serde_json::Value = serde_json::from_str(&resubscribe).expect("json");
+        assert_eq!(resubscribe["data_type"], "incremental");
+        server
+            .send(htx_frame(
+                serde_json::json!({"ch": resubscribe["sub"].as_str().unwrap(),
+                "ts": 5_i64, "tick": {"asks": [[102, 4]], "bids": [[99, 5]],
+                "event": "snapshot", "version": 20_u64, "ts": 5_i64}}),
+            ))
+            .await
+            .expect("replacement snapshot");
+        wait_for_seen(|| *book_seen.lock().expect("lock") == 3).await;
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        let states = observed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USDT-PERP").expect("book state");
+        assert_eq!(state.bids()[0].amount.to_string(), "5");
+        assert_eq!(state.asks()[0].amount.to_string(), "4");
+    }
+
+    #[cfg(all(feature = "funding", feature = "liquidations"))]
+    #[tokio::test]
+    async fn htx_swap_notification_session_delivers_funding_and_liquidations() {
+        let funding_seen = Arc::new(Mutex::new(0));
+        let liquidation_seen = Arc::new(Mutex::new(0));
+        let feed = Htx::new()
+            .funding()
+            .liquidations()
+            .funding_handler(Arc::new(TestFundingHandler {
+                seen: funding_seen.clone(),
+            }))
+            .liquidation_handler(Arc::new(TestLiquidationHandler {
+                seen: liquidation_seen.clone(),
+            }))
+            .symbol("BTC-USDT-PERP")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Htx).await;
+        client.set_exchange_for_test(ExchangeId::Htx);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_htx_session_with(feed, shutdown_rx, &mut client).await
+        });
+        let mut topics = Vec::new();
+        for _ in 0..2 {
+            let frame = match server.next().await {
+                Some(Ok(Message::Text(text))) => text.to_string(),
+                other => panic!("expected text subscribe, got {other:?}"),
+            };
+            let frame: serde_json::Value = serde_json::from_str(&frame).expect("json");
+            assert_eq!(frame["op"], "sub");
+            topics.push(frame["topic"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(
+            topics,
+            vec![
+                "public.BTC-USDT.funding_rate".to_owned(),
+                "public.BTC-USDT.liquidation_orders".to_owned()
+            ]
+        );
+        server
+            .send(htx_frame(serde_json::json!({
+                "op": "sub", "cid": "cf-1", "topic": "public.BTC-USDT.funding_rate",
+                "ts": 1793757247456_i64, "err-code": 0
+            })))
+            .await
+            .expect("funding ack");
+        server
+            .send(htx_frame(serde_json::json!({
+                "op": "notify", "topic": "public.BTC-USDT.funding_rate",
+                "ts": 1793757246436_i64, "data": [{
+                    "symbol": "BTC", "contract_code": "BTC-USDT", "fee_asset": "USDT",
+                    "funding_time": "1793757236000", "funding_rate": "0.0001",
+                    "estimated_rate": null, "settlement_time": "1793779200000"
+                }]
+            })))
+            .await
+            .expect("funding");
+        server
+            .send(htx_frame(serde_json::json!({
+                "op": "notify", "topic": "public.BTC-USDT.liquidation_orders",
+                "ts": 1793757247456_i64, "data": [{
+                    "symbol": "BTC", "contract_code": "BTC-USDT", "direction": "sell",
+                    "offset": "close", "volume": 432, "price": 0.7858,
+                    "created_at": 1793757247000_i64, "amount": 432,
+                    "trade_turnover": 339.4656, "contract_type": "swap",
+                    "pair": "BTC-USDT", "business_type": "swap"
+                }]
+            })))
+            .await
+            .expect("liquidation");
+        wait_for_seen(|| {
+            *funding_seen.lock().expect("lock") == 1 && *liquidation_seen.lock().expect("lock") == 1
+        })
+        .await;
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn htx_market_ping_is_answered_with_the_same_integer() {
+        let feed = Htx::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: Arc::new(Mutex::new(0)),
+            }))
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Htx).await;
+        client.set_exchange_for_test(ExchangeId::Htx);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_htx_session_with(feed, shutdown_rx, &mut client).await
+        });
+        assert!(matches!(server.next().await, Some(Ok(Message::Text(_)))));
+        server
+            .send(htx_frame(serde_json::json!({"ping": 1793757093533_i64})))
+            .await
+            .expect("ping");
+        let pong = match server.next().await {
+            Some(Ok(Message::Text(text))) => text.to_string(),
+            other => panic!("expected pong, got {other:?}"),
+        };
+        let pong: serde_json::Value = serde_json::from_str(&pong).expect("json");
+        assert_eq!(pong, serde_json::json!({"pong": 1793757093533_i64}));
+        shutdown_tx.send(true).expect("shutdown");
+        let _ = session.await;
+    }
+
     #[cfg(feature = "orderbook")]
     #[tokio::test]
     async fn bybit_managed_session_confirms_subscription_then_synchronizes_book() {
@@ -7604,6 +8528,304 @@ mod tests {
             server.next().await,
             Some(Ok(Message::Close(_))) | None
         ));
+    }
+
+    #[cfg(all(feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn coinbase_full_session_subscribes_acknowledges_and_delivers() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let feed = Coinbase::new()
+            .trade()
+            .l2_book()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .symbol("BTC-USD")
+            .build();
+        let observed = feed.clone();
+        let (mut client, mut server) = duplex_session(ExchangeId::Coinbase).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let session = tokio::spawn(async move {
+            super::consume_coinbase_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        // One channel per documented subscribe frame, then heartbeats.
+        let mut channels = Vec::new();
+        for _ in 0..3 {
+            let frame = match server.next().await {
+                Some(Ok(Message::Text(text))) => text,
+                other => panic!("expected subscribe frame, got {other:?}"),
+            };
+            let frame: serde_json::Value = serde_json::from_str(&frame).expect("json");
+            assert_eq!(frame["type"], "subscribe");
+            channels.push(frame["channel"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(channels, vec!["market_trades", "level2", "heartbeats"]);
+
+        server
+            .send(Message::Text(
+                r#"{"channel":"subscriptions","timestamp":"2026-11-04T01:46:46.055143824Z","sequence_num":1,"events":[{"subscriptions":{"market_trades":["BTC-USD"],"level2":["BTC-USD"]}}]}"#
+                    .into(),
+            ))
+            .await
+            .expect("send subscribe ack");
+        server
+            .send(Message::Text(
+                r#"{"channel":"l2_data","timestamp":"2026-11-04T01:47:08.029879Z","sequence_num":2,"events":[{"type":"snapshot","product_id":"BTC-USD","updates":[{"side":"bid","event_time":"2026-11-04T01:47:08.029879Z","price_level":"76760.06","new_quantity":"0.00522916"},{"side":"offer","event_time":"2026-11-04T01:47:08.029879Z","price_level":"76760.07","new_quantity":"0.02"}]}]}"#
+                    .into(),
+            ))
+            .await
+            .expect("send level2 snapshot");
+        server
+            .send(Message::Text(
+                r#"{"channel":"l2_data","timestamp":"2026-11-04T01:47:08.078018Z","sequence_num":3,"events":[{"type":"update","product_id":"BTC-USD","updates":[{"side":"bid","event_time":"2026-11-04T01:47:08.078018Z","price_level":"76760.06","new_quantity":"0.03306503"},{"side":"offer","event_time":"2026-11-04T01:47:08.078018Z","price_level":"76760.07","new_quantity":"0"}]}]}"#
+                    .into(),
+            ))
+            .await
+            .expect("send level2 update");
+        server
+            .send(Message::Text(
+                r#"{"channel":"market_trades","timestamp":"2026-11-04T01:46:46.384055093Z","sequence_num":4,"events":[{"type":"update","trades":[{"product_id":"BTC-USD","trade_id":"1114678923","price":"76778.5","size":"0.00000006","time":"2026-11-04T01:46:46.265419Z","side":"BUY"}]}]}"#
+                    .into(),
+            ))
+            .await
+            .expect("send trade");
+
+        wait_for_seen(|| {
+            *book_seen.lock().expect("lock") == 2 && *trade_seen.lock().expect("lock") == 1
+        })
+        .await;
+
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        assert!(matches!(
+            server.next().await,
+            Some(Ok(Message::Close(_))) | None
+        ));
+
+        let states = observed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USD").expect("BTC-USD state");
+        assert_eq!(state.bids().len(), 1);
+        assert_eq!(state.bids()[0].amount.to_string(), "0.03306503");
+        assert_eq!(state.asks().len(), 0);
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn coinbase_out_of_order_update_fails_the_session() {
+        let feed = Coinbase::new()
+            .l2_book()
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: Arc::new(Mutex::new(0)),
+            }))
+            .symbol("BTC-USD")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Coinbase).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_coinbase_session_with(feed, shutdown_rx, &mut client).await
+        });
+        // level2 subscribe frame, then heartbeats.
+        assert!(server.next().await.is_some());
+        assert!(server.next().await.is_some());
+        server
+            .send(Message::Text(
+                r#"{"channel":"l2_data","timestamp":"2026-11-04T01:47:08.078018Z","sequence_num":1,"events":[{"type":"update","product_id":"BTC-USD","updates":[{"side":"bid","event_time":"2026-11-04T01:47:08.078018Z","price_level":"76760.06","new_quantity":"1"}]}]}"#
+                    .into(),
+            ))
+            .await
+            .expect("send update before snapshot");
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), session)
+            .await
+            .expect("session timeout")
+            .expect("task");
+        assert!(matches!(result, Err(Error::Parse(_))));
+        let _ = shutdown_tx.send(true);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "funding"))]
+    #[tokio::test]
+    async fn deribit_full_session_subscribes_acknowledges_and_splits_ticker_categories() {
+        let ticker_seen = Arc::new(Mutex::new(0));
+        let funding_seen = Arc::new(Mutex::new(0));
+        let feed = Deribit::new()
+            .ticker()
+            .funding()
+            .ticker_handler(Arc::new(TestTickerHandler {
+                seen: ticker_seen.clone(),
+            }))
+            .funding_handler(Arc::new(TestFundingHandler {
+                seen: funding_seen.clone(),
+            }))
+            .symbol("BTC-USD-PERP")
+            .exchange_symbol("BTC-PERPETUAL")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Deribit).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let session = tokio::spawn(async move {
+            super::consume_deribit_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        let heartbeat = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected heartbeat frame, got {other:?}"),
+        };
+        let heartbeat: serde_json::Value = serde_json::from_str(&heartbeat).expect("json");
+        assert_eq!(heartbeat["method"], "public/set_heartbeat");
+        let subscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected subscribe frame, got {other:?}"),
+        };
+        let subscribe: serde_json::Value = serde_json::from_str(&subscribe).expect("json");
+        assert_eq!(subscribe["method"], "public/subscribe");
+        assert_eq!(
+            subscribe["params"]["channels"],
+            serde_json::json!(["ticker.BTC-PERPETUAL.100ms"])
+        );
+        server
+            .send(Message::Text(
+                serde_json::json!({
+                    "jsonrpc": "2.0", "id": subscribe["id"],
+                    "result": ["ticker.BTC-PERPETUAL.100ms"]
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("send subscribe ack");
+        let ticker = serde_json::json!({
+            "jsonrpc": "2.0", "method": "subscription",
+            "params": {"channel": "ticker.BTC-PERPETUAL.100ms", "data": {
+                "timestamp": 1793757174238_i64, "state": "open",
+                "index_price": 76833.47, "instrument_name": "BTC-PERPETUAL",
+                "open_interest": 657029240, "mark_price": 76862.37,
+                "current_funding": 1.2614e-4, "funding_8h": 7.185e-5,
+                "best_ask_price": 76864.0, "best_bid_price": 76863.5,
+                "best_ask_amount": 44630.0, "best_bid_amount": 17530.0
+            }}
+        });
+        server
+            .send(Message::Text(ticker.to_string().into()))
+            .await
+            .expect("send ticker");
+
+        wait_for_seen(|| {
+            *ticker_seen.lock().expect("lock") == 1 && *funding_seen.lock().expect("lock") == 1
+        })
+        .await;
+
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn deribit_book_gap_triggers_bounded_in_session_resnapshot() {
+        let book_seen = Arc::new(Mutex::new(0));
+        let feed = Deribit::new()
+            .l2_book()
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .symbol("BTC-USD-PERP")
+            .exchange_symbol("BTC-PERPETUAL")
+            .build();
+        let observed = feed.clone();
+        let (mut client, mut server) = duplex_session(ExchangeId::Deribit).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_deribit_session_with(feed, shutdown_rx, &mut client).await
+        });
+        assert!(server.next().await.is_some());
+        let subscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected subscribe frame, got {other:?}"),
+        };
+        let subscribe: serde_json::Value = serde_json::from_str(&subscribe).expect("json");
+        server
+            .send(Message::Text(
+                serde_json::json!({"jsonrpc":"2.0","id":subscribe["id"],
+                    "result":["book.BTC-PERPETUAL.100ms"]})
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("ack");
+        server
+            .send(Message::Text(
+                serde_json::json!({"jsonrpc":"2.0","method":"subscription","params":{
+                    "channel":"book.BTC-PERPETUAL.100ms","data":{
+                        "timestamp": 1793757173936_i64, "type": "snapshot",
+                        "change_id": 100_u64, "instrument_name": "BTC-PERPETUAL",
+                        "bids": [["new", 76863.5, 17530.0]],
+                        "asks": [["new", 76864.0, 44630.0]]}}})
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("snapshot");
+        // A gap (prev_change_id 105 after anchor 100) requests a replacement.
+        server
+            .send(Message::Text(
+                serde_json::json!({"jsonrpc":"2.0","method":"subscription","params":{
+                    "channel":"book.BTC-PERPETUAL.100ms","data":{
+                        "timestamp": 1793757173999_i64, "type": "change",
+                        "change_id": 106_u64, "prev_change_id": 105_u64,
+                        "instrument_name": "BTC-PERPETUAL",
+                        "bids": [["change", 76863.5, 900.0]], "asks": []}}})
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("gap change");
+        let unsubscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected resnapshot frame, got {other:?}"),
+        };
+        let unsubscribe: serde_json::Value = serde_json::from_str(&unsubscribe).expect("json");
+        assert_eq!(unsubscribe["method"], "public/unsubscribe");
+        let resubscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected resubscribe frame, got {other:?}"),
+        };
+        let resubscribe: serde_json::Value = serde_json::from_str(&resubscribe).expect("json");
+        assert_eq!(resubscribe["method"], "public/subscribe");
+        server
+            .send(Message::Text(
+                serde_json::json!({"jsonrpc":"2.0","method":"subscription","params":{
+                    "channel":"book.BTC-PERPETUAL.100ms","data":{
+                        "timestamp": 1793757174000_i64, "type": "snapshot",
+                        "change_id": 200_u64, "instrument_name": "BTC-PERPETUAL",
+                        "bids": [["new", 76860.0, 42.0]],
+                        "asks": [["new", 76870.0, 7.0]]}}})
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("replacement snapshot");
+        wait_for_seen(|| *book_seen.lock().expect("lock") == 2).await;
+
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        let states = observed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USD-PERP").expect("book state");
+        assert_eq!(state.bids()[0].amount.to_string(), "42.0");
+        assert_eq!(state.asks()[0].amount.to_string(), "7.0");
     }
 
     #[cfg(all(feature = "ticker", feature = "candles"))]

@@ -165,8 +165,7 @@ Key API surface:
 - `FeedHandler::subscribe_status()` exposes terminal feed failures
   programmatically while healthy feeds continue running independently.
 - Per-exchange builders: `Binance`, `Bitget`, `Bybit`, `Okx`, `Gateio`,
-  `Kucoin`, `Kraken`, `Upbit`, `Bithumb` (the Coinbase builder exists but is
-  rejected by capability validation until its runtime path lands).
+  `Kucoin`, `Kraken`, `Upbit`, `Bithumb`, `Coinbase`, `Deribit`, `Htx`.
 - `ExchangeFeedBuilder` methods: `symbol("BTC-USDT")` /
   `symbol("BTC-USDT-PERP")` / `symbol("BTC-USDT-240628")` (normalized forms),
   `instrument(Symbol)` (typed product identity; option/MARGIN variants are
@@ -214,6 +213,8 @@ dated futures. Options and MARGIN remain implementation references and fail pref
 | Kraken WS v2 | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
 | Upbit quotation WS | ✗ | ✓ | ✓ | ✗ | ✓ | ✗ |
 | Bithumb public WS | ✗ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| Coinbase Advanced Trade | ✓ | ✓ | ✓ | ✓ | ✓ (5m only) | ✗ |
+| HTX spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 
 The OKX Index entry is the SDK's explicit spot-index-symbol entrypoint. Spot
 feeds do not expose funding, liquidations, open interest, or derivative mark price.
@@ -233,6 +234,8 @@ stream (REST history only), hence its `Candles` gap; Upbit candles support
 | OKX v5 SWAP | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Gate.io v4 (USDT/BTC perpetual) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | KuCoin UTA WS V2 perpetual (USDT/USDC/coin-margined) | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+| Deribit JSON-RPC v2 perpetual | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+| HTX USDT-M perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
 
 ### 交割合约 (Dated Futures)
 
@@ -243,6 +246,7 @@ stream (REST history only), hence its `Candles` gap; Upbit candles support
 | Bybit v5 linear / inverse dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | OKX v5 FUTURES | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Gate.io v4 (USDT delivery) | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
+| Deribit JSON-RPC v2 dated futures | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ | ✓ | ✓ |
 
 Funding applies only to perpetual/swap contracts, so it is omitted from the
 dated-futures table. A ✗ here indicates an SDK capability gap, not that the data
@@ -325,6 +329,33 @@ Notes:
   `PING` with filtered `{"status":"UP"}` frames. Bithumb candles are REST-only
   (minutes 1/3/5/10/15/30/60/240 plus days/weeks/months) and are not exposed as a
   normalized live channel in this increment.
+- Coinbase Advanced Trade (public, no JWT) is spot-only. The documented ticker
+  payload carries best bid/ask **with sizes**, so both `Ticker` and `L1Book`
+  are advertised from one native channel; `level2` is a full-book snapshot plus
+  absolute-size updates and the documented reconnect is the recovery (no
+  per-product sequence or checksum). The public `candles` channel is
+  five-minute-only: pass `candles_interval("5m")`; the default `1m` and any
+  other interval fail preflight. REST candles exist but are not wired as a
+  hidden backfill.
+- Deribit JSON-RPC v2 (`wss://www.deribit.com/ws/api/v2`) is perpetual/dated
+  futures only; options are rejected. One public `ticker.<instrument>.100ms`
+  subscription is split into `Ticker`, `MarkPrice`, `IndexPrice`,
+  `OpenInterest` and `Funding` (funding only where the payload carries it);
+  `book` uses change-id chaining with a bounded in-session resnapshot on gaps;
+  `chart.trades` maps the documented resolution enum to normalized intervals.
+  Book/trade/open-interest amounts are the documented native USD unit for
+  inverse contracts and are preserved, not converted. No public liquidation
+  stream exists.
+- HTX spot uses `wss://api.huobi.pro/ws` (`sub`/`id`) and USDT-M uses
+  `wss://api.hbdm.com/linear-swap-ws` for market topics plus
+  `wss://api.hbdm.com/linear-swap-notification` for funding/liquidation
+  notifications (`op`/`topic`); every frame is GZIP-compressed (decoded by the
+  session layer with a pinned pure-Rust `flate2`). Spot depth is replacement
+  snapshot per documented `version`; USDT-M depth is snapshot + versioned
+  updates with a bounded in-session resubscribe on a gap. USDT-M trades use the
+  documented base-coin `quantity`; level sizes stay documented contract counts.
+  Mark price, index price and open interest have no current public WebSocket
+  topic and are rejected at preflight rather than polled.
 - The additions above have deterministic offline regression coverage.
   [The 2026-10-08 smoke](docs/reports/live-smoke-2026-10-08.md) received Bitget
   spot/perpetual L1, derivative ticker fields, and OKX SWAP index events.

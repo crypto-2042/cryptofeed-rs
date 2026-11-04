@@ -448,6 +448,31 @@ impl ConnectionAttempt {
             ExchangeId::Kucoin => vec![(format!("k:{}", payload["id"]), None)],
             // Kraken acknowledges each requested symbol separately and echoes
             // the client `req_id`; correlate per (req_id, symbol).
+            // Coinbase acknowledges by a cumulative `subscriptions` map and
+            // does not echo a request id; one pending entry per requested
+            // channel is confirmed when that channel appears in the map.
+            ExchangeId::Coinbase => payload
+                .get("channel")
+                .and_then(Value::as_str)
+                .map(|channel| (format!("c:{channel}"), None))
+                .into_iter()
+                .collect(),
+            // HTX market requests echo `id`; notification requests echo `cid`.
+            ExchangeId::Htx => {
+                if let Some(id) = payload.get("id") {
+                    vec![(format!("h:{id}"), None)]
+                } else if let Some(cid) = payload.get("cid") {
+                    vec![(format!("h:{cid}"), None)]
+                } else {
+                    Vec::new()
+                }
+            }
+            // Deribit echoes the JSON-RPC id; one pending entry per request.
+            ExchangeId::Deribit => payload
+                .get("id")
+                .map(|id| (format!("d:{id}"), None))
+                .into_iter()
+                .collect(),
             ExchangeId::Kraken => payload
                 .pointer("/params/symbol")
                 .and_then(Value::as_array)
@@ -588,7 +613,20 @@ impl ConnectionAttempt {
                 payload["event"] == "subscribe" || payload["event"] == "error"
             }
             ExchangeId::Gateio => payload["event"] == "subscribe",
+            ExchangeId::Coinbase => {
+                payload.get("channel").and_then(Value::as_str) == Some("subscriptions")
+                    || payload.get("type").and_then(Value::as_str) == Some("error")
+            }
+            ExchangeId::Htx => {
+                payload.get("status").and_then(Value::as_str).is_some()
+                    || (payload.get("op").and_then(Value::as_str) == Some("sub")
+                        && payload.get("err-code").is_some())
+            }
             ExchangeId::Kucoin => payload.get("id").is_some() && payload.get("result").is_some(),
+            ExchangeId::Deribit => {
+                payload.get("id").is_some()
+                    && (payload.get("result").is_some() || payload.get("error").is_some())
+            }
             ExchangeId::Upbit | ExchangeId::Bithumb => payload.get("error").is_some(),
             _ => false,
         };
@@ -617,6 +655,18 @@ impl ConnectionAttempt {
                             != Some("success"))
             }
             ExchangeId::Kucoin => payload["result"] != true,
+            ExchangeId::Coinbase => payload.get("type").and_then(Value::as_str) == Some("error"),
+            ExchangeId::Deribit => payload.get("error").is_some(),
+            ExchangeId::Htx => {
+                payload.get("status").and_then(Value::as_str) == Some("error")
+                    || payload
+                        .get("err-code")
+                        .and_then(|code| {
+                            code.as_i64()
+                                .or_else(|| code.as_str().and_then(|code| code.parse().ok()))
+                        })
+                        .is_some_and(|code| code != 0)
+            }
             ExchangeId::Kraken => payload["success"] != true,
             // Only reachable for an error envelope (see `is_control`).
             ExchangeId::Upbit | ExchangeId::Bithumb => true,
@@ -644,6 +694,14 @@ impl ConnectionAttempt {
             ExchangeId::Bybit => format!("y:{}", payload["req_id"]),
             ExchangeId::Gateio => format!("g:{}:{}", payload["id"], payload["channel"]),
             ExchangeId::Kucoin => format!("k:{}", payload["id"]),
+            ExchangeId::Deribit => format!("d:{}", payload["id"]),
+            ExchangeId::Htx => {
+                if payload.get("id").is_some() {
+                    format!("h:{}", payload["id"])
+                } else {
+                    format!("h:{}", payload["cid"])
+                }
+            }
             ExchangeId::Kraken => {
                 let symbol = payload
                     .pointer("/result/symbol")
@@ -653,12 +711,29 @@ impl ConnectionAttempt {
             }
             _ => arg_key(exchange, &payload["arg"]),
         };
+        // Coinbase's acknowledgement is the cumulative map of channels; every
+        // channel present in the map confirms its pending entry.
+        let coinbase_acked: Vec<String> = if exchange == ExchangeId::Coinbase {
+            payload
+                .get("events")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|event| event.get("subscriptions").and_then(Value::as_object))
+                .flat_map(|subscriptions| subscriptions.keys())
+                .map(|channel| format!("c:{channel}"))
+                .collect()
+        } else {
+            Vec::new()
+        };
         for pending in &mut self.pending {
             let matches = if matches!(exchange, ExchangeId::Bitget | ExchangeId::Okx) {
                 pending
                     .argument
                     .as_ref()
                     .is_some_and(|argument| argument_matches(exchange, argument, &payload["arg"]))
+            } else if exchange == ExchangeId::Coinbase {
+                coinbase_acked.contains(&pending.key)
             } else {
                 pending.key == key
             };

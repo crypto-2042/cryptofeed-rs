@@ -62,6 +62,19 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
   capability rows (including the deliberate `Ticker` gap), layer-by-layer
   changes, ordered work and verification gates.
 
+## Monitoring venue expansion (implemented)
+
+- [Monitoring venue selection](monitoring-venue-research-2026-11-04.md): why
+  Coinbase, Deribit and HTX were selected for monitoring/alerting coverage.
+- [Coinbase Advanced Trade protocol baseline](coinbase-protocol.md),
+  [Deribit JSON-RPC v2 baseline](deribit-protocol.md) and
+  [HTX spot/USDT-M baseline](htx-protocol.md): endpoints, subscription framing,
+  field-to-normalized mapping, sequence rules, candle intervals, catalogs,
+  heartbeat, rate limits, live verification notes and explicit gaps.
+- [Monitoring venue design and implementation plan](monitoring-venue-plan-2026-11-04.md):
+  capability rows, layer-by-layer changes, the HTX GZIP dependency decision and
+  verification gates.
+
 ## Acceptance verification
 
 - [Issue #9/#10 acceptance verification](reports/issue-9-10-acceptance-verification-2026-11-03.md):

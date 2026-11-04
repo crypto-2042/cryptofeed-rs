@@ -8,7 +8,8 @@ async fn unsupported_catalog_fails_without_network() {
             .is_err()
     );
     assert!(
-        MarketCatalog::load(ExchangeId::Coinbase, InstrumentKind::Spot)
+        // Coinbase now has a live spot catalog; Deribit has no spot product.
+        MarketCatalog::load(ExchangeId::Deribit, InstrumentKind::Spot)
             .await
             .is_err()
     );
@@ -22,7 +23,7 @@ async fn unsupported_catalog_refresh_fails_without_network() {
             .is_err()
     );
     assert!(
-        MarketCatalog::refresh(ExchangeId::Coinbase, InstrumentKind::Spot)
+        MarketCatalog::refresh(ExchangeId::Deribit, InstrumentKind::Spot)
             .await
             .is_err()
     );
