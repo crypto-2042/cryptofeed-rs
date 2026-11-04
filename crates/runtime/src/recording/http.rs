@@ -140,6 +140,9 @@ fn public_url(exchange: ExchangeId, input: &str) -> Result<()> {
                     )
                 }))
         }
+        // Both Hyperliquid catalogs are `POST /info`; the synthetic `type`
+        // query distinguishes the two bodies for cache/recording/replay keys.
+        ExchangeId::Hyperliquid => host == "api.hyperliquid.xyz" && path == "/info",
         ExchangeId::Gateio => {
             host == "api.gateio.ws"
                 && [

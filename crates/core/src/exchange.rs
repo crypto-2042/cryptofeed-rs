@@ -11,6 +11,7 @@ pub enum ExchangeId {
     Deribit,
     Gateio,
     Htx,
+    Hyperliquid,
     Kraken,
     Kucoin,
     Okx,

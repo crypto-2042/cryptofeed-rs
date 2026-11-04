@@ -373,6 +373,13 @@ pub(crate) fn parse(
                 }
             };
         }
+        // `meta.universe[]` documents order-size decimal places; leverage has
+        // no normalized MarketInfo field and is never substituted. Spot
+        // `spotMeta` universe rows carry only token indices and the canonical
+        // flag, so they add no typed metadata here.
+        ExchangeId::Hyperliquid if !spot => {
+            info.quantity_decimal_places = places(row, "szDecimals")?;
+        }
         _ => {}
     }
     Ok(info)
@@ -625,5 +632,34 @@ mod tests {
                 .is_none()
         );
         assert!(parse(ExchangeId::Binance, Symbol::spot("BTC","USDT"), "BTCUSDT", &json!({"filters":[{"filterType":"PRICE_FILTER","tickSize":"1"},{"filterType":"PRICE_FILTER","tickSize":"2"}]}), None).is_err());
+    }
+
+    #[test]
+    fn hyperliquid_metadata_keeps_sz_decimals_and_native_coin_spelling() {
+        let perp = parse(
+            ExchangeId::Hyperliquid,
+            Symbol::perpetual("BTC", "USD"),
+            "BTC",
+            &json!({"szDecimals": 5, "name": "BTC", "maxLeverage": 40, "marginTableId": 56}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(perp.exchange_symbol, "BTC");
+        assert_eq!(perp.quantity_decimal_places, Some(5));
+        // Leverage has no normalized field and is not substituted into one.
+        assert_eq!(perp.contract_value, None);
+        assert_eq!(perp.native_status, None);
+
+        let spot = parse(
+            ExchangeId::Hyperliquid,
+            Symbol::spot("PURR", "USDC"),
+            "PURR/USDC",
+            &json!({"tokens": [1, 0], "name": "PURR/USDC", "index": 0, "isCanonical": true}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(spot.exchange_symbol, "PURR/USDC");
+        assert_eq!(spot.quantity_decimal_places, None);
+        assert_eq!(spot.native_status, None);
     }
 }
