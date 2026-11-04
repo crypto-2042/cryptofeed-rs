@@ -1,0 +1,19 @@
+{"id":"cf-1","status":"ok","subbed":"market.btcusdt.ticker","ts":1793757092943}
+{"ch":"market.btcusdt.ticker","ts":1793757092943,"tick":{"open":77148.2,"high":78041.9,"low":76425.76,"close":77063.4,"amount":2902.7639976349774,"vol":224080034.4348217,"count":1236365,"bid":77050.09,"bidSize":0.266939,"ask":77063.5,"askSize":2.0E-4,"lastPrice":77051.1,"lastSize":0.003142}}
+{"ch":"market.btcusdt.bbo","ts":1793757092943,"tick":{"seqId":137005210233,"ask":52665.02,"askSize":1.502181,"bid":52665.01,"bidSize":0.178567,"quoteTime":1793757092936,"symbol":"btcusdt"}}
+{"ch":"market.btcusdt.trade.detail","ts":1793757092950,"tick":{"id":1370054451093592864,"ts":1793757092948,"data":[{"id":1370054451093592864,"ts":1793757092948,"tradeId":102523573486,"amount":0.006754,"price":52648.62,"direction":"buy"}]}}
+{"ch":"market.btcusdt.depth.step0","ts":1793757092943,"tick":{"bids":[[52690.69,0.36281],[52690.68,0.2]],"asks":[[52690.7,0.372591]],"version":136998124622,"ts":1793757092940}}
+{"ch":"market.btcusdt.kline.1min","ts":1793757094370,"tick":{"id":1793757060,"open":76880.2,"close":76924.2,"high":76924.2,"low":76880.2,"amount":0.834,"count":15,"vol":834}}
+{"id":"cf-2","status":"ok","subbed":"market.BTC-USDT.depth.size_20.high_freq","ts":1793757092951}
+{"ch":"market.BTC-USDT.detail","ts":1793757088525,"tick":{"id":1793757060,"mrid":100132823687371,"open":77662.4,"close":76924.2,"high":78037.9,"low":76812.4,"amount":6555.162,"vol":6555162,"trade_turnover":506251221.3108,"count":57344,"ask":[76924.2,1],"bid":[76924.1,5272]}}
+{"ch":"market.BTC-USDT.bbo","ts":1793757092938,"tick":{"mrid":100132823692088,"id":1793757092,"bid":[76930.6,5564],"ask":[76930.7,803],"ts":1793757092936,"version":100132823692088,"ch":"market.BTC-USDT.bbo"}}
+{"ch":"market.BTC-USDT.depth.size_20.high_freq","ts":1793757092938,"tick":{"asks":[[76930.7,803],[76933.6,217]],"bids":[[76930.6,5564],[76929.9,174]],"ch":"market.BTC-USDT.depth.size_20.high_freq","event":"snapshot","id":100132823692088,"mrid":100132823692088,"ts":1793757092936,"version":1789934864048}}
+{"ch":"market.BTC-USDT.kline.1min","ts":1793757088526,"tick":{"id":1793757060,"mrid":100132823687371,"open":76880.2,"close":76924.2,"high":76924.2,"low":76880.2,"amount":0.834,"vol":834,"trade_turnover":64123.0388,"count":15}}
+{"op":"sub","cid":"cf-1","topic":"public.BTC-USDT.funding_rate","ts":1793757247456,"err-code":0}
+{"op":"notify","topic":"public.BTC-USDT.funding_rate","ts":1793757246436,"data":[{"symbol":"BTC","contract_code":"BTC-USDT","fee_asset":"USDT","funding_time":"1793757236000","funding_rate":"0.000100000000000000","estimated_rate":null,"settlement_time":"1793779200000","trade_partition":"USDT"}]}
+{"op":"notify","topic":"public.BTC-USDT.liquidation_orders","ts":1793757247456,"data":[{"symbol":"BTC","contract_code":"BTC-USDT","direction":"sell","offset":"close","volume":432,"price":0.7858,"created_at":1793757247000,"amount":432,"trade_turnover":339.4656,"contract_type":"swap","pair":"BTC-USDT","business_type":"swap"}]}
+{"ping":1793757093533}
+{"pong":1793757093533}
+{"op":"ping","ts":"1793757246436"}
+{"op":"pong","ts":"1793757246436"}
+{"id":"cf-9","status":"error","err-code":"bad-request","err-msg":"invalid topic public.BTC-USDT.mark_price.1min"}

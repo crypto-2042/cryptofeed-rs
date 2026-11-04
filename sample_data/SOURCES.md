@@ -683,3 +683,36 @@ host needed HTTP/1.1 for this environment's curl (local TLS-stack detail). No
 WebSocket capture was taken. Prices, sizes, timestamps, identifiers and symbol
 selections in the tests are substituted or shortened while preserving the
 documented wire shape and precision relevant to normalization.
+
+## 2026-11-04 monitoring venue additions
+
+The appended fixtures are sanitized official documented examples (field tables
+and AsyncAPI/OpenAPI contracts) plus sanitized live-shape references from
+read-only probes of the public unauthenticated sockets on 2026-11-04. They are
+not live recordings; timestamps, prices, sizes and identifiers may be shortened
+or substituted while preserving the documented wire shape and precision.
+
+- `coinbase.ws.v1`: [Advanced Trade WebSocket overview](https://docs.cdp.coinbase.com/coinbase-app/advanced-trade-apis/websocket/websocket-overview),
+  [official AsyncAPI contract](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/advanced-trade-asyncapi.json)
+  and the [public products OpenAPI](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/advanced-trade-spec.yaml).
+  Frames cover the cumulative `subscriptions` ack, ticker BBO with sizes,
+  `l2_data` snapshot/absolute-update rows, `market_trades`, five-minute
+  `candles`, `heartbeats` and the documented `{"type":"error"}` envelope.
+- `deribit.ws.v2`: [JSON-RPC overview](https://docs.deribit.com/articles/json-rpc-overview),
+  [book channel](https://docs.deribit.com/subscriptions/orderbook/bookinstrument_nameinterval),
+  [trades channel](https://docs.deribit.com/subscriptions/trades/tradesinstrument_nameinterval),
+  [ticker channel](https://docs.deribit.com/subscriptions/market-data/tickerinstrument_nameinterval),
+  [chart.trades channel](https://docs.deribit.com/subscriptions/market-data/charttradesinstrument_nameresolution)
+  and [public/subscribe](https://docs.deribit.com/api-reference/subscription-management/public-subscribe).
+  Frames cover the JSON-RPC result ack, ticker split fields, `change_id`/
+  `prev_change_id` book snapshot+change, trade rows, chart candle, documented
+  heartbeat/test_request notifications and a JSON-RPC error object.
+- `htx.ws.v2`: [spot v1](https://huobiapi.github.io/docs/spot/v1/en/) and
+  [USDT-M v1](https://huobiapi.github.io/docs/usdt_swap/v1/en/). Frames cover
+  spot ticker/BBO/trade/depth/kline and `sub`/`id` acks, USDT-M detail/BBO/
+  incremental depth/kline, `market.<contract>.mark_price.1min` rejection
+  (documented topic not currently served), the notification-host
+  `op`/`topic` funding and liquidation payloads, and both documented heartbeat
+  forms. The spot market host/framing was verified live against
+  `wss://api.huobi.pro/ws` after `wss://api.huobi.pro/ws/v2` rejected a market
+  subscription; the USDT-M notification-host split was verified the same day.
