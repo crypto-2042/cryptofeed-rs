@@ -3281,3 +3281,586 @@ fn bithumb_subscription_array_and_depth_rejection() {
             .is_err()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Coinbase Advanced Trade public WebSocket
+// ---------------------------------------------------------------------------
+
+#[test]
+fn coinbase_ticker_carries_documented_bbo_sizes_and_publishes_l1() {
+    use cryptofeed_rs::coinbase::{adapter::CoinbaseAdapter, parser as coinbase_parser};
+    let feed = cryptofeed_rs::prelude::Coinbase::new()
+        .ticker()
+        .l1_book()
+        .symbol("BTC-USD")
+        .build();
+    let message = json!({
+        "channel": "ticker", "timestamp": "2026-11-04T01:46:34.715564011Z",
+        "sequence_num": 0,
+        "events": [{"type": "snapshot", "tickers": [{
+            "type": "ticker", "product_id": "BTC-USD", "price": "76741.81",
+            "volume_24_h": "7287.4082857", "low_24_h": "76238.54",
+            "high_24_h": "77981.38", "price_percent_chg_24_h": "-0.38959289197731",
+            "best_bid": "76741.81", "best_ask": "76741.82",
+            "best_bid_quantity": "0.26618358", "best_ask_quantity": "0.2960386"
+        }]}]
+    });
+    let events = CoinbaseAdapter::parse_messages_for_feed(&feed, &message, 1.0);
+    assert_eq!(events.len(), 2);
+    let mut ticker = None;
+    let mut l1 = None;
+    for event in events {
+        match event {
+            cryptofeed_rs::coinbase::adapter::CoinbaseEvent::Ticker(value) => ticker = Some(value),
+            cryptofeed_rs::coinbase::adapter::CoinbaseEvent::L1Book(value) => l1 = Some(value),
+            _ => {}
+        }
+    }
+    let ticker = ticker.expect("ticker");
+    assert_eq!(
+        ticker.exchange,
+        cryptofeed_core::exchange::ExchangeId::Coinbase
+    );
+    assert_eq!(ticker.symbol.as_str(), "BTC-USD");
+    assert_eq!(ticker.bid, Decimal::from_str_exact("76741.81").unwrap());
+    assert_eq!(ticker.ask, Decimal::from_str_exact("76741.82").unwrap());
+    let l1 = l1.expect("l1");
+    assert_eq!(
+        l1.bid.amount,
+        Decimal::from_str_exact("0.26618358").unwrap()
+    );
+    assert_eq!(l1.ask.amount, Decimal::from_str_exact("0.2960386").unwrap());
+    assert_eq!(
+        coinbase_parser::event_type(&coinbase_parser::event_rows(&message)[0]),
+        Some("snapshot")
+    );
+}
+
+#[test]
+fn coinbase_trade_inverts_the_documented_maker_side() {
+    use cryptofeed_rs::coinbase::parser as coinbase_parser;
+    let symbol = Symbol::spot("BTC", "USD");
+    let row = json!({
+        "product_id": "BTC-USD", "trade_id": "1114678923", "price": "76778.5",
+        "size": "0.00000006", "time": "2026-11-04T01:46:46.265419Z", "side": "BUY"
+    });
+    let trade = coinbase_parser::parse_trade_for_symbol(&row, 1.0, &symbol).expect("trade");
+    assert!(matches!(trade.side, cryptofeed_core::model::Side::Sell));
+    assert_eq!(trade.id.as_deref(), Some("1114678923"));
+    assert_eq!(trade.amount, Decimal::from_str_exact("0.00000006").unwrap());
+}
+
+#[test]
+fn coinbase_level2_snapshot_update_and_book_sync_fail_closed() {
+    use cryptofeed_rs::coinbase::{
+        book_sync::{CoinbaseBookOutcome, CoinbaseBookSync},
+        parser as coinbase_parser,
+    };
+    let symbol = Symbol::spot("BTC", "USD");
+    let snapshot = json!({
+        "type": "snapshot", "product_id": "BTC-USD", "updates": [
+            {"side": "bid", "event_time": "2026-11-04T01:47:08.029879Z",
+             "price_level": "76760.06", "new_quantity": "0.00522916"},
+            {"side": "offer", "event_time": "2026-11-04T01:47:08.029879Z",
+             "price_level": "76760.07", "new_quantity": "0.02"}
+        ]
+    });
+    let mut sync = CoinbaseBookSync::new(symbol.clone());
+    let update =
+        coinbase_parser::parse_book_event(&snapshot, 1.0, 2.0, &symbol).expect("snapshot event");
+    let CoinbaseBookOutcome::Publish(L2Book::Snapshot(book)) = sync.apply(update).unwrap() else {
+        panic!("expected snapshot");
+    };
+    assert_eq!(book.bids[0].price.to_string(), "76760.06");
+    assert_eq!(book.asks[0].amount.to_string(), "0.02");
+
+    let delta = json!({
+        "type": "update", "product_id": "BTC-USD", "updates": [
+            {"side": "bid", "event_time": "2026-11-04T01:47:08.078018Z",
+             "price_level": "76760.06", "new_quantity": "0.03306503"},
+            {"side": "offer", "event_time": "2026-11-04T01:47:08.078018Z",
+             "price_level": "76760.07", "new_quantity": "0"}
+        ]
+    });
+    let update = coinbase_parser::parse_book_event(&delta, 3.0, 4.0, &symbol).expect("delta event");
+    let CoinbaseBookOutcome::Publish(L2Book::Delta(book)) = sync.apply(update).unwrap() else {
+        panic!("expected delta");
+    };
+    assert_eq!(book.bids[0].amount.to_string(), "0.03306503");
+    assert_eq!(book.asks[0].amount.to_string(), "0");
+
+    let malformed = json!({"type": "update", "product_id": "BTC-USD", "updates": [
+        {"side": "middle", "price_level": "1", "new_quantity": "1"}]});
+    assert!(coinbase_parser::parse_book_event(&malformed, 1.0, 2.0, &symbol).is_none());
+
+    // Out-of-order: an update before the snapshot fails the state machine.
+    let mut sync = CoinbaseBookSync::new(symbol.clone());
+    let update = coinbase_parser::parse_book_event(&delta, 1.0, 2.0, &symbol).expect("delta event");
+    assert!(sync.apply(update).is_err());
+}
+
+#[test]
+fn coinbase_five_minute_candles_are_the_only_accepted_interval() {
+    use cryptofeed_rs::coinbase::parser as coinbase_parser;
+    let symbol = Symbol::spot("BTC", "USD");
+    let row = json!({
+        "start": "1793724900", "high": "77654.62", "low": "77559.6",
+        "open": "77576.65", "close": "77623.15", "volume": "20.02210661",
+        "product_id": "BTC-USD"
+    });
+    let candle =
+        coinbase_parser::parse_candle_for_symbol(&row, "5m", 10.0, 11.0, &symbol).expect("candle");
+    assert_eq!(candle.interval, "5m");
+    assert_eq!(candle.start, 1_793_724_900.0);
+    assert_eq!(candle.end, 1_793_725_200.0);
+    assert_eq!(candle.closed, None);
+    assert!(coinbase_parser::parse_candle_for_symbol(&row, "1m", 10.0, 11.0, &symbol).is_none());
+
+    let feed = cryptofeed_rs::prelude::Coinbase::new()
+        .candles()
+        .symbol("BTC-USD")
+        .build();
+    assert!(
+        cryptofeed_rs::coinbase::adapter::CoinbaseAdapter::subscription_messages(&feed).is_err()
+    );
+    let feed = cryptofeed_rs::prelude::Coinbase::new()
+        .candles()
+        .candles_interval("5m")
+        .symbol("BTC-USD")
+        .build();
+    let frames =
+        cryptofeed_rs::coinbase::adapter::CoinbaseAdapter::subscription_messages(&feed).unwrap();
+    assert!(frames.iter().any(|frame| frame.contains("\"candles\"")));
+    assert!(frames.iter().any(|frame| frame.contains("\"heartbeats\"")));
+}
+
+#[test]
+fn coinbase_capability_preflight_accepts_spot_and_rejects_depth_and_derivatives() {
+    use cryptofeed_rs::bithumb::Bithumb;
+    let spot = cryptofeed_rs::prelude::Coinbase::new()
+        .ticker()
+        .trade()
+        .l2_book()
+        .l1_book()
+        .symbol("BTC-USD")
+        .build();
+    assert_eq!(
+        cryptofeed_rs::markets::validate_feed(&spot).expect("spot capability"),
+        cryptofeed_core::symbol::InstrumentKind::Spot
+    );
+    let with_depth = cryptofeed_rs::prelude::Coinbase::new()
+        .l2_book()
+        .l2_book_depth(10)
+        .symbol("BTC-USD")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&with_depth).is_err());
+    let perpetual = cryptofeed_rs::prelude::Coinbase::new()
+        .ticker()
+        .symbol("BTC-USD-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&perpetual).is_err());
+    // The builder is still importable from the prelude next to the others.
+    let _ = Bithumb::new();
+}
+
+// ---------------------------------------------------------------------------
+// Deribit JSON-RPC v2 public notifications
+// ---------------------------------------------------------------------------
+
+#[test]
+fn deribit_ticker_payload_splits_into_normalized_categories() {
+    use cryptofeed_rs::deribit::parser as deribit_parser;
+    let data = json!({
+        "timestamp": 1793757174238_i64, "state": "open",
+        "stats": {"high": 77999.5, "low": 76265.5, "price_change": -0.3546,
+                  "volume": 23909.30644457, "volume_usd": 1841519840.0},
+        "index_price": 76833.47, "instrument_name": "BTC-PERPETUAL",
+        "last_price": 76863.5, "settlement_price": 76712.08,
+        "open_interest": 657029240, "mark_price": 76862.37,
+        "interest_value": 0.06727170900373936, "current_funding": 1.2614e-4,
+        "funding_8h": 7.185e-5, "best_ask_price": 76864.0,
+        "best_bid_price": 76863.5, "best_ask_amount": 44630.0,
+        "best_bid_amount": 17530.0
+    });
+    let symbol = Symbol::perpetual("BTC", "USD");
+    let ticker = deribit_parser::parse_ticker_for_symbol(&data, 1.0, &symbol).expect("ticker");
+    assert_eq!(ticker.bid, Decimal::from_str_exact("76863.5").unwrap());
+    assert_eq!(ticker.ask, Decimal::from_str_exact("76864").unwrap());
+    let mark = deribit_parser::parse_mark_price_for_symbol(&data, 1.0, &symbol).expect("mark");
+    assert_eq!(mark.price, Decimal::from_str_exact("76862.37").unwrap());
+    let index = deribit_parser::parse_index_price_for_symbol(&data, 1.0, &symbol).expect("index");
+    assert_eq!(index.price, Decimal::from_str_exact("76833.47").unwrap());
+    let oi = deribit_parser::parse_open_interest_for_symbol(&data, 1.0, &symbol).expect("oi");
+    assert_eq!(oi.open_interest, Decimal::from(657_029_240));
+    let funding = deribit_parser::parse_funding_for_symbol(&data, 1.0, &symbol).expect("funding");
+    assert_eq!(
+        funding.rate,
+        Some(Decimal::from_str_exact("0.00012614").unwrap())
+    );
+    assert_eq!(
+        funding.mark_price,
+        Some(Decimal::from_str_exact("76862.37").unwrap())
+    );
+    assert_eq!(funding.next_funding_time, None);
+}
+
+#[test]
+fn deribit_trades_and_chart_candles_match_documented_shapes() {
+    use cryptofeed_rs::deribit::parser as deribit_parser;
+    let symbol = Symbol::perpetual("BTC", "USD");
+    let trade = json!({
+        "timestamp": 1793757174445_i64, "price": 76863.5, "direction": "sell",
+        "index_price": 76833.47, "instrument_name": "BTC-PERPETUAL",
+        "trade_seq": 313325404, "amount": 2220.0, "mark_price": 76862.37,
+        "tick_direction": 1, "trade_id": "460199050", "contracts": 222.0
+    });
+    let trade = deribit_parser::parse_trade_for_symbol(&trade, 1.0, &symbol).expect("trade");
+    assert!(matches!(trade.side, cryptofeed_core::model::Side::Sell));
+    // Perpetual/futures amounts are documented in USD units and preserved.
+    assert_eq!(trade.amount, Decimal::from(2220));
+    assert_eq!(trade.id.as_deref(), Some("460199050"));
+
+    let candle_data = json!({
+        "close": 76863.5, "high": 76883.0, "low": 76830.0, "open": 76883.0,
+        "tick": 1793757120000_i64, "cost": 1972220.0, "volume": 25.66235459
+    });
+    let candle =
+        deribit_parser::parse_candle_for_symbol(&candle_data, "1m", 1.0, &symbol).expect("candle");
+    assert_eq!(candle.start, 1_793_757_120.0);
+    assert_eq!(candle.end, 1_793_757_180.0);
+    assert_eq!(candle.closed, None);
+}
+
+#[test]
+fn deribit_book_change_id_chain_validates_and_resnapshots_on_gaps() {
+    use cryptofeed_rs::deribit::{
+        book_sync::{DeribitBookOutcome, DeribitBookSync},
+        parser as deribit_parser,
+    };
+    let symbol = Symbol::perpetual("BTC", "USD");
+    let snapshot = json!({
+        "timestamp": 1793757173936_i64, "type": "snapshot", "change_id": 100_u64,
+        "instrument_name": "BTC-PERPETUAL",
+        "bids": [["new", 76863.5, 17530.0], ["new", 76862.5, 1200.0]],
+        "asks": [["new", 76864.0, 44630.0]]
+    });
+    let mut sync = DeribitBookSync::new(symbol.clone());
+    let update = deribit_parser::parse_book_for_symbol(&snapshot, 1.0, &symbol).expect("snapshot");
+    let DeribitBookOutcome::Publish(L2Book::Snapshot(book)) = sync.apply(update).unwrap() else {
+        panic!("expected snapshot");
+    };
+    assert_eq!(book.bids[0].amount.to_string(), "17530.0");
+
+    let change = json!({
+        "timestamp": 1793757173999_i64, "type": "change", "change_id": 101_u64,
+        "prev_change_id": 100_u64, "instrument_name": "BTC-PERPETUAL",
+        "bids": [["delete", 76863.5, 0], ["change", 76862.5, 900.0]], "asks": []
+    });
+    let update = deribit_parser::parse_book_for_symbol(&change, 1.0, &symbol).expect("change");
+    let DeribitBookOutcome::Publish(L2Book::Delta(delta)) = sync.apply(update).unwrap() else {
+        panic!("expected delta");
+    };
+    assert_eq!(delta.bids[0].amount.to_string(), "0");
+    assert_eq!(delta.bids[1].amount.to_string(), "900.0");
+
+    let gap = json!({
+        "timestamp": 1793757174000_i64, "type": "change", "change_id": 200_u64,
+        "prev_change_id": 199_u64, "instrument_name": "BTC-PERPETUAL",
+        "bids": [["change", 76862.5, 1.0]], "asks": []
+    });
+    let update = deribit_parser::parse_book_for_symbol(&gap, 1.0, &symbol).expect("change");
+    assert_eq!(sync.apply(update).unwrap(), DeribitBookOutcome::Resnapshot);
+    assert!(sync.awaiting_snapshot());
+
+    let malformed = json!({"timestamp": 1, "type": "change", "change_id": 2_u64,
+        "prev_change_id": 1_u64, "bids": [["move", 1, 2]], "asks": []});
+    assert!(deribit_parser::parse_book_for_symbol(&malformed, 1.0, &symbol).is_none());
+}
+
+#[test]
+fn deribit_subscription_and_preflight_cover_perpetual_and_dated_futures() {
+    use cryptofeed_rs::deribit::adapter::DeribitAdapter;
+    let perpetual = cryptofeed_rs::prelude::Deribit::new()
+        .ticker()
+        .trade()
+        .l2_book()
+        .funding()
+        .mark_price()
+        .index()
+        .open_interest()
+        .candles()
+        .candles_interval("1h")
+        .symbol("BTC-USD-PERP")
+        .exchange_symbol("BTC-PERPETUAL")
+        .build();
+    assert_eq!(
+        cryptofeed_rs::markets::validate_feed(&perpetual).expect("perpetual matrix"),
+        cryptofeed_core::symbol::InstrumentKind::Perpetual
+    );
+    let frames = DeribitAdapter::subscription_messages(&perpetual).expect("frames");
+    assert_eq!(frames.len(), 2);
+    assert!(frames[1].contains("chart.trades.BTC-PERPETUAL.60"));
+    assert!(frames[1].contains("ticker.BTC-PERPETUAL.100ms"));
+
+    let futures = cryptofeed_rs::prelude::Deribit::new()
+        .ticker()
+        .candles()
+        .candles_interval("1d")
+        .symbol("BTC-USD-261225")
+        .exchange_symbol("BTC-25DEC26")
+        .build();
+    assert_eq!(
+        cryptofeed_rs::markets::validate_feed(&futures).expect("futures matrix"),
+        cryptofeed_core::symbol::InstrumentKind::Futures
+    );
+    // Options are out of scope and rejected before connecting.
+    let option = cryptofeed_rs::prelude::Deribit::new()
+        .ticker()
+        .symbol("BTC-USD-261225-100000-C")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&option).is_err());
+    // Spot is not a Deribit product in this feed.
+    let spot = cryptofeed_rs::prelude::Deribit::new()
+        .ticker()
+        .symbol("BTC-USD")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&spot).is_err());
+    // A requested L2 depth has no documented full-book parameter.
+    let depth = cryptofeed_rs::prelude::Deribit::new()
+        .l2_book()
+        .l2_book_depth(10)
+        .symbol("BTC-USD-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&depth).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// HTX (Huobi) spot and USDT-M public WebSocket
+// ---------------------------------------------------------------------------
+
+#[test]
+fn htx_spot_topics_and_payloads_match_documented_shapes() {
+    use cryptofeed_rs::htx::{adapter::HtxAdapter, parser as htx_parser};
+    let feed = cryptofeed_rs::prelude::Htx::new()
+        .ticker()
+        .l1_book()
+        .trade()
+        .symbol("BTC-USDT")
+        .exchange_symbol("BTCUSDT")
+        .build();
+    let frames = HtxAdapter::subscription_messages(&feed).expect("frames");
+    let topics: Vec<String> = frames
+        .iter()
+        .map(|frame| {
+            serde_json::from_str::<serde_json::Value>(frame).expect("json")["sub"]
+                .as_str()
+                .expect("sub")
+                .to_owned()
+        })
+        .collect();
+    assert!(topics.contains(&"market.btcusdt.ticker".to_owned()));
+    assert!(topics.contains(&"market.btcusdt.bbo".to_owned()));
+    assert!(topics.contains(&"market.btcusdt.trade.detail".to_owned()));
+
+    let symbol = Symbol::spot("BTC", "USDT");
+    let ticker = htx_parser::parse_ticker(
+        &json!({"bid": 52732.88, "bidSize": 0.036, "ask": 52732.89,
+                "askSize": 0.583653, "lastPrice": 52735.63, "ts": 1630982370526_i64}),
+        1.0,
+        &symbol,
+    )
+    .expect("ticker");
+    assert_eq!(ticker.bid, Decimal::from_str_exact("52732.88").unwrap());
+    assert_eq!(ticker.ask, Decimal::from_str_exact("52732.89").unwrap());
+    let bbo = htx_parser::parse_spot_bbo(
+        &json!({"seqId": 1_i64, "ask": 52665.02, "askSize": 1.502181,
+                "bid": 52665.01, "bidSize": 0.178567,
+                "quoteTime": 1630994555539_i64, "symbol": "btcusdt"}),
+        1.0,
+        &symbol,
+    )
+    .expect("bbo");
+    assert_eq!(bbo.bid.amount.to_string(), "0.178567");
+    let trade = htx_parser::parse_spot_trade(
+        &json!({"id": 1_i64, "ts": 1630994963173_i64, "tradeId": 102523573486_i64,
+                "amount": 0.006754, "price": 52648.62, "direction": "buy"}),
+        1.0,
+        &symbol,
+    )
+    .expect("trade");
+    assert!(matches!(trade.side, cryptofeed_core::model::Side::Buy));
+    assert_eq!(trade.amount.to_string(), "0.006754");
+}
+
+#[test]
+fn htx_spot_snapshot_depth_uses_documented_version_dedupe() {
+    use cryptofeed_rs::htx::{
+        book_sync::{HtxBookMode, HtxBookOutcome, HtxBookSync},
+        parser as htx_parser,
+    };
+    let symbol = Symbol::spot("BTC", "USDT");
+    let snapshot = json!({"bids": [[52690.69, 0.36281], [52690.68, 0.2]],
+        "asks": [[52690.7, 0.372591]], "version": 136998124622_u64,
+        "ts": 1630983549500_i64});
+    let update = htx_parser::parse_spot_depth(&snapshot, 1.0, &symbol).expect("depth");
+    assert!(update.snapshot);
+    let mut sync = HtxBookSync::new(symbol.clone(), HtxBookMode::SpotSnapshot);
+    let HtxBookOutcome::Publish(L2Book::Snapshot(book)) = sync.apply(update).unwrap() else {
+        panic!("expected snapshot");
+    };
+    assert_eq!(book.bids[0].price.to_string(), "52690.69");
+    let stale = htx_parser::parse_spot_depth(&snapshot, 1.0, &symbol).expect("depth");
+    assert_eq!(sync.apply(stale).unwrap(), HtxBookOutcome::Stale);
+    let replacement = json!({"bids": [[52690.0, 1.0]], "asks": [],
+        "version": 136998124623_u64, "ts": 1630983549600_i64});
+    let update = htx_parser::parse_spot_depth(&replacement, 1.0, &symbol).expect("depth");
+    let HtxBookOutcome::Publish(L2Book::Snapshot(book)) = sync.apply(update).unwrap() else {
+        panic!("expected replacement snapshot");
+    };
+    assert_eq!(book.bids[0].price.to_string(), "52690.0");
+}
+
+#[test]
+fn htx_swap_uses_detail_quantity_and_incremental_versions() {
+    use cryptofeed_rs::htx::{adapter::HtxAdapter, parser as htx_parser};
+    let perp = Symbol::perpetual("BTC", "USDT");
+    let detail = json!({"id": 1603707840, "open": 12916.2, "close": 13065.8,
+        "high": 13205.3, "low": 12852.8, "amount": 30.316, "vol": 30316,
+        "trade_turnover": 395073.49, "count": 2983,
+        "bid": [13684.5, 10615], "ask": [13684.6, 3440]});
+    let ticker = htx_parser::parse_swap_detail_ticker(&detail, 1.0, &perp).expect("detail");
+    assert_eq!(ticker.bid.to_string(), "13684.5");
+    assert_eq!(ticker.ask.to_string(), "13684.6");
+
+    // The documented base-coin `quantity` is required for a swap trade; the
+    // contract `amount` alone must not be published as coin.
+    let trade = json!({"amount": 2, "quantity": 0.002, "ts": 1603695383124_i64,
+        "id": 1314767870000_i64, "price": 13081.3, "direction": "buy"});
+    let trade = htx_parser::parse_swap_trade(&trade, 1.0, &perp).expect("trade");
+    assert_eq!(trade.amount.to_string(), "0.002");
+    let contract_only = json!({"amount": 2, "price": 1.0, "direction": "buy"});
+    assert!(htx_parser::parse_swap_trade(&contract_only, 1.0, &perp).is_none());
+
+    let snapshot = json!({"asks": [[13081.9, 206]], "bids": [[13071.9, 38]],
+        "event": "snapshot", "version": 1512467_u64, "ts": 1603707712356_i64});
+    let update = htx_parser::parse_swap_depth(&snapshot, 1.0, &perp).expect("depth");
+    assert!(update.snapshot);
+    let update_row = json!({"asks": [[13081.9, 0]], "bids": [[13071.9, 40]],
+        "event": "update", "version": 1512468_u64, "ts": 1603707712400_i64});
+    let update = htx_parser::parse_swap_depth(&update_row, 1.0, &perp).expect("depth");
+    assert!(!update.snapshot);
+    assert_eq!(update.asks[0].amount.to_string(), "0");
+
+    let feed = cryptofeed_rs::prelude::Htx::new()
+        .l2_book()
+        .symbol("BTC-USDT-PERP")
+        .exchange_symbol("BTC-USDT")
+        .build();
+    let frames = HtxAdapter::subscription_messages(&feed).expect("frames");
+    assert!(frames[0].contains("market.BTC-USDT.depth.size_20.high_freq"));
+    assert!(frames[0].contains("\"data_type\":\"incremental\""));
+}
+
+#[test]
+fn htx_funding_and_liquidation_notifications_map_documented_fields() {
+    use cryptofeed_rs::htx::parser as htx_parser;
+    let perp = Symbol::perpetual("BTC", "USDT");
+    let funding = htx_parser::parse_funding(
+        &json!({"symbol": "BTC", "contract_code": "BTC-USDT", "fee_asset": "USDT",
+            "funding_time": "1603778700000", "funding_rate": "-0.000220068774978695",
+            "estimated_rate": "-0.000684397270167616",
+            "settlement_time": "1603785600000"}),
+        1_603_778_748.166,
+        1.0,
+        &perp,
+    )
+    .expect("funding");
+    assert_eq!(
+        funding.rate,
+        Some(Decimal::from_str_exact("-0.000220068774978695").unwrap())
+    );
+    assert_eq!(funding.next_funding_time, Some(1_603_785_600.0));
+    let liquidation = htx_parser::parse_liquidation(
+        &json!({"symbol": "O3", "contract_code": "O3-USDT", "direction": "sell",
+            "offset": "close", "volume": 432, "price": 0.7858,
+            "created_at": 1639122193172_i64, "amount": 432,
+            "trade_turnover": 339.4656, "contract_type": "swap"}),
+        1.0,
+        &Symbol::perpetual("O3", "USDT"),
+    )
+    .expect("liquidation");
+    assert!(matches!(
+        liquidation.side,
+        cryptofeed_core::model::Side::Sell
+    ));
+    assert_eq!(liquidation.quantity, Decimal::from(432));
+    assert_eq!(liquidation.price.to_string(), "0.7858");
+}
+
+#[test]
+fn htx_capability_preflight_covers_spot_and_usdt_m_perpetual() {
+    let spot = cryptofeed_rs::prelude::Htx::new()
+        .ticker()
+        .l1_book()
+        .trade()
+        .l2_book()
+        .candles()
+        .candles_interval("1h")
+        .symbol("BTC-USDT")
+        .build();
+    assert_eq!(
+        cryptofeed_rs::markets::validate_feed(&spot).expect("spot"),
+        cryptofeed_core::symbol::InstrumentKind::Spot
+    );
+    let perpetual = cryptofeed_rs::prelude::Htx::new()
+        .ticker()
+        .l1_book()
+        .trade()
+        .l2_book()
+        .funding()
+        .liquidations()
+        .candles()
+        .candles_interval("4h")
+        .symbol("BTC-USDT-PERP")
+        .build();
+    assert_eq!(
+        cryptofeed_rs::markets::validate_feed(&perpetual).expect("perp"),
+        cryptofeed_core::symbol::InstrumentKind::Perpetual
+    );
+    // A weekly candle exists for spot but not for USDT-M perpetuals.
+    let weekly_spot = cryptofeed_rs::prelude::Htx::new()
+        .candles()
+        .candles_interval("1w")
+        .symbol("BTC-USDT")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&weekly_spot).is_ok());
+    let weekly_perp = cryptofeed_rs::prelude::Htx::new()
+        .candles()
+        .candles_interval("1w")
+        .symbol("BTC-USDT-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&weekly_perp).is_err());
+    // USDT-M delivery contracts are out of scope (only perpetual has a row).
+    let futures = cryptofeed_rs::prelude::Htx::new()
+        .ticker()
+        .symbol("BTC-USDT-261225")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&futures).is_err());
+    // Mark price / index / open interest have no current public WS topic.
+    let mark = cryptofeed_rs::prelude::Htx::new()
+        .mark_price()
+        .symbol("BTC-USDT-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&mark).is_err());
+    let oi = cryptofeed_rs::prelude::Htx::new()
+        .open_interest()
+        .symbol("BTC-USDT-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&oi).is_err());
+    let depth = cryptofeed_rs::prelude::Htx::new()
+        .l2_book()
+        .l2_book_depth(20)
+        .symbol("BTC-USDT-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&depth).is_err());
+}

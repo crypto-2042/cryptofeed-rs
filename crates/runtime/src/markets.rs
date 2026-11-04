@@ -209,6 +209,67 @@ const UPBIT_SPOT_CHANNELS: &[Channel] = &[Channel::Trade, Channel::L2Book, Chann
 /// is documented, so `Candles` is not advertised.
 const BITHUMB_SPOT_CHANNELS: &[Channel] = &[Channel::Trade, Channel::L2Book];
 
+/// Coinbase Advanced Trade public spot channels. `level2` is a full-book
+/// snapshot + absolute-update stream with no depth parameter; the `ticker`
+/// payload carries best bid/ask **with sizes**, so both `Ticker` and `L1Book`
+/// are advertised. The public `candles` channel only transmits five-minute
+/// buckets: `Candles` is accepted only with the explicit `5m` interval.
+const COINBASE_SPOT_CHANNELS: &[Channel] = &[
+    Channel::Ticker,
+    Channel::Trade,
+    Channel::L2Book,
+    Channel::L1Book,
+    Channel::Candles,
+];
+/// Deribit JSON-RPC public channels for perpetuals. One `ticker` payload is
+/// split into Ticker, MarkPrice, IndexPrice, OpenInterest and Funding. There is
+/// no public liquidation stream and no standalone L1 channel.
+const DERIBIT_PERPETUAL_CHANNELS: &[Channel] = &[
+    Channel::Ticker,
+    Channel::Trade,
+    Channel::L2Book,
+    Channel::Candles,
+    Channel::Funding,
+    Channel::MarkPrice,
+    Channel::Index,
+    Channel::OpenInterest,
+];
+/// Deribit dated futures: same public channels as perpetuals except funding
+/// (a dated contract has no perpetual funding stream).
+const DERIBIT_FUTURES_CHANNELS: &[Channel] = &[
+    Channel::Ticker,
+    Channel::Trade,
+    Channel::L2Book,
+    Channel::Candles,
+    Channel::MarkPrice,
+    Channel::Index,
+    Channel::OpenInterest,
+];
+/// HTX spot public channels: `ticker`, `trade.detail`, snapshot `depth.step0`,
+/// tick-by-tick `bbo` (L1 with sizes) and `kline`. No derivative topics exist
+/// on the spot product.
+const HTX_SPOT_CHANNELS: &[Channel] = &[
+    Channel::Ticker,
+    Channel::Trade,
+    Channel::L2Book,
+    Channel::L1Book,
+    Channel::Candles,
+];
+/// HTX USDT-M perpetual public channels: `detail` (ticker), `trade.detail`,
+/// incremental `depth.size_20.high_freq`, `bbo`, `kline`, plus the documented
+/// funding-rate and liquidation notification topics on the separate
+/// `linear-swap-notification` host. Mark price, index price and open interest
+/// have no current public WebSocket topic and are not advertised.
+const HTX_PERPETUAL_CHANNELS: &[Channel] = &[
+    Channel::Ticker,
+    Channel::Trade,
+    Channel::L2Book,
+    Channel::L1Book,
+    Channel::Candles,
+    Channel::Funding,
+    Channel::Liquidations,
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capability {
     pub exchange: ExchangeId,
@@ -317,6 +378,31 @@ const CAPABILITIES: &[Capability] = &[
         product: InstrumentKind::Spot,
         channels: BITHUMB_SPOT_CHANNELS,
     },
+    Capability {
+        exchange: ExchangeId::Coinbase,
+        product: InstrumentKind::Spot,
+        channels: COINBASE_SPOT_CHANNELS,
+    },
+    Capability {
+        exchange: ExchangeId::Deribit,
+        product: InstrumentKind::Perpetual,
+        channels: DERIBIT_PERPETUAL_CHANNELS,
+    },
+    Capability {
+        exchange: ExchangeId::Deribit,
+        product: InstrumentKind::Futures,
+        channels: DERIBIT_FUTURES_CHANNELS,
+    },
+    Capability {
+        exchange: ExchangeId::Htx,
+        product: InstrumentKind::Spot,
+        channels: HTX_SPOT_CHANNELS,
+    },
+    Capability {
+        exchange: ExchangeId::Htx,
+        product: InstrumentKind::Perpetual,
+        channels: HTX_PERPETUAL_CHANNELS,
+    },
 ];
 
 pub fn capability_matrix() -> &'static [Capability] {
@@ -417,6 +503,23 @@ fn validate_candle_interval(feed: &ExchangeFeed, product: InstrumentKind) -> Res
             )
             .is_some()
         }
+        ExchangeId::Coinbase => {
+            crate::exchange::coinbase::adapter::CoinbaseAdapter::candle_interval_wire(
+                &feed.candle_interval,
+            )
+            .is_some()
+        }
+        ExchangeId::Deribit => {
+            crate::exchange::deribit::adapter::DeribitAdapter::candle_interval_wire(
+                &feed.candle_interval,
+            )
+            .is_some()
+        }
+        ExchangeId::Htx => crate::exchange::htx::adapter::HtxAdapter::candle_interval_wire(
+            &feed.candle_interval,
+            product,
+        )
+        .is_some(),
         _ => false,
     };
     if supported {
@@ -471,6 +574,15 @@ fn validate_l2_book_depth(feed: &ExchangeFeed, product: InstrumentKind) -> Resul
         // Bithumb documents no unit-count/depth request parameter; the
         // documented `level` field aggregates price steps and is not a depth.
         ExchangeId::Bithumb => false,
+        ExchangeId::Coinbase => {
+            crate::exchange::coinbase::adapter::CoinbaseAdapter::l2_book_depth_supported(level)
+        }
+        ExchangeId::Deribit => {
+            crate::exchange::deribit::adapter::DeribitAdapter::l2_book_depth_supported(level)
+        }
+        ExchangeId::Htx => {
+            crate::exchange::htx::adapter::HtxAdapter::l2_book_depth_supported(level)
+        }
         _ => false,
     };
     if supported {
@@ -911,8 +1023,38 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
             .await?;
             add_kraken_spot_catalog(&mut registry, &payload)?;
         }
-        // Coinbase has no verified catalog in this increment; fail symbol
-        // discovery explicitly instead of guessing native names.
+        ExchangeId::Coinbase => {
+            if product != InstrumentKind::Spot {
+                return Err(Error::UnsupportedCapability(format!(
+                    "{:?}/{:?} symbol discovery; the public Advanced Trade feed is spot-only",
+                    exchange, product
+                )));
+            }
+            fetch_coinbase_spot_catalog(&mut registry, refresh, transport).await?;
+        }
+        ExchangeId::Deribit => {
+            if !matches!(product, InstrumentKind::Perpetual | InstrumentKind::Futures) {
+                return Err(Error::UnsupportedCapability(format!(
+                    "{:?}/{:?} symbol discovery; Deribit derivatives are perpetual/dates futures only",
+                    exchange, product
+                )));
+            }
+            fetch_deribit_catalog(&mut registry, product, refresh, transport).await?;
+        }
+        ExchangeId::Htx => match product {
+            InstrumentKind::Spot => {
+                fetch_htx_spot_catalog(&mut registry, refresh, transport).await?;
+            }
+            InstrumentKind::Perpetual => {
+                fetch_htx_swap_catalog(&mut registry, refresh, transport).await?;
+            }
+            _ => {
+                return Err(Error::UnsupportedCapability(format!(
+                    "{:?}/{:?} symbol discovery; HTX USDT-M delivery contracts are out of scope",
+                    exchange, product
+                )));
+            }
+        },
         _ => {
             return Err(Error::UnsupportedCapability(format!(
                 "{:?}/{:?} symbol discovery",
@@ -1593,6 +1735,258 @@ fn add_kraken_spot_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Re
     Ok(())
 }
 
+async fn fetch_coinbase_spot_catalog(
+    registry: &mut SymbolRegistry,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<()> {
+    // Public Advanced Trade catalog; SPOT only. Cursor pagination is documented
+    // as a base64 cursor with `pagination.has_next` / `next_cursor`.
+    let mut cursor: Option<String> = None;
+    let mut seen = HashSet::new();
+    loop {
+        let mut url = url::Url::parse("https://api.coinbase.com/api/v3/brokerage/market/products")
+            .map_err(|error| Error::Transport(error.to_string()))?;
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("product_type", "SPOT");
+            query.append_pair("limit", "250");
+            if let Some(cursor) = &cursor {
+                query.append_pair("cursor", cursor);
+            }
+        }
+        let payload = fetch_json(url.as_str(), refresh, transport, ExchangeId::Coinbase).await?;
+        add_coinbase_spot_page(registry, &payload)?;
+        let has_next = payload
+            .pointer("/pagination/has_next")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !has_next {
+            return Ok(());
+        }
+        let next = str_at(&payload, &["pagination", "next_cursor"])
+            .filter(|next| !next.is_empty())
+            .ok_or_else(|| {
+                Error::MalformedData("Coinbase catalog page is missing next_cursor".to_owned())
+            })?;
+        if !seen.insert(next.to_owned()) {
+            return Err(Error::MalformedData(
+                "Coinbase catalog cursor loop".to_owned(),
+            ));
+        }
+        cursor = Some(next.to_owned());
+    }
+}
+
+fn add_coinbase_spot_page(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
+    for item in array_at(payload, &["products"])? {
+        // The request already filters SPOT; keep the explicit check so a
+        // derivative row can never be registered as a spot symbol.
+        if str_at(item, &["product_type"]) != Some("SPOT") {
+            continue;
+        }
+        if !catalog_status(item, "status", &["online"])? {
+            continue;
+        }
+        let exchange_symbol = required_str(item, "product_id")?;
+        let base = required_str(item, "base_currency_id")?;
+        let quote = required_str(item, "quote_currency_id")?;
+        let expected = format!(
+            "{}-{}",
+            base.to_ascii_uppercase(),
+            quote.to_ascii_uppercase()
+        );
+        if !exchange_symbol.eq_ignore_ascii_case(&expected) {
+            return Err(Error::MalformedData(format!(
+                "Coinbase product {exchange_symbol} disagrees with {expected}"
+            )));
+        }
+        registry.insert_market(
+            Symbol::spot(base, quote),
+            exchange_symbol,
+            ExchangeId::Coinbase,
+            item,
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+async fn fetch_deribit_catalog(
+    registry: &mut SymbolRegistry,
+    product: InstrumentKind,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<()> {
+    // Public JSON-RPC method over the documented REST gateway; `kind=future`
+    // covers both perpetuals and dated futures, options are filtered out.
+    let payload = fetch_json(
+        "https://www.deribit.com/api/v2/public/get_instruments?currency=any&kind=future&expired=false",
+        refresh,
+        transport,
+        ExchangeId::Deribit,
+    )
+    .await?;
+    add_deribit_markets(registry, &payload, product)
+}
+
+fn add_deribit_markets(
+    registry: &mut SymbolRegistry,
+    payload: &Value,
+    product: InstrumentKind,
+) -> Result<()> {
+    for item in array_at(payload, &["result"])? {
+        // Options/combos are never registered.
+        if required_str(item, "kind")? != "future" {
+            continue;
+        }
+        if !catalog_status(item, "state", &["open"])? {
+            continue;
+        }
+        if item.get("is_active").and_then(Value::as_bool) == Some(false) {
+            continue;
+        }
+        let exchange_symbol = required_str(item, "instrument_name")?;
+        let base = required_str(item, "base_currency")?;
+        let quote = required_str(item, "quote_currency")?;
+        let stem = exchange_symbol
+            .split_once('-')
+            .map_or(exchange_symbol, |(stem, _)| stem);
+        let native_base = stem.split_once('_').map_or(stem, |(base, _)| base);
+        if !native_base.eq_ignore_ascii_case(base) {
+            return Err(Error::MalformedData(format!(
+                "Deribit instrument {exchange_symbol} disagrees with base {base}"
+            )));
+        }
+        let perpetual = str_at(item, &["settlement_period"]) == Some("perpetual");
+        let symbol = match product {
+            InstrumentKind::Perpetual => {
+                if !perpetual {
+                    continue;
+                }
+                Symbol::perpetual(base, quote)
+            }
+            InstrumentKind::Futures => {
+                if perpetual {
+                    continue;
+                }
+                let expires = item
+                    .get("expiration_timestamp")
+                    .and_then(Value::as_i64)
+                    .filter(|expires| *expires > 0)
+                    .ok_or_else(|| {
+                        Error::MalformedData(format!(
+                            "Deribit dated instrument {exchange_symbol} has no expiration"
+                        ))
+                    })?;
+                Symbol::futures(base, quote, &expiry_from_millis(&expires.to_string())?)
+            }
+            _ => continue,
+        };
+        registry.insert_market(symbol, exchange_symbol, ExchangeId::Deribit, item, None)?;
+    }
+    Ok(())
+}
+
+async fn fetch_htx_spot_catalog(
+    registry: &mut SymbolRegistry,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<()> {
+    let payload = fetch_json(
+        "https://api.huobi.pro/v1/common/symbols",
+        refresh,
+        transport,
+        ExchangeId::Htx,
+    )
+    .await?;
+    add_htx_spot_catalog(registry, &payload)
+}
+
+fn add_htx_spot_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
+    for item in array_at(payload, &["data"])? {
+        if !catalog_status(item, "state", &["online"])? {
+            continue;
+        }
+        let exchange_symbol = required_str(item, "symbol")?;
+        let base = required_str(item, "base-currency")?;
+        let quote = required_str(item, "quote-currency")?;
+        let expected = format!(
+            "{}{}",
+            base.to_ascii_lowercase(),
+            quote.to_ascii_lowercase()
+        );
+        if !exchange_symbol.eq_ignore_ascii_case(&expected) {
+            return Err(Error::MalformedData(format!(
+                "HTX spot symbol {exchange_symbol} disagrees with {expected}"
+            )));
+        }
+        registry.insert_market(
+            Symbol::spot(base, quote),
+            exchange_symbol,
+            ExchangeId::Htx,
+            item,
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+async fn fetch_htx_swap_catalog(
+    registry: &mut SymbolRegistry,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<()> {
+    let payload = fetch_json(
+        "https://api.hbdm.com/linear-swap-api/v1/swap_contract_info",
+        refresh,
+        transport,
+        ExchangeId::Htx,
+    )
+    .await?;
+    add_htx_swap_markets(registry, &payload)
+}
+
+fn add_htx_swap_markets(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
+    for item in array_at(payload, &["data"])? {
+        // The swap endpoint also serves delivery contracts; the feed is
+        // perpetual-only and must not mix them.
+        if str_at(item, &["business_type"]) != Some("swap")
+            || str_at(item, &["contract_type"]) != Some("swap")
+        {
+            continue;
+        }
+        // contract_status 1 means settlement finished / trading resumed; the
+        // documented settlement period codes (5..8) are not subscribable.
+        let status = item.get("contract_status").and_then(Value::as_i64);
+        if status != Some(1) {
+            continue;
+        }
+        let exchange_symbol = required_str(item, "contract_code")?;
+        let pair = required_str(item, "pair")?;
+        let (base, quote) = pair
+            .split_once('-')
+            .filter(|(base, quote)| !base.is_empty() && !quote.is_empty() && !quote.contains('-'))
+            .ok_or_else(|| {
+                Error::MalformedData(format!("HTX swap pair {pair} is not BASE-QUOTE"))
+            })?;
+        let expected = format!("{base}-{quote}");
+        if !exchange_symbol.eq_ignore_ascii_case(&expected) {
+            return Err(Error::MalformedData(format!(
+                "HTX swap contract {exchange_symbol} disagrees with {expected}"
+            )));
+        }
+        registry.insert_market(
+            Symbol::perpetual(base, quote),
+            exchange_symbol,
+            ExchangeId::Htx,
+            item,
+            None,
+        )?;
+    }
+    Ok(())
+}
+
 /// KuCoin base aliases used before product qualification (`XBT` -> `BTC`).
 fn kucoin_alias_asset(asset: &str) -> &str {
     if asset.eq_ignore_ascii_case("XBT") {
@@ -1951,8 +2345,9 @@ fn str_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
 mod tests {
     use super::{
         SymbolRegistry, add_binance_markets, add_binance_option_market, add_bitget_markets,
-        add_bybit_option_market, add_bybit_option_page, add_bybit_page,
-        add_gateio_delivery_markets, add_gateio_perpetual_markets, add_korean_spot_catalog,
+        add_bybit_option_market, add_bybit_option_page, add_bybit_page, add_coinbase_spot_page,
+        add_deribit_markets, add_gateio_delivery_markets, add_gateio_perpetual_markets,
+        add_htx_spot_catalog, add_htx_swap_markets, add_korean_spot_catalog,
         add_kraken_spot_catalog, add_kucoin_futures_markets, add_kucoin_spot_catalog,
         add_okx_markets, capability_matrix, record_bybit_cursor, resolve_feed_symbols,
         validate_catalog_envelope, validate_feed,
@@ -4038,6 +4433,195 @@ mod tests {
             resolve_feed_symbols(&feed).await,
             Err(Error::InvalidConfiguration(_))
         ));
+    }
+    #[test]
+    fn coinbase_spot_catalog_maps_documented_products_and_fails_on_contradiction() {
+        let payload = json!({"products": [
+            {"product_id": "BTC-USD", "product_type": "SPOT", "status": "online",
+             "base_currency_id": "BTC", "quote_currency_id": "USD",
+             "base_increment": "0.00000001", "quote_increment": "0.01",
+             "price_increment": "0.01", "base_min_size": "0.00000001",
+             "quote_min_size": "1"},
+            {"product_id": "ETH-USDC", "product_type": "SPOT", "status": "online",
+             "base_currency_id": "ETH", "quote_currency_id": "USDC"},
+            {"product_id": "BTC-USDC", "product_type": "SPOT", "status": "offline",
+             "base_currency_id": "BTC", "quote_currency_id": "USDC"},
+            {"product_id": "BTC-PERP", "product_type": "FUTURE", "status": "online",
+             "base_currency_id": "BTC", "quote_currency_id": "USD"}
+        ]});
+        let mut registry = SymbolRegistry::default();
+        add_coinbase_spot_page(&mut registry, &payload).unwrap();
+        assert_eq!(
+            registry
+                .to_exchange(&Symbol::spot("BTC", "USD"))
+                .expect("BTC-USD"),
+            "BTC-USD"
+        );
+        assert_eq!(
+            registry
+                .to_exchange(&Symbol::spot("ETH", "USDC"))
+                .expect("ETH-USDC"),
+            "ETH-USDC"
+        );
+        assert!(registry.to_exchange(&Symbol::spot("BTC", "USDC")).is_err());
+
+        let contradiction = json!({"products": [{
+            "product_id": "BTC-USDC", "product_type": "SPOT", "status": "online",
+            "base_currency_id": "BTC", "quote_currency_id": "USD"
+        }]});
+        let mut registry = SymbolRegistry::default();
+        assert!(add_coinbase_spot_page(&mut registry, &contradiction).is_err());
+    }
+
+    #[test]
+    fn deribit_catalog_skips_options_and_qualifies_perpetual_and_dated_identity() {
+        let payload = json!({"result": [
+            {"instrument_name": "BTC-PERPETUAL", "kind": "future", "state": "open",
+             "is_active": true, "settlement_period": "perpetual",
+             "base_currency": "BTC", "quote_currency": "USD",
+             "expiration_timestamp": 32503708800000_i64, "tick_size": 0.5,
+             "min_trade_amount": 10, "contract_size": 10,
+             "instrument_type": "reversed", "settlement_currency": "BTC"},
+            {"instrument_name": "BTC-25DEC26", "kind": "future", "state": "open",
+             "is_active": true, "settlement_period": "month",
+             "base_currency": "BTC", "quote_currency": "USD",
+             "expiration_timestamp": 1798185600000_i64, "tick_size": 0.5,
+             "instrument_type": "reversed", "settlement_currency": "BTC"},
+            {"instrument_name": "BTC_USDC-PERPETUAL", "kind": "future", "state": "open",
+             "is_active": true, "settlement_period": "perpetual",
+             "base_currency": "BTC", "quote_currency": "USDC",
+             "instrument_type": "linear", "settlement_currency": "USDC"},
+            {"instrument_name": "BTC-25DEC26-100000-C", "kind": "option", "state": "open",
+             "base_currency": "BTC", "quote_currency": "USD"},
+            {"instrument_name": "BTC-26DEC26", "kind": "future", "state": "settled",
+             "is_active": false, "base_currency": "BTC", "quote_currency": "USD",
+             "expiration_timestamp": 1798272000000_i64}
+        ]});
+        let mut registry = SymbolRegistry::default();
+        add_deribit_markets(&mut registry, &payload, InstrumentKind::Perpetual).unwrap();
+        assert_eq!(
+            registry
+                .to_exchange(&Symbol::perpetual("BTC", "USD"))
+                .unwrap(),
+            "BTC-PERPETUAL"
+        );
+        assert_eq!(
+            registry
+                .to_exchange(&Symbol::perpetual("BTC", "USDC"))
+                .unwrap(),
+            "BTC_USDC-PERPETUAL"
+        );
+        assert!(registry.to_exchange(&Symbol::spot("BTC", "USD")).is_err());
+
+        let mut registry = SymbolRegistry::default();
+        add_deribit_markets(&mut registry, &payload, InstrumentKind::Futures).unwrap();
+        assert_eq!(
+            registry
+                .to_exchange(&Symbol::futures("BTC", "USD", "261225"))
+                .unwrap(),
+            "BTC-25DEC26"
+        );
+        // The delivered/inactive dated row and the option row are skipped.
+        assert_eq!(registry.into_entries().len(), 1);
+    }
+
+    #[test]
+    fn htx_spot_and_swap_catalogs_filter_states_and_contract_types() {
+        let spot = json!({"data": [
+            {"symbol": "btcusdt", "base-currency": "btc", "quote-currency": "usdt",
+             "state": "online", "price-precision": 2, "amount-precision": 4,
+             "min-order-amt": "0.0001", "min-order-value": "1"},
+            {"symbol": "ethusdt", "base-currency": "eth", "quote-currency": "usdt",
+             "state": "offline"}
+        ]});
+        let mut registry = SymbolRegistry::default();
+        add_htx_spot_catalog(&mut registry, &spot).unwrap();
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("BTC", "USDT")).unwrap(),
+            "BTCUSDT"
+        );
+        assert!(registry.to_exchange(&Symbol::spot("ETH", "USDT")).is_err());
+
+        let contradiction = json!({"data": [{
+            "symbol": "badusdt", "base-currency": "bad", "quote-currency": "btc",
+            "state": "online"
+        }]});
+        let mut registry = SymbolRegistry::default();
+        assert!(add_htx_spot_catalog(&mut registry, &contradiction).is_err());
+
+        let swap = json!({"data": [
+            {"symbol": "BTC", "contract_code": "BTC-USDT", "pair": "BTC-USDT",
+             "business_type": "swap", "contract_type": "swap", "contract_status": 1,
+             "contract_size": "0.001", "price_tick": "0.1"},
+            {"symbol": "ETH", "contract_code": "ETH-USDT-CW", "pair": "ETH-USDT",
+             "business_type": "futures", "contract_type": "this_week",
+             "contract_status": 1},
+            {"symbol": "BTC", "contract_code": "BTC-USDT", "pair": "BTC-USDT",
+             "business_type": "swap", "contract_type": "swap", "contract_status": 6}
+        ]});
+        let mut registry = SymbolRegistry::default();
+        add_htx_swap_markets(&mut registry, &swap).unwrap();
+        assert_eq!(
+            registry
+                .to_exchange(&Symbol::perpetual("BTC", "USDT"))
+                .unwrap(),
+            "BTC-USDT"
+        );
+        assert_eq!(registry.into_entries().len(), 1);
+    }
+
+    #[test]
+    fn monitoring_capability_rows_expose_only_documented_channels() {
+        let row = |exchange, product| {
+            capability_matrix()
+                .iter()
+                .find(|capability| capability.exchange == exchange && capability.product == product)
+                .map(|capability| capability.channels)
+                .expect("capability row")
+        };
+        assert_eq!(
+            row(ExchangeId::Coinbase, InstrumentKind::Spot),
+            &[
+                cryptofeed_core::exchange::Channel::Ticker,
+                cryptofeed_core::exchange::Channel::Trade,
+                cryptofeed_core::exchange::Channel::L2Book,
+                cryptofeed_core::exchange::Channel::L1Book,
+                cryptofeed_core::exchange::Channel::Candles,
+            ]
+        );
+        let deribit = row(ExchangeId::Deribit, InstrumentKind::Perpetual);
+        assert!(deribit.contains(&cryptofeed_core::exchange::Channel::Funding));
+        assert!(deribit.contains(&cryptofeed_core::exchange::Channel::OpenInterest));
+        assert!(deribit.contains(&cryptofeed_core::exchange::Channel::MarkPrice));
+        assert!(deribit.contains(&cryptofeed_core::exchange::Channel::Index));
+        assert!(!deribit.contains(&cryptofeed_core::exchange::Channel::Liquidations));
+        let htx = row(ExchangeId::Htx, InstrumentKind::Perpetual);
+        assert!(htx.contains(&cryptofeed_core::exchange::Channel::Funding));
+        assert!(htx.contains(&cryptofeed_core::exchange::Channel::Liquidations));
+        assert!(!htx.contains(&cryptofeed_core::exchange::Channel::MarkPrice));
+        assert!(!htx.contains(&cryptofeed_core::exchange::Channel::OpenInterest));
+    }
+
+    #[test]
+    fn coinbase_candle_and_depth_preflight_rejects_unsupported_values() {
+        let feed = crate::exchange::coinbase::Coinbase::new()
+            .candles()
+            .symbol("BTC-USD")
+            .build();
+        let error = super::validate_feed(&feed).unwrap_err();
+        assert!(matches!(error, Error::UnsupportedCapability(_)));
+        let feed = crate::exchange::coinbase::Coinbase::new()
+            .candles()
+            .candles_interval("5m")
+            .symbol("BTC-USD")
+            .build();
+        assert!(super::validate_feed(&feed).is_ok());
+        let feed = crate::exchange::coinbase::Coinbase::new()
+            .l2_book()
+            .l2_book_depth(10)
+            .symbol("BTC-USD")
+            .build();
+        assert!(super::validate_feed(&feed).is_err());
     }
 }
 

@@ -333,6 +333,46 @@ pub(crate) fn parse(
                 _ => None,
             };
         }
+        ExchangeId::Coinbase => {
+            info.native_status = text(row, "status")?;
+            info.price_increment =
+                decimal(row, "price_increment")?.or(decimal(row, "quote_increment")?);
+            info.quantity_increment = decimal(row, "base_increment")?;
+            info.minimum_quantity = decimal(row, "base_min_size")?;
+            info.minimum_notional = decimal(row, "quote_min_size")?;
+        }
+        ExchangeId::Deribit => {
+            info.native_status = text(row, "state")?;
+            info.native_contract_type = text(row, "instrument_type")?;
+            info.price_increment = decimal(row, "tick_size")?;
+            info.quantity_increment = decimal(row, "min_trade_amount")?;
+            info.minimum_quantity = decimal(row, "min_trade_amount")?;
+            info.settlement_currency = text(row, "settlement_currency")?;
+            info.contract_value = decimal(row, "contract_size")?;
+        }
+        ExchangeId::Htx if spot => {
+            info.native_status = text(row, "state")?;
+            info.price_decimal_places = places(row, "price-precision")?;
+            info.quantity_decimal_places = places(row, "amount-precision")?;
+            info.minimum_quantity = decimal(row, "min-order-amt")?;
+            info.minimum_notional = decimal(row, "min-order-value")?;
+        }
+        ExchangeId::Htx => {
+            info.native_contract_type = text(row, "contract_type")?;
+            info.price_increment = decimal(row, "price_tick")?;
+            info.contract_value = decimal(row, "contract_size")?;
+            // contract_status is numeric; surface it verbatim as text.
+            info.native_status = match row.get("contract_status") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(value)) => Some(value.clone()),
+                Some(Value::Number(value)) => Some(value.to_string()),
+                Some(_) => {
+                    return Err(Error::MalformedData(
+                        "market metadata contract_status must be a number or string".to_owned(),
+                    ));
+                }
+            };
+        }
         _ => {}
     }
     Ok(info)

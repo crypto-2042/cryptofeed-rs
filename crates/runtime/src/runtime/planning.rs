@@ -1,9 +1,10 @@
 mod optimal;
 use crate::exchange::{
     ExchangeFeed, binance::adapter::BinanceAdapter, bitget::adapter::BitgetAdapter,
-    bithumb::adapter::BithumbAdapter, bybit::adapter::BybitAdapter, gateio::adapter::GateioAdapter,
-    kraken::adapter::KrakenAdapter, kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter,
-    upbit::adapter::UpbitAdapter,
+    bithumb::adapter::BithumbAdapter, bybit::adapter::BybitAdapter,
+    coinbase::adapter::CoinbaseAdapter, deribit::adapter::DeribitAdapter,
+    gateio::adapter::GateioAdapter, htx::adapter::HtxAdapter, kraken::adapter::KrakenAdapter,
+    kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter, upbit::adapter::UpbitAdapter,
 };
 use cryptofeed_core::{
     error::{Error, Result},
@@ -23,6 +24,14 @@ const KUCOIN_BYTES: usize = 64 * 1024;
 /// documents message limits without a per-connection subscription count, so
 /// this is a conservative local budget, not a claimed exchange limit.
 const KRAKEN_BYTES: usize = 64 * 1024;
+/// SDK subscription-message ceiling for the Coinbase/Deribit public
+/// WebSockets. Neither venue documents a per-connection subscription-count
+/// maximum used here, so this is a conservative local budget.
+const MONITORING_BYTES: usize = 64 * 1024;
+/// SDK subscription-message ceiling for the HTX public WebSockets. HTX
+/// documents request-rate and connection guidance, not a subscription-message
+/// byte maximum, so this is a conservative local budget.
+const HTX_BYTES: usize = 64 * 1024;
 /// SDK subscription-message ceiling for the Korean public WebSocket endpoints.
 /// Neither venue documents a per-connection message/subscription maximum, so
 /// this is a conservative local budget, not a claimed exchange limit.
@@ -91,6 +100,28 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
                     .iter()
                     .all(|message| message.len() + REQUEST_METADATA_BYTES <= GATE_MESSAGE_BYTES)
         })),
+        ExchangeId::Coinbase => Ok(CoinbaseAdapter::subscription_messages(feed)?
+            .iter()
+            .map(|message| message.len() + REQUEST_METADATA_BYTES)
+            .sum::<usize>()
+            <= MONITORING_BYTES),
+        ExchangeId::Deribit => Ok(DeribitAdapter::subscription_messages(feed)?
+            .iter()
+            .map(|message| message.len() + REQUEST_METADATA_BYTES)
+            .sum::<usize>()
+            <= MONITORING_BYTES),
+        ExchangeId::Htx => Ok(HtxAdapter::subscription_urls(feed).iter().all(|url| {
+            let planned = HtxAdapter::feed_for_url(feed, url);
+            HtxAdapter::subscription_messages(&planned)
+                .map(|messages| {
+                    messages
+                        .iter()
+                        .map(|message| message.len() + REQUEST_METADATA_BYTES)
+                        .sum::<usize>()
+                        <= HTX_BYTES
+                })
+                .unwrap_or(false)
+        })),
         _ => Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
     }
 }
@@ -112,6 +143,9 @@ fn native_routes(feed: &ExchangeFeed) -> Result<Vec<String>> {
             .map(|plan| plan.websocket_url)
             .collect(),
         ExchangeId::Bitget => vec![BitgetAdapter::websocket_url().into()],
+        ExchangeId::Coinbase => vec![CoinbaseAdapter::websocket_url().to_owned()],
+        ExchangeId::Deribit => vec![DeribitAdapter::websocket_url().to_owned()],
+        ExchangeId::Htx => HtxAdapter::subscription_urls(feed),
         _ => return Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
     };
     Ok(urls
@@ -392,6 +426,63 @@ mod tests {
             .trade()
             .instruments((0..count).map(|i| Symbol::spot(&format!("S{i}"), "USDT")))
             .build()
+    }
+
+    #[test]
+    fn monitoring_venue_routes_and_budgets_are_planned() {
+        let coinbase = crate::exchange::coinbase::Coinbase::new()
+            .trade()
+            .ticker()
+            .symbol("BTC-USD")
+            .build();
+        assert_eq!(
+            native_routes(&coinbase).expect("coinbase route"),
+            vec![CoinbaseAdapter::websocket_url().to_owned()]
+        );
+        assert!(fits(&coinbase).expect("coinbase budget"));
+
+        let deribit = crate::exchange::deribit::Deribit::new()
+            .ticker()
+            .trade()
+            .symbol("BTC-USD-PERP")
+            .exchange_symbol("BTC-PERPETUAL")
+            .build();
+        assert_eq!(
+            native_routes(&deribit).expect("deribit route"),
+            vec![DeribitAdapter::websocket_url().to_owned()]
+        );
+        assert!(fits(&deribit).expect("deribit budget"));
+
+        let htx_spot = crate::exchange::htx::Htx::new()
+            .ticker()
+            .trade()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .build();
+        assert_eq!(
+            native_routes(&htx_spot).expect("htx spot route"),
+            vec![crate::exchange::htx::adapter::SPOT_WS_URL.to_owned()]
+        );
+        assert!(fits(&htx_spot).expect("htx spot budget"));
+
+        let htx_perp = crate::exchange::htx::Htx::new()
+            .ticker()
+            .trade()
+            .funding()
+            .liquidations()
+            .symbol("BTC-USDT-PERP")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        assert_eq!(
+            physical_connection_count(&htx_perp).expect("htx plumbed connections"),
+            2
+        );
+        assert!(fits(&htx_perp).expect("htx perpetual budget"));
+        let routes = native_routes(&htx_perp).expect("htx routes");
+        assert!(routes.contains(&crate::exchange::htx::adapter::SWAP_MARKET_WS_URL.to_owned()));
+        assert!(
+            routes.contains(&crate::exchange::htx::adapter::SWAP_NOTIFICATION_WS_URL.to_owned())
+        );
     }
 
     #[test]

@@ -40,6 +40,7 @@ cryptofeed-ticker = { path = "../ticker", version = "=0.1.0-rc.1", optional = tr
 cryptofeed-trade = { path = "../trade", version = "=0.1.0-rc.1", optional = true }
 cryptofeed-orderbook = { path = "../orderbook", version = "=0.1.0-rc.1", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
+flate2.workspace = true
 futures.workspace = true
 reqwest.workspace = true
 rust_decimal.workspace = true

@@ -1,5 +1,6 @@
 use crate::exchange::{
-    bithumb::adapter::BithumbAdapter, bybit::adapter::BybitAdapter, kraken::adapter::KrakenAdapter,
+    bithumb::adapter::BithumbAdapter, bybit::adapter::BybitAdapter,
+    deribit::adapter::DeribitAdapter, kraken::adapter::KrakenAdapter,
     kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter, upbit::adapter::UpbitAdapter,
 };
 use cryptofeed_core::{
@@ -101,6 +102,22 @@ impl HeartbeatPolicy {
                 Duration::from_secs(60),
                 DEFAULT_IDLE_TIMEOUT,
             ),
+            // HTX pushes GZIP binary frames and the server sends integer
+            // `{"ping":..}` heartbeats; the runtime answers them from the
+            // message-processing path, so no proactive client heartbeat is
+            // sent.
+            ExchangeId::Htx => (
+                HeartbeatKind::None,
+                Duration::from_secs(60),
+                Duration::from_secs(60),
+            ),
+            // `public/test` is a documented liveness call; JSON-RPC `result:ok`
+            // replies are filtered as control frames.
+            ExchangeId::Deribit => (
+                HeartbeatKind::Text(DeribitAdapter::heartbeat_message()),
+                Duration::from_secs(crate::exchange::deribit::adapter::HEARTBEAT_INTERVAL_SECS),
+                Duration::from_secs(90),
+            ),
             // A future exchange gets the conservative default (no heartbeat,
             // idle only) until its own policy is verified.
             _ => (
@@ -141,6 +158,12 @@ impl HeartbeatPolicy {
         // Upbit and Bithumb answer a text `PING` with periodic
         // `{"status":"UP"}` frames; they are liveness, not market data.
         if value.get("status").and_then(|value| value.as_str()) == Some("UP") {
+            return true;
+        }
+        // Deribit `public/test` returns a JSON-RPC success with `result:"ok"`.
+        if value.get("result").and_then(serde_json::Value::as_str) == Some("ok")
+            && value.get("method").is_none()
+        {
             return true;
         }
         value.get("op").and_then(|value| value.as_str()) == Some("pong")
@@ -318,6 +341,14 @@ impl<S> Session<S> {
         self
     }
 
+    /// Test-only hook so a directly constructed `Session` can exercise the
+    /// exchange-specific binary framing path (production sessions set this in
+    /// `WsConnection::connect`).
+    #[cfg(test)]
+    pub(crate) fn set_exchange_for_test(&mut self, exchange: ExchangeId) {
+        self.exchange = Some(exchange);
+    }
+
     pub(crate) fn set_readiness(&mut self, readiness: Option<super::readiness::ConnectionAttempt>) {
         if let Some(readiness) = &readiness {
             readiness.connected();
@@ -427,6 +458,46 @@ where
     async fn close(&mut self) {
         let _ =
             tokio::time::timeout(Self::SEND_TIMEOUT, self.stream.send(Message::Close(None))).await;
+    }
+
+    /// Shared text-frame classification: recording, heartbeat response
+    /// filtering, readiness control consumption and market-text delivery.
+    /// Returns `Some(SessionRead)` when the caller should return it, `None`
+    /// when the frame was consumed as control.
+    async fn handle_text_frame(&mut self, text: String) -> Result<Option<SessionRead>> {
+        self.last_text_received_ts = super::current_timestamp();
+        self.last_received = Instant::now();
+        if let Some(readiness) = &self.readiness {
+            readiness.received();
+        }
+        let value = serde_json::from_str::<serde_json::Value>(&text).ok();
+        #[cfg(feature = "recording")]
+        if let Some(raw) = &self.raw {
+            self.last_raw_sequence =
+                raw.text(&text, value.as_ref(), true, self.last_text_received_ts);
+        }
+        let text_is_pong =
+            text == "pong" && matches!(self.heartbeat.kind, HeartbeatKind::Text("ping"));
+        if text_is_pong
+            || value
+                .as_ref()
+                .is_some_and(|value| self.heartbeat.is_response_value(value))
+        {
+            return Ok(None);
+        }
+        if let (Some(readiness), Some(value)) = (self.readiness.as_mut(), value.as_ref()) {
+            match readiness.control(value) {
+                Ok(true) => return Ok(None),
+                Ok(false) => {}
+                Err(error) => {
+                    if let Error::RateLimited { retry_after, .. } = &error {
+                        super::budget::defer(readiness.exchange(), *retry_after).await?;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(Some(SessionRead::Text(text)))
     }
 
     pub async fn next_text_or_shutdown(
@@ -545,27 +616,20 @@ where
                 message = self.stream.next() => {
                     match message {
                         Some(Ok(Message::Text(text))) => {
-                            self.last_text_received_ts=super::current_timestamp();
+                            if let Some(read) = self.handle_text_frame(text.to_string()).await? {
+                                return Ok(read);
+                            }
+                        }
+                        Some(Ok(Message::Binary(bytes))) if self.exchange == Some(ExchangeId::Htx) => {
+                            // Every HTX market and notification frame is a
+                            // GZIP-compressed binary message; decode it before
+                            // the shared control/market classification.
                             self.last_received = Instant::now();
                             if let Some(readiness) = &self.readiness { readiness.received(); }
-                            let text = text.to_string();
-                            let value = serde_json::from_str::<serde_json::Value>(&text).ok();
-                            #[cfg(feature="recording")] if let Some(raw)=&self.raw{self.last_raw_sequence=raw.text(&text,value.as_ref(),true,self.last_text_received_ts);}
-                            if text == "pong" && matches!(self.heartbeat.kind, HeartbeatKind::Text("ping"))
-                                || value.as_ref().is_some_and(|value| self.heartbeat.is_response_value(value)) { continue; }
-                            if let (Some(readiness), Some(value)) = (self.readiness.as_mut(), value.as_ref()) {
-                                match readiness.control(value) {
-                                    Ok(true) => continue,
-                                    Ok(false) => {},
-                                    Err(error) => {
-                                        if let Error::RateLimited { retry_after, .. } = &error {
-                                            super::budget::defer(readiness.exchange(), *retry_after).await?;
-                                        }
-                                        return Err(error);
-                                    }
-                                }
+                            let text = crate::exchange::htx::adapter::HtxAdapter::decode_gzip_frame(&bytes)?;
+                            if let Some(read) = self.handle_text_frame(text).await? {
+                                return Ok(read);
                             }
-                            return Ok(SessionRead::Text(text));
                         }
                         Some(Ok(Message::Ping(payload))) => {
                             self.last_received = Instant::now();

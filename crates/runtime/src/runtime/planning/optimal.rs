@@ -124,6 +124,35 @@ fn pressure(feed: &ExchangeFeed) -> Result<(usize, usize)> {
                 .sum(),
             GATE_MESSAGES,
         )),
+        // A lower-bound model for the single-connection monitoring venues: the
+        // byte demand is the complete subscription-message union and the
+        // capacity is the conservative local message budget.
+        ExchangeId::Coinbase => Ok((
+            CoinbaseAdapter::subscription_messages(feed)?
+                .iter()
+                .map(String::len)
+                .sum(),
+            MONITORING_BYTES,
+        )),
+        ExchangeId::Deribit => Ok((
+            DeribitAdapter::subscription_messages(feed)?
+                .iter()
+                .map(String::len)
+                .sum(),
+            MONITORING_BYTES,
+        )),
+        ExchangeId::Htx => Ok((
+            HtxAdapter::subscription_urls(feed)
+                .iter()
+                .map(|url| {
+                    let planned = HtxAdapter::feed_for_url(feed, url);
+                    HtxAdapter::subscription_messages(&planned)
+                        .map(|messages| messages.iter().map(String::len).sum::<usize>())
+                        .unwrap_or(0)
+                })
+                .sum(),
+            HTX_BYTES,
+        )),
         _ => Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
     }
 }
