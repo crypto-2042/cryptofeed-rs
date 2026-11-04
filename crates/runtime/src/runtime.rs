@@ -32,16 +32,20 @@ pub mod supervisor;
 #[cfg(all(feature = "orderbook", test))]
 use crate::exchange::binance::book_sync::BinanceDepthDelta;
 #[cfg(feature = "orderbook")]
+use crate::exchange::bithumb::book_sync::BithumbBookSync;
+#[cfg(feature = "orderbook")]
 use crate::exchange::gateio::adapter::GateioInstrument;
 use crate::exchange::{
     ExchangeFeed,
     binance::adapter::{BinanceAdapter, BinanceConnectionPlan, BinanceEvent, BinanceInstrument},
     bitget::adapter::{BitgetAdapter, BitgetEvent},
+    bithumb::adapter::{BithumbAdapter, BithumbEvent},
     bybit::adapter::{BybitAdapter, BybitEvent, BybitProduct},
     gateio::adapter::{GateioAdapter, GateioConnectionPlan, GateioEvent},
     kraken::adapter::{KrakenAdapter, KrakenEvent},
     kucoin::adapter::{KucoinAdapter, KucoinEvent},
     okx::adapter::{OkxAdapter, OkxEvent},
+    upbit::adapter::{UpbitAdapter, UpbitEvent},
 };
 #[cfg(feature = "orderbook")]
 use crate::exchange::{
@@ -64,7 +68,11 @@ use crate::exchange::{
         parser as kucoin_parser,
     },
     okx::{book_sync::OkxBookSync, parser as okx_parser},
+    upbit::book_sync::UpbitBookSync,
 };
+// The Korean parsers expose the frame type/code helpers used by the always-built
+// text-message entry points (the book-sync types stay orderbook-gated).
+use crate::exchange::{bithumb::parser as bithumb_parser, upbit::parser as upbit_parser};
 use crate::feed::FeedHandler;
 use crate::markets;
 use crate::runtime::connection::Session;
@@ -204,6 +212,8 @@ async fn consume_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Re
         ExchangeId::Gateio => consume_gateio_feed(feed, shutdown).await,
         ExchangeId::Kucoin => consume_kucoin_feed(feed, shutdown).await,
         ExchangeId::Kraken => consume_kraken_feed(feed, shutdown).await,
+        ExchangeId::Upbit => consume_upbit_feed(feed, shutdown).await,
+        ExchangeId::Bithumb => consume_bithumb_feed(feed, shutdown).await,
         // Builders that exist without a live runtime (Coinbase/Kraken)
         // and any future exchange are rejected by capability validation
         // before a feed reaches this point.
@@ -252,6 +262,8 @@ fn planned_url(feed: &ExchangeFeed) -> String {
             .map_or_else(String::new, |plan| plan.websocket_url),
         ExchangeId::Kraken => KrakenAdapter::subscription_url(feed),
         ExchangeId::Kucoin => KucoinAdapter::subscription_url(feed),
+        ExchangeId::Upbit => UpbitAdapter::subscription_url(feed),
+        ExchangeId::Bithumb => BithumbAdapter::subscription_url(feed),
         ExchangeId::Okx => OkxAdapter::subscription_url(feed),
         _ => String::new(),
     }
@@ -634,6 +646,65 @@ async fn consume_kraken_feed(
             let feed = feed.clone();
             let shutdown = shutdown.clone();
             async move { consume_kraken_session(feed, shutdown).await }
+        },
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn consume_upbit_feed(mut feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
+        supervisor::Backoff::new(1, 8),
+        shutdown.clone(),
+        feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
+        move || {
+            let feed = feed.clone();
+            let shutdown = shutdown.clone();
+            async move { consume_upbit_session(feed, shutdown).await }
+        },
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn consume_bithumb_feed(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
+        supervisor::Backoff::new(1, 8),
+        shutdown.clone(),
+        feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
+        move || {
+            let feed = feed.clone();
+            let shutdown = shutdown.clone();
+            async move { consume_bithumb_session(feed, shutdown).await }
         },
     )
     .await
@@ -1210,6 +1281,108 @@ where
     Ok(())
 }
 
+async fn consume_upbit_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.failed(&error, "connect");
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_upbit_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
+}
+
+async fn consume_upbit_session_with<S, E>(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+    session: &mut Session<S>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
+    E: Display,
+{
+    session.queue_subscriptions(UpbitAdapter::subscription_messages(&feed)?);
+    // Snapshot-only books need no in-session resnapshot request: every push
+    // replaces the book and no sequence/gap contract exists.
+    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
+        session.processing();
+        process_upbit_text_message(&feed, &text, received_ts).await?;
+    }
+
+    Ok(())
+}
+
+async fn consume_bithumb_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    reset_connection_books(&feed, true, &feed.symbols);
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.failed(&error, "connect");
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_bithumb_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
+}
+
+async fn consume_bithumb_session_with<S, E>(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+    session: &mut Session<S>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
+    E: Display,
+{
+    session.queue_subscriptions(BithumbAdapter::subscription_messages(&feed)?);
+    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
+        session.processing();
+        process_bithumb_text_message(&feed, &text, received_ts).await?;
+    }
+
+    Ok(())
+}
+
 async fn consume_gateio_session(
     mut feed: ExchangeFeed,
     plan: GateioConnectionPlan,
@@ -1531,6 +1704,28 @@ async fn dispatch_kraken_event(feed: &ExchangeFeed, event: KrakenEvent) -> Resul
 #[cfg(feature = "orderbook")]
 async fn dispatch_kraken_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
     dispatch_l2_book(feed, book).await
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_upbit_event(feed: &ExchangeFeed, event: UpbitEvent) -> Result<()> {
+    let _ = feed;
+    match event {
+        #[cfg(feature = "candles")]
+        UpbitEvent::Candle(candle) => dispatch_candle(feed, candle).await,
+        #[cfg(feature = "trade")]
+        UpbitEvent::Trade(trade) => dispatch_trade(feed, trade).await,
+    }
+    Ok(())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_bithumb_event(feed: &ExchangeFeed, event: BithumbEvent) -> Result<()> {
+    let _ = feed;
+    match event {
+        #[cfg(feature = "trade")]
+        BithumbEvent::Trade(trade) => dispatch_trade(feed, trade).await,
+    }
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -3342,6 +3537,149 @@ async fn process_kraken_orderbook_message(
     Ok(true)
 }
 
+async fn process_upbit_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if UpbitAdapter::is_heartbeat_status(&message) {
+        return Ok(());
+    }
+    if let Some(error) = UpbitAdapter::error(&message) {
+        return Err(error);
+    }
+    #[cfg(feature = "orderbook")]
+    let handled = process_upbit_orderbook_message(feed, &message, received_ts).await?;
+    #[cfg(not(feature = "orderbook"))]
+    let handled = false;
+    if handled {
+        return Ok(());
+    }
+    let events = UpbitAdapter::parse_messages_for_feed(feed, &message, received_ts);
+    let data_type = upbit_parser::message_type(&message);
+    let configured = upbit_parser::native_code(&message)
+        .is_some_and(|native| UpbitAdapter::symbol_for_native(feed, native).is_some());
+    if configured && data_type.is_some_and(is_upbit_market_type) && events.is_empty() {
+        return Err(Error::MalformedData(format!(
+            "Upbit message for {} produced no normalized events",
+            data_type.unwrap_or("unknown type")
+        )));
+    }
+    for event in events {
+        dispatch_upbit_event(feed, event).await?;
+    }
+    Ok(())
+}
+
+fn is_upbit_market_type(data_type: &str) -> bool {
+    matches!(data_type, "trade" | "orderbook") || data_type.starts_with("candle.")
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_upbit_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+) -> Result<bool> {
+    if upbit_parser::message_type(message) != Some("orderbook") {
+        return Ok(false);
+    }
+    let native = upbit_parser::native_code(message)
+        .ok_or_else(|| Error::Parse("Upbit orderbook message is missing its code".to_owned()))?;
+    let Some(symbol) = UpbitAdapter::symbol_for_native(feed, native).cloned() else {
+        // A connection may carry codes this feed does not subscribe.
+        return Ok(true);
+    };
+    if !feed.subscribes(Channel::L2Book, &symbol) {
+        return Ok(true);
+    }
+    let book = upbit_parser::parse_book_for_symbol(message, received_ts, &symbol)
+        .ok_or_else(|| Error::Parse("failed to parse Upbit orderbook snapshot".to_owned()))?;
+    let units = UpbitAdapter::l2_book_depth_wire(feed.l2_book_depth).ok_or_else(|| {
+        Error::UnsupportedCapability(format!("Upbit l2 depth level {:?}", feed.l2_book_depth))
+    })?;
+    let symbol_key = symbol.as_str().to_owned();
+    let event = {
+        let mut syncs = feed.upbit_book_syncs.lock().expect("upbit sync lock");
+        let sync = syncs
+            .entry(symbol_key)
+            .or_insert_with(|| UpbitBookSync::new(symbol, Some(units)));
+        sync.apply(book)?
+    };
+    dispatch_l2_book(feed, event).await?;
+    Ok(true)
+}
+
+async fn process_bithumb_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if BithumbAdapter::is_heartbeat_status(&message) {
+        return Ok(());
+    }
+    if let Some(error) = BithumbAdapter::error(&message) {
+        return Err(error);
+    }
+    #[cfg(feature = "orderbook")]
+    let handled = process_bithumb_orderbook_message(feed, &message, received_ts).await?;
+    #[cfg(not(feature = "orderbook"))]
+    let handled = false;
+    if handled {
+        return Ok(());
+    }
+    let events = BithumbAdapter::parse_messages_for_feed(feed, &message, received_ts);
+    let data_type = bithumb_parser::message_type(&message);
+    let configured = bithumb_parser::native_code(&message)
+        .is_some_and(|native| BithumbAdapter::symbol_for_native(feed, native).is_some());
+    if configured
+        && data_type.is_some_and(|data_type| matches!(data_type, "trade" | "orderbook"))
+        && events.is_empty()
+    {
+        return Err(Error::MalformedData(format!(
+            "Bithumb message for {} produced no normalized events",
+            data_type.unwrap_or("unknown type")
+        )));
+    }
+    for event in events {
+        dispatch_bithumb_event(feed, event).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_bithumb_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+) -> Result<bool> {
+    if bithumb_parser::message_type(message) != Some("orderbook") {
+        return Ok(false);
+    }
+    let native = bithumb_parser::native_code(message)
+        .ok_or_else(|| Error::Parse("Bithumb orderbook message is missing its code".to_owned()))?;
+    let Some(symbol) = BithumbAdapter::symbol_for_native(feed, native).cloned() else {
+        return Ok(true);
+    };
+    if !feed.subscribes(Channel::L2Book, &symbol) {
+        return Ok(true);
+    }
+    let book = bithumb_parser::parse_book_for_symbol(message, received_ts, &symbol)
+        .ok_or_else(|| Error::Parse("failed to parse Bithumb orderbook snapshot".to_owned()))?;
+    let symbol_key = symbol.as_str().to_owned();
+    let event = {
+        let mut syncs = feed.bithumb_book_syncs.lock().expect("bithumb sync lock");
+        let sync = syncs
+            .entry(symbol_key)
+            .or_insert_with(|| BithumbBookSync::new(symbol));
+        sync.apply(book)?
+    };
+    dispatch_l2_book(feed, event).await?;
+    Ok(true)
+}
+
 #[cfg_attr(not(test), allow(dead_code))]
 async fn process_gateio_text_message(
     feed: &ExchangeFeed,
@@ -3608,8 +3946,9 @@ mod tests {
     use super::connection::{HeartbeatPolicy, Session};
     use super::{
         planned_connection_urls, process_binance_text_message, process_bitget_text_message,
-        process_bybit_text_message, process_gateio_text_message, process_kraken_text_message,
-        process_kucoin_text_message, process_okx_text_message,
+        process_bithumb_text_message, process_bybit_text_message, process_gateio_text_message,
+        process_kraken_text_message, process_kucoin_text_message, process_okx_text_message,
+        process_upbit_text_message,
     };
     use crate::{
         FeedHandler,
@@ -3621,11 +3960,13 @@ mod tests {
             Bitget,
             adapter::{BitgetAdapter, BitgetEvent},
         },
+        exchange::bithumb::Bithumb,
         exchange::bybit::Bybit,
         exchange::gateio::Gateio,
         exchange::kraken::Kraken,
         exchange::kucoin::Kucoin,
         exchange::okx::Okx,
+        exchange::upbit::Upbit,
     };
     use async_trait::async_trait;
     #[cfg(feature = "candles")]
@@ -3752,6 +4093,23 @@ mod tests {
         assert_eq!(
             planned_connection_urls(&handler),
             vec!["wss://api.gateio.ws/ws/v4/".to_owned()]
+        );
+    }
+
+    #[test]
+    fn plans_korean_connection_urls() {
+        let mut handler = FeedHandler::new();
+        handler.add_feed(Upbit::new().trade().symbol("BTC-KRW").build());
+        assert_eq!(
+            planned_connection_urls(&handler),
+            vec!["wss://api.upbit.com/websocket/v1".to_owned()]
+        );
+
+        let mut handler = FeedHandler::new();
+        handler.add_feed(Bithumb::new().trade().symbol("BTC-KRW").build());
+        assert_eq!(
+            planned_connection_urls(&handler),
+            vec!["wss://ws-api.bithumb.com/websocket/v1".to_owned()]
         );
     }
 
@@ -6682,6 +7040,306 @@ mod tests {
             server.next().await,
             Some(Ok(Message::Close(_))) | None
         ));
+    }
+
+    #[cfg(all(feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn upbit_full_session_subscribes_and_delivers_trade_and_snapshot_book() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let feed = Upbit::new()
+            .trade()
+            .l2_book()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .symbol("BTC-KRW")
+            .exchange_symbol("KRW-BTC")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Upbit).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let observed = feed.clone();
+
+        let session = tokio::spawn(async move {
+            super::consume_upbit_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        let subscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected subscription frame, got {other:?}"),
+        };
+        let subscribe: serde_json::Value = serde_json::from_str(&subscribe).expect("json");
+        assert_eq!(subscribe[0]["ticket"], "cryptofeed-rs");
+        assert_eq!(subscribe[1]["type"], "trade");
+        assert_eq!(subscribe[1]["codes"], serde_json::json!(["KRW-BTC"]));
+        assert_eq!(subscribe[2]["type"], "orderbook");
+        assert_eq!(subscribe[2]["codes"], serde_json::json!(["KRW-BTC"]));
+        assert_eq!(subscribe[3]["format"], "DEFAULT");
+
+        let trade = serde_json::json!({
+            "type": "trade", "code": "KRW-BTC",
+            "trade_price": 48970000.0, "trade_volume": 1.4825, "ask_bid": "BID",
+            "trade_timestamp": 1725929934373_u64, "sequential_id": 17259299343730000_u64,
+            "timestamp": 1725929934483_u64, "stream_type": "REALTIME"
+        });
+        server
+            .send(Message::Text(trade.to_string().into()))
+            .await
+            .expect("send trade");
+        let book = serde_json::json!({
+            "type": "orderbook", "code": "KRW-BTC", "timestamp": 1746602359173_u64,
+            "total_ask_size": 0.68780013, "total_bid_size": 0.78754733,
+            "orderbook_units": [
+                {"ask_price": 125056000.0, "bid_price": 124743000.0, "ask_size": 0.17, "bid_size": 0.17},
+                {"ask_price": 125207000.0, "bid_price": 124332000.0, "ask_size": 0.09, "bid_size": 0.09}
+            ],
+            "stream_type": "REALTIME"
+        });
+        server
+            .send(Message::Text(book.to_string().into()))
+            .await
+            .expect("send orderbook");
+        // The documented liveness frames are filtered, not parsed as data.
+        server
+            .send(Message::Text(r#"{"status":"UP"}"#.into()))
+            .await
+            .expect("send heartbeat");
+
+        wait_for_seen(|| {
+            *book_seen.lock().expect("lock") == 1 && *trade_seen.lock().expect("lock") == 1
+        })
+        .await;
+
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        assert!(matches!(
+            server.next().await,
+            Some(Ok(Message::Close(_))) | None
+        ));
+
+        let states = observed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-KRW").expect("BTC-KRW state");
+        assert_eq!(state.bids().len(), 2);
+        assert_eq!(state.bids()[0].price.to_string(), "124743000.0");
+        assert_eq!(state.asks()[1].price.to_string(), "125207000.0");
+    }
+
+    #[cfg(all(feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn bithumb_full_session_subscribes_and_delivers_trade_and_snapshot_book() {
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let feed = Bithumb::new()
+            .trade()
+            .l2_book()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .symbol("BTC-KRW")
+            .exchange_symbol("KRW-BTC")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Bithumb).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let observed = feed.clone();
+
+        let session = tokio::spawn(async move {
+            super::consume_bithumb_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        let subscribe = match server.next().await {
+            Some(Ok(Message::Text(text))) => text,
+            other => panic!("expected subscription frame, got {other:?}"),
+        };
+        let subscribe: serde_json::Value = serde_json::from_str(&subscribe).expect("json");
+        assert_eq!(subscribe[0]["ticket"], "cryptofeed-rs");
+        assert_eq!(subscribe[1]["type"], "trade");
+        assert_eq!(subscribe[1]["codes"], serde_json::json!(["KRW-BTC"]));
+        assert_eq!(subscribe[2]["type"], "orderbook");
+        assert_eq!(subscribe[3]["format"], "DEFAULT");
+
+        let trade = serde_json::json!({
+            "type": "trade", "code": "KRW-BTC", "trade_price": 48970000.0,
+            "trade_volume": 1.4825, "ask_bid": "BID",
+            "trade_timestamp": 1725929934373_u64, "sequential_id": 17259299343730000_u64,
+            "timestamp": 1725929934483_u64, "stream_type": "REALTIME"
+        });
+        server
+            .send(Message::Text(trade.to_string().into()))
+            .await
+            .expect("send trade");
+        let book = serde_json::json!({
+            "type": "orderbook", "code": "KRW-BTC",
+            "total_ask_size": 450.3526, "total_bid_size": 63.3006,
+            "orderbook_units": [
+                {"ask_price": 47880000.0, "bid_price": 47830000.0, "ask_size": 4.3478, "bid_size": 5.6370},
+                {"ask_price": 48970000.0, "bid_price": 47790000.0, "ask_size": 2.3642, "bid_size": 0.9705}
+            ],
+            "timestamp": 1725929934483_u64, "stream_type": "REALTIME"
+        });
+        server
+            .send(Message::Text(book.to_string().into()))
+            .await
+            .expect("send orderbook");
+
+        wait_for_seen(|| {
+            *book_seen.lock().expect("lock") == 1 && *trade_seen.lock().expect("lock") == 1
+        })
+        .await;
+
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        assert!(matches!(
+            server.next().await,
+            Some(Ok(Message::Close(_))) | None
+        ));
+
+        let states = observed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-KRW").expect("BTC-KRW state");
+        assert_eq!(state.bids().len(), 2);
+        assert_eq!(state.bids()[0].price.to_string(), "47830000.0");
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn upbit_snapshot_replaces_the_book_and_oversized_units_fail_closed() {
+        let feed = Upbit::new()
+            .l2_book()
+            .l2_book_depth(1)
+            .symbol("BTC-KRW")
+            .exchange_symbol("KRW-BTC")
+            .build();
+        let first = serde_json::json!({
+            "type": "orderbook", "code": "KRW-BTC.1", "timestamp": 1746602359173_u64,
+            "orderbook_units": [
+                {"ask_price": 125056000.0, "bid_price": 124743000.0, "ask_size": 0.17, "bid_size": 0.17}
+            ]
+        });
+        process_upbit_text_message(&feed, &first.to_string(), 1.0)
+            .await
+            .expect("first snapshot");
+        {
+            let states = feed.orderbook_states.lock().expect("lock");
+            let state = states.get("BTC-KRW").expect("state");
+            assert_eq!(state.bids().len(), 1);
+            assert_eq!(state.bids()[0].price.to_string(), "124743000.0");
+        }
+        let second = serde_json::json!({
+            "type": "orderbook", "code": "KRW-BTC.1", "timestamp": 1746602359273_u64,
+            "orderbook_units": [
+                {"ask_price": 125056000.0, "bid_price": 124700000.0, "ask_size": 0.17, "bid_size": 1.17},
+                {"ask_price": 125207000.0, "bid_price": 124332000.0, "ask_size": 0.09, "bid_size": 0.09}
+            ]
+        });
+        assert!(matches!(
+            process_upbit_text_message(&feed, &second.to_string(), 2.0).await,
+            Err(Error::Parse(message)) if message.contains("but 1 were requested")
+        ));
+        {
+            let states = feed.orderbook_states.lock().expect("lock");
+            assert_eq!(states.get("BTC-KRW").expect("state").bids().len(), 1);
+        }
+
+        // A delta-shaped frame (no documented unit array) fails closed.
+        let delta = serde_json::json!({
+            "type": "orderbook", "code": "KRW-BTC", "stream_type": "REALTIME",
+            "bids": [["124743000", "0.17"]], "asks": [["125056000", "0.17"]]
+        });
+        assert!(matches!(
+            process_upbit_text_message(&feed, &delta.to_string(), 3.0).await,
+            Err(Error::Parse(message)) if message.contains("failed to parse Upbit orderbook")
+        ));
+    }
+
+    #[cfg(feature = "orderbook")]
+    #[tokio::test]
+    async fn bithumb_delta_shaped_book_frame_fails_closed() {
+        let feed = Bithumb::new()
+            .l2_book()
+            .symbol("BTC-KRW")
+            .exchange_symbol("KRW-BTC")
+            .build();
+        let delta = serde_json::json!({
+            "type": "orderbook", "code": "KRW-BTC", "stream_type": "REALTIME",
+            "bids": [["47830000", "5.637"]], "asks": [["47880000", "4.3478"]]
+        });
+        assert!(matches!(
+            process_bithumb_text_message(&feed, &delta.to_string(), 1.0).await,
+            Err(Error::Parse(message)) if message.contains("failed to parse Bithumb orderbook")
+        ));
+        assert!(feed.orderbook_states.lock().expect("lock").is_empty());
+    }
+
+    #[cfg(all(feature = "candles", feature = "trade"))]
+    #[tokio::test]
+    async fn upbit_candle_frame_dispatches_a_normalized_candle() {
+        let candle_seen = Arc::new(Mutex::new(0));
+        let feed = Upbit::new()
+            .candles()
+            .candles_interval("1h")
+            .candle_handler(Arc::new(TestCandleHandler {
+                seen: candle_seen.clone(),
+            }))
+            .symbol("BTC-KRW")
+            .exchange_symbol("KRW-BTC")
+            .build();
+        let candle = serde_json::json!({
+            "type": "candle.60m", "code": "KRW-BTC",
+            "candle_date_time_utc": "2025-01-02T04:00:00",
+            "opening_price": 130000000.0, "high_price": 131000000.0,
+            "low_price": 129000000.0, "trade_price": 130500000.0,
+            "candle_acc_trade_volume": 12.5, "candle_acc_trade_price": 1.6e9,
+            "timestamp": 1735790400000_u64, "stream_type": "REALTIME"
+        });
+        process_upbit_text_message(&feed, &candle.to_string(), 1.0)
+            .await
+            .expect("candle");
+        assert_eq!(*candle_seen.lock().expect("lock"), 1);
+    }
+
+    #[tokio::test]
+    async fn korean_rejected_subscriptions_are_terminal() {
+        for (exchange, feed) in [
+            (
+                ExchangeId::Upbit,
+                Upbit::new().trade().symbol("BTC-KRW").build(),
+            ),
+            (
+                ExchangeId::Bithumb,
+                Bithumb::new().trade().symbol("BTC-KRW").build(),
+            ),
+        ] {
+            let error = if exchange == ExchangeId::Upbit {
+                process_upbit_text_message(
+                    &feed,
+                    r#"{"error":{"name":"WRONG_FORMAT","message":"invalid"}}"#,
+                    1.0,
+                )
+                .await
+                .expect_err("rejected subscription")
+            } else {
+                process_bithumb_text_message(
+                    &feed,
+                    r#"{"error":{"name":"WRONG_FORMAT","message":"invalid"}}"#,
+                    1.0,
+                )
+                .await
+                .expect_err("rejected subscription")
+            };
+            assert!(matches!(error, Error::Subscription(_)), "{exchange:?}");
+            assert!(super::supervisor::is_permanent(&error));
+        }
     }
 
     #[cfg(all(feature = "markprice", feature = "index", feature = "openinterest"))]

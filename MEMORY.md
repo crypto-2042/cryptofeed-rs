@@ -1095,3 +1095,26 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
   loss. Keep capture-local identity scope and normalized v2 strict anchor gates.
 - v1 APIs stay intact; anchored reads/replay reject v1. No Ready/reset lifecycle
   reconstruction or raw/L2 recovery contract change is implied.
+
+## Korean CEX additions (2026-11-03)
+
+- Upbit/Bithumb public `ticker` frames are last-price/24h-statistics snapshots
+  with no best bid/ask. They must not be mapped onto the normalized `Ticker`
+  (BBO) model by duplicating `trade_price`: neither venue advertises `Ticker` or
+  `L1Book`, and that gap is documented rather than fabricated. Do not
+  re-litigate this with a zero-spread guess.
+- Both order books are complete snapshots with no delta/sequence/checksum
+  contract. Upbit selects documented unit counts 1/5/15/30 through
+  `{code}.{count}` (plain code = default 30); Bithumb returns at most 15 units
+  and its `level` is price aggregation, not depth. Every push replaces the book;
+  any other shape fails closed. Never invent incremental state for these venues.
+- The Korean venues document no subscription acknowledgement. Readiness confirms
+  their subscription entries on send while a documented error envelope still
+  fails the session; other venues keep their ack rules. `PING` /
+  `{"status":"UP"}` is liveness, not data, and is filtered before parsing.
+- KRW is a fiat quote: `{QUOTE}-{BASE}` catalog codes become `BASE-QUOTE` with
+  the quote preserved. Alert flags (`market_event`, `market_warning`) are catalog
+  metadata, never a subscription gate or an inferred trading state.
+- Bithumb has no public WebSocket candle stream; candles are REST-only and are
+  not exposed as a normalized live channel in this increment (same scope
+  boundary as Kraken/KuCoin REST history).

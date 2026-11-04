@@ -34,6 +34,21 @@ pub(crate) fn websocket_error(
             "Gate WS service error 3".into(),
         ));
     }
+    // Upbit/Bithumb report request problems as `{"error":{"name":...}}`. Upbit
+    // documents two throttling names; every other name is a permanent request
+    // or configuration problem. No arbitrary message text is retained.
+    if matches!(exchange, ExchangeId::Upbit | ExchangeId::Bithumb) {
+        let name = value.pointer("/error/name").and_then(Value::as_str)?;
+        if exchange == ExchangeId::Upbit && matches!(name, "Too Many Requests" | "I'm a teapot") {
+            return Some(cryptofeed_core::error::Error::RateLimited {
+                code: name.into(),
+                retry_after: Duration::from_secs(60),
+            });
+        }
+        return Some(cryptofeed_core::error::Error::Subscription(format!(
+            "{exchange:?} websocket error: {name}"
+        )));
+    }
     if value.get("event").and_then(Value::as_str) != Some("error") {
         return None;
     }

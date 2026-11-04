@@ -460,6 +460,17 @@ impl ConnectionAttempt {
                 format!("g:{}:{}", payload["id"], payload["channel"]),
                 payload.get("payload").cloned(),
             )],
+            // The Korean venues document no subscription acknowledgement: one
+            // ticket/type/codes array carries every request, and the only
+            // documented negative signal is an error envelope. Pending entries
+            // are keyed by data type and confirmed when the request is sent.
+            ExchangeId::Upbit | ExchangeId::Bithumb => payload
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.get("type").and_then(Value::as_str))
+                .map(|data_type| (format!("t:{data_type}"), None))
+                .collect(),
             exchange @ (ExchangeId::Bitget | ExchangeId::Okx) => payload["args"]
                 .as_array()
                 .into_iter()
@@ -515,6 +526,10 @@ impl ConnectionAttempt {
     }
     pub fn sent(&mut self, message: &str, at: Instant) {
         let payload: Value = serde_json::from_str(message).expect("subscription JSON");
+        let ack_less = matches!(
+            self.tracker.monitor.exchange,
+            ExchangeId::Upbit | ExchangeId::Bithumb
+        );
         for (key, _) in self.keys(&payload) {
             if let Some(pending) = self
                 .pending
@@ -522,8 +537,34 @@ impl ConnectionAttempt {
                 .find(|pending| pending.key == key && pending.sent.is_none())
             {
                 pending.sent = Some(at);
+                // No acknowledgement protocol exists on these venues, so the
+                // accepted request has no reply to wait for. A documented error
+                // envelope still rejects the subscription and fails the session.
+                if ack_less {
+                    pending.confirmed = true;
+                }
             }
         }
+        if ack_less {
+            self.refresh_confirmed();
+        }
+    }
+
+    fn refresh_confirmed(&mut self) {
+        let confirmed = self
+            .pending
+            .iter()
+            .filter(|pending| pending.confirmed)
+            .map(|pending| pending.weight)
+            .sum();
+        self.update(|state| {
+            state
+                .connections
+                .get_mut(&self.tracker.id)
+                .expect("connection")
+                .info
+                .subscriptions_confirmed = confirmed
+        });
     }
     pub fn deadline(&self) -> Option<Instant> {
         self.pending
@@ -548,6 +589,7 @@ impl ConnectionAttempt {
             }
             ExchangeId::Gateio => payload["event"] == "subscribe",
             ExchangeId::Kucoin => payload.get("id").is_some() && payload.get("result").is_some(),
+            ExchangeId::Upbit | ExchangeId::Bithumb => payload.get("error").is_some(),
             _ => false,
         };
         if !is_control {
@@ -576,12 +618,15 @@ impl ConnectionAttempt {
             }
             ExchangeId::Kucoin => payload["result"] != true,
             ExchangeId::Kraken => payload["success"] != true,
+            // Only reachable for an error envelope (see `is_control`).
+            ExchangeId::Upbit | ExchangeId::Bithumb => true,
             _ => false,
         };
         if rejected {
-            let error = super::quota::websocket_error(exchange, payload).unwrap_or_else(|| {
-                Error::Subscription(format!("{exchange:?}: rejected subscription: {payload}"))
-            });
+            let error =
+                crate::runtime::quota::websocket_error(exchange, payload).unwrap_or_else(|| {
+                    Error::Subscription(format!("{exchange:?}: rejected subscription: {payload}"))
+                });
 
             // Codes are parsed as integers; never retain arbitrary rejection text.
             let code = payload.get("code").and_then(|v| {
@@ -629,20 +674,7 @@ impl ConnectionAttempt {
             }
             pending.confirmed = true;
         }
-        let confirmed = self
-            .pending
-            .iter()
-            .filter(|pending| pending.confirmed)
-            .map(|pending| pending.weight)
-            .sum();
-        self.update(|state| {
-            state
-                .connections
-                .get_mut(&self.tracker.id)
-                .expect("connection")
-                .info
-                .subscriptions_confirmed = confirmed
-        });
+        self.refresh_confirmed();
         Ok(true)
     }
     pub fn failed(&self, error: &Error, stage: &'static str) {
@@ -1044,6 +1076,65 @@ mod tests {
             assert!(!monitor.snapshot().is_ready());
         }
     }
+    #[test]
+    fn ack_less_korean_venues_confirm_on_send_and_reject_error_envelopes() {
+        for exchange in [ExchangeId::Upbit, ExchangeId::Bithumb] {
+            let monitor = monitor(exchange, vec![]);
+            let tracker = monitor.register("synthetic-korean".into(), vec![]);
+            let mut attempt = tracker.begin();
+            attempt.connected();
+            let request = if exchange == ExchangeId::Upbit {
+                json!([
+                    {"ticket": "cf"},
+                    {"type": "trade", "codes": ["KRW-BTC"]},
+                    {"type": "orderbook", "codes": ["KRW-BTC"]},
+                    {"type": "candle.1m", "codes": ["KRW-BTC"]},
+                    {"format": "DEFAULT"}
+                ])
+            } else {
+                json!([
+                    {"ticket": "cf"},
+                    {"type": "trade", "codes": ["KRW-BTC"]},
+                    {"type": "orderbook", "codes": ["KRW-BTC"]},
+                    {"format": "DEFAULT"}
+                ])
+            };
+            let messages = attempt.prepare_messages(vec![request.to_string()]);
+            assert_eq!(
+                monitor.snapshot().connections[0].subscriptions_expected,
+                if exchange == ExchangeId::Upbit { 3 } else { 2 }
+            );
+            assert!(!monitor.snapshot().is_ready());
+            attempt.sent(&messages[0], Instant::now());
+            assert!(
+                monitor.snapshot().is_ready(),
+                "{exchange:?} has no acknowledgement protocol and confirms on send"
+            );
+
+            let error = attempt
+                .control(&json!({"error": {"name": "WRONG_FORMAT", "message": "invalid"}}))
+                .unwrap_err();
+            assert!(matches!(error, Error::Subscription(_)), "{exchange:?}");
+            assert!(!monitor.snapshot().is_ready());
+        }
+    }
+
+    #[test]
+    fn upbit_documented_throttle_name_is_rate_limited_and_bithumb_stays_permanent() {
+        let throttled = crate::runtime::quota::websocket_error(
+            ExchangeId::Upbit,
+            &json!({"error": {"name": "Too Many Requests", "message": "slow down"}}),
+        )
+        .expect("rate limited");
+        assert!(matches!(throttled, Error::RateLimited { .. }));
+        let permanent = crate::runtime::quota::websocket_error(
+            ExchangeId::Bithumb,
+            &json!({"error": {"name": "INVALID_PARAM", "message": "bad"}}),
+        )
+        .expect("subscription error");
+        assert!(matches!(permanent, Error::Subscription(_)));
+    }
+
     #[cfg(feature = "orderbook")]
     #[test]
     fn gateio_diagnostics_reject_stale_epochs_and_preserve_total_attempts() {

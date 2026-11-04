@@ -1,13 +1,14 @@
 # Python Baseline vs Rust Parity Checklist
 
-Last updated: 2026-10-16
+Last updated: 2026-11-03
 
 ## Goal
 
 `cryptofeed-rs` aligns core normalized public-market behavior with Python
 `cryptofeed` while using the current official protocols for Binance, Bitget,
-Bybit, OKX, Gate.io, KuCoin, and Kraken Spot. Python remains a semantic migration reference; official
-exchange documentation and sourced fixtures define protocol correctness.
+Bybit, OKX, Gate.io, KuCoin, Kraken Spot, Upbit and Bithumb. Python remains a
+semantic migration reference; official exchange documentation and sourced
+fixtures define protocol correctness.
 
 ## Linux release qualification boundary (2026-10-16)
 
@@ -101,6 +102,8 @@ tracked in [the usage alignment plan](docs/python-usage-alignment.md).
 | KuCoin UTA WS V2 | spot | yes | yes | yes | no | yes | no | no | no | no | no |
 | KuCoin UTA WS V2 | USDT/USDC/coin-margined perpetual | yes | yes | yes | no | yes | yes | no | yes | yes | yes |
 | Kraken WS v2 | spot | yes | yes | yes | no | yes | no | no | no | no | no |
+| Upbit quotation WS | spot (KRW/BTC/USDT quotes) | no | yes | yes | no | yes | no | no | no | no | no |
+| Bithumb public WS | spot (KRW/BTC quotes) | no | yes | yes | no | no | no | no | no | no | no |
 
 Bybit funding rides the derivative `tickers.{symbol}` stream (the standalone
 `funding.{symbol}` channel was removed by Bybit; verified live 2026-08-06).
@@ -123,6 +126,18 @@ snapshot-only `depth=1/5/50`. KuCoin `6hour` klines are rejected on futures
 preflight. KuCoin futures quantities from those channels are contract units
 (`UNIT`), not base quantity: callers convert with the catalog `unitSize`
 metadata or `kucoin::units::contracts_to_base` rather than a venue constant.
+
+Upbit's Korean quotation WebSocket and Bithumb's public WebSocket v1 are
+spot-only. Their `ticker` frames are last-price/24-hour-statistics snapshots
+without a best bid or ask, so neither venue advertises a normalized `Ticker`
+(BBO contract) or `L1Book` cell: `trade`/`orderbook`/`candle.<unit>` (Upbit) and
+`trade`/`orderbook` (Bithumb) are the implemented cells. Both order books are
+complete snapshots — Upbit with documented unit counts 1/5/15/30 (default 30)
+and Bithumb with at most 15 units and no depth parameter — so there is no
+delta/sequence/checksum rule to implement or invent. Upbit candles cover
+1s/1m/3m/5m/10m/15m/30m/60m/240m; Bithumb documents no public WebSocket candle
+stream (REST history only), so its `Candles` cell is unsupported rather than
+polled. KRW is a fiat quote and is preserved, never guessed from a symbol.
 
 Kraken Spot WebSocket v2 is spot-only: `ticker` carries BBO sizes but is not an
 `L1Book` channel, and funding/open interest/mark price/liquidations live on the
@@ -358,6 +373,66 @@ remain offline-verified in this increment. See
   resnapshot -> replacement-snapshot recovery is covered by deterministic
   dispatch tests.
 
+### Upbit Korean quotation WebSocket
+
+- [x] Public endpoint `wss://api.upbit.com/websocket/v1` (Korean quotation
+  service) with the documented ticket/type/codes/format JSON-array request, one
+  message per feed, `format: DEFAULT`, and no authentication.
+- [x] Spot-only capability row: `Trade`, `L2Book`, `Candles`. `Ticker` is
+  rejected because the venue ticker frame has no bid/ask, `L1Book` because no
+  native top-of-book channel is documented, and funding/index/mark price/open
+  interest/liquidations/derivative products because the public surface does not
+  provide them.
+- [x] `trade` normalization (price, size, `ask_bid` side, `sequential_id`,
+  millisecond timestamps) and `candle.<unit>` normalization for the documented
+  1s/1m/3m/5m/10m/15m/30m/60m/240m units; `60m`/`240m` map to `1h`/`4h`, any
+  other unit fails preflight, and candle completion stays unknown because the
+  venue never marks a bar final.
+- [x] Snapshot-only L2: every `orderbook` push replaces the book; the documented
+  `{code}.{count}` unit form is used for configured depths 1/5/15/30 (plain code
+  for the documented default of 30), unpaired/empty/oversized snapshots fail
+  closed, and no delta/sequence/checksum behavior is invented.
+- [x] Documented error envelope (`{"error":{"name":...}}`) handling: configuration
+  names are terminal, `Too Many Requests`/`I'm a teapot` map to the shared
+  rate-limited class, and `{"status":"UP"}` heartbeat frames are filtered.
+- [x] REST catalog `GET /v1/market/all?is_details=true` with exact
+  `{QUOTE}-{BASE}` normalization (`KRW-BTC` -> `BTC-KRW`), quote preservation,
+  alert flags surfaced as catalog status (never used as an eligibility gate), and
+  malformed market codes rejected instead of guessed.
+- [x] Full-session WebSocket double: documented subscription array, trade and
+  snapshot-book delivery, heartbeat filtering and clean shutdown; snapshot
+  replacement and fail-closed unit counts are covered by deterministic dispatch
+  tests.
+
+### Bithumb public WebSocket v1
+
+- [x] Verified current public endpoint `wss://ws-api.bithumb.com/websocket/v1`
+  and plain JSON text frames (the optional RFC 7692 compression is not requested,
+  so the documented schema is unchanged), with the same
+  ticket/type/codes/format JSON-array request and `format: DEFAULT`.
+- [x] Spot-only capability row: `Trade`, `L2Book`. `Ticker` is rejected (no
+  bid/ask in the venue ticker frame), `Candles` because no public WebSocket
+  candle stream is documented, and L1/funding/index/mark price/open
+  interest/liquidations/derivative products because the public surface has none.
+- [x] `trade` normalization (price, size, `ask_bid` side, `sequential_id`,
+  millisecond timestamps; KST display fields are not used as event times).
+- [x] Snapshot-only L2 with at most 15 documented units. No depth parameter is
+  accepted (`level` is a price-aggregation unit, not a level count); unpaired,
+  empty, oversized or delta-shaped frames fail closed.
+- [x] Documented error envelope handling and shared `PING` / `{"status":"UP"}`
+  heartbeat policy; scheduled public-socket maintenance is an ordinary reconnect.
+- [x] REST catalog `GET /v1/market/all?isDetails=true` with exact
+  `{QUOTE}-{BASE}` normalization and `market_warning` surfaced as catalog status
+  without dropping or reinterpreting cautious pairs.
+- [x] Full-session WebSocket double: subscription array, trade and snapshot-book
+  delivery and clean shutdown; delta-shaped book frames fail closed.
+- [x] Documented gap: Bithumb has no public WebSocket candle channel. REST-only
+  candles (`/v1/candles/minutes/{1,3,5,10,15,30,60,240}`, days/weeks/months) are
+  recorded in the protocol baseline but not exposed as a normalized live candle
+  channel; a polling feed would be a new delivery contract, and
+  `PublicRestClient::candle_history` for Bithumb remains an explicitly deferred
+  follow-up.
+
 ### Gate.io v4
 
 - [x] Public perpetual liquidation subscription, signed-size normalization,
@@ -417,7 +492,9 @@ Gate.io, KuCoin), index price (OKX explicit index/contract mapping, Binance
 derivative index-price stream, Bitget/Bybit/Gate.io derivative tickers, KuCoin
 shared mark-price payload), and L1 (the five original active exchanges) are
 implemented for spot/contract scope; KuCoin intentionally exposes no L1Book or
-liquidation cell, and Kraken Spot exposes no derivative or L1 cell. Options,
+liquidation cell, Kraken Spot exposes no derivative or L1 cell, and the Korean
+venues expose no `Ticker`/`L1Book` cell because their public ticker frames carry
+no quote (Bithumb additionally exposes no live candle channel). Options,
 MARGIN, and L3 are deferred. Further expansion requires a new explicit plan and current official
 protocol evidence. See [the harness guide](docs/harness.md) for acceptance
 criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.

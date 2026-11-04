@@ -1,6 +1,6 @@
 use crate::exchange::{
-    bybit::adapter::BybitAdapter, kraken::adapter::KrakenAdapter, kucoin::adapter::KucoinAdapter,
-    okx::adapter::OkxAdapter,
+    bithumb::adapter::BithumbAdapter, bybit::adapter::BybitAdapter, kraken::adapter::KrakenAdapter,
+    kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter, upbit::adapter::UpbitAdapter,
 };
 use cryptofeed_core::{
     error::{Error, Result},
@@ -84,6 +84,18 @@ impl HeartbeatPolicy {
                 Duration::from_secs(30),
                 Duration::from_secs(60),
             ),
+            // Both Korean venues document a ~120 s idle close, a text `PING`
+            // liveness probe and periodic `{"status":"UP"}` frames.
+            ExchangeId::Upbit => (
+                HeartbeatKind::Text(UpbitAdapter::heartbeat_message()),
+                Duration::from_secs(30),
+                Duration::from_secs(90),
+            ),
+            ExchangeId::Bithumb => (
+                HeartbeatKind::Text(BithumbAdapter::heartbeat_message()),
+                Duration::from_secs(30),
+                Duration::from_secs(90),
+            ),
             ExchangeId::Coinbase => (
                 HeartbeatKind::None,
                 Duration::from_secs(60),
@@ -126,6 +138,11 @@ impl HeartbeatPolicy {
     }
 
     fn is_response_value(self, value: &serde_json::Value) -> bool {
+        // Upbit and Bithumb answer a text `PING` with periodic
+        // `{"status":"UP"}` frames; they are liveness, not market data.
+        if value.get("status").and_then(|value| value.as_str()) == Some("UP") {
+            return true;
+        }
         value.get("op").and_then(|value| value.as_str()) == Some("pong")
             || value.get("method").and_then(|value| value.as_str()) == Some("pong")
             || value.get("ret_msg").and_then(|value| value.as_str()) == Some("pong")
@@ -1144,6 +1161,12 @@ mod tests {
             HeartbeatPolicy::for_exchange(ExchangeId::Gateio, &url).message(123),
             Some(r#"{"time":123,"channel":"spot.ping"}"#.to_owned())
         );
+        for exchange in [ExchangeId::Upbit, ExchangeId::Bithumb] {
+            assert_eq!(
+                HeartbeatPolicy::for_exchange(exchange, &url).message(123),
+                Some("PING".to_owned())
+            );
+        }
         assert_eq!(
             HeartbeatPolicy::for_exchange(ExchangeId::Binance, &url).message(123),
             None
@@ -1158,12 +1181,15 @@ mod tests {
             ExchangeId::Bybit,
             ExchangeId::Okx,
             ExchangeId::Gateio,
+            ExchangeId::Upbit,
+            ExchangeId::Bithumb,
         ] {
             let policy = HeartbeatPolicy::for_exchange(exchange, &url);
             let response = match exchange {
                 ExchangeId::Bitget | ExchangeId::Okx => "pong",
                 ExchangeId::Bybit => r#"{"op":"pong"}"#,
                 ExchangeId::Gateio => r#"{"channel":"spot.pong","event":"update"}"#,
+                ExchangeId::Upbit | ExchangeId::Bithumb => r#"{"status":"UP"}"#,
                 _ => unreachable!(),
             };
             assert!(policy.is_response(response));

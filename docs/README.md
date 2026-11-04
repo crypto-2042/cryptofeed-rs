@@ -49,6 +49,19 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Expansion design and implementation plan](cex-expansion-plan-2026-11-03.md):
   layer-by-layer changes, ordered work and verification gates.
 
+## Korean CEX expansion (implemented)
+
+- [Korean CEX research and selection](korean-cex-research-2026-11-03.md):
+  candidate matrix, live REST checks and why Upbit/Bithumb were selected while
+  Coinone and Korbit are deferred.
+- [Upbit protocol baseline](upbit-protocol.md) and
+  [Bithumb protocol baseline](bithumb-protocol.md): Korean quotation hosts,
+  ticket/type/codes/format framing, snapshot order-book semantics and unit
+  counts, candle intervals and the REST-only Bithumb candle gap.
+- [Korean CEX design and implementation plan](korean-cex-plan-2026-11-03.md):
+  capability rows (including the deliberate `Ticker` gap), layer-by-layer
+  changes, ordered work and verification gates.
+
 ## Acceptance verification
 
 - [Issue #9/#10 acceptance verification](reports/issue-9-10-acceptance-verification-2026-11-03.md):

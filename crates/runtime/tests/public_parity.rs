@@ -5,6 +5,7 @@ use cryptofeed_rs::binance::{
     parser as binance_parser,
 };
 use cryptofeed_rs::bitget::{adapter::BitgetAdapter, parser as bitget_parser};
+use cryptofeed_rs::bithumb::parser as bithumb_parser;
 use cryptofeed_rs::bybit::parser as bybit_parser;
 use cryptofeed_rs::gateio::{
     adapter::{GateioInstrument, GateioProduct},
@@ -13,6 +14,7 @@ use cryptofeed_rs::gateio::{
 use cryptofeed_rs::kraken::{adapter::KrakenAdapter, parser as kraken_parser};
 use cryptofeed_rs::kucoin::parser as kucoin_parser;
 use cryptofeed_rs::okx::parser as okx_parser;
+use cryptofeed_rs::upbit::{adapter::UpbitAdapter, parser as upbit_parser};
 use rust_decimal::Decimal;
 use serde_json::json;
 
@@ -3070,5 +3072,212 @@ fn kraken_method_subscribe_and_control_frames_are_parsed() {
         }))
         .expect("rejection")
         .is_err()
+    );
+}
+
+// ---------- Korean quotation WebSocket documented frames ----------
+
+// Frames follow the official Upbit channel documentation recorded in
+// `docs/upbit-protocol.md`. They are sanitized documented examples, not
+// recordings; the KRW quote is preserved exactly.
+
+#[test]
+fn upbit_trade_and_snapshot_orderbook_match_documented_shapes() {
+    let trade_frame = json!({
+        "type": "trade", "code": "KRW-BTC", "timestamp": 1696585056910_u64,
+        "trade_date": "2023-10-06", "trade_time": "09:37:36",
+        "trade_timestamp": 1696585056846_u64, "trade_price": 37625000.0,
+        "trade_volume": 0.00008428, "ask_bid": "ASK", "sequential_id": 1696585056846000_u64,
+        "best_ask_price": 37626000.0, "best_ask_size": 0.04414411,
+        "best_bid_price": 37624000.0, "best_bid_size": 0.01202163,
+        "stream_type": "REALTIME"
+    });
+    let trade = upbit_parser::parse_trade(&trade_frame, 1.0).expect("trade");
+    assert_eq!(trade.symbol, Symbol::spot("BTC", "KRW"));
+    assert_eq!(trade.symbol.as_str(), "BTC-KRW");
+    assert_eq!(trade.side, cryptofeed_rs::prelude::Side::Sell);
+    assert_eq!(trade.amount.to_string(), "0.00008428");
+    assert_eq!(trade.id.as_deref(), Some("1696585056846000"));
+
+    let book_frame = json!({
+        "type": "orderbook", "code": "KRW-BTC", "timestamp": 1746602359173_u64,
+        "total_ask_size": 0.68780013, "total_bid_size": 0.78754733,
+        "orderbook_units": [
+            {"ask_price": 125056000.0, "bid_price": 124743000.0, "ask_size": 0.17, "bid_size": 0.17},
+            {"ask_price": 125207000.0, "bid_price": 124332000.0, "ask_size": 0.09, "bid_size": 0.09}
+        ],
+        "stream_type": "REALTIME"
+    });
+    let book = upbit_parser::parse_book(&book_frame, 1.0).expect("book");
+    let L2Book::Snapshot(snapshot) = &book else {
+        panic!("upbit orderbook is snapshot-only");
+    };
+    assert_eq!(snapshot.symbol.as_str(), "BTC-KRW");
+    assert_eq!(
+        snapshot
+            .asks
+            .iter()
+            .map(|level| level.price.to_string())
+            .collect::<Vec<_>>(),
+        vec!["125056000.0", "125207000.0"]
+    );
+    assert_eq!(
+        snapshot
+            .bids
+            .iter()
+            .map(|level| level.price.to_string())
+            .collect::<Vec<_>>(),
+        vec!["124743000.0", "124332000.0"]
+    );
+}
+
+#[test]
+fn upbit_candle_units_map_to_the_normalized_vocabulary() {
+    for (wire, interval, seconds) in [
+        ("candle.1s", "1s", 1.0),
+        ("candle.1m", "1m", 60.0),
+        ("candle.3m", "3m", 180.0),
+        ("candle.5m", "5m", 300.0),
+        ("candle.10m", "10m", 600.0),
+        ("candle.15m", "15m", 900.0),
+        ("candle.30m", "30m", 1_800.0),
+        ("candle.60m", "1h", 3_600.0),
+        ("candle.240m", "4h", 14_400.0),
+    ] {
+        let frame = json!({
+            "type": wire, "code": "KRW-BTC",
+            "candle_date_time_utc": "2025-01-02T04:41:51",
+            "opening_price": 130155000.0, "high_price": 130156000.0,
+            "low_price": 130154000.0, "trade_price": 130155500.0,
+            "candle_acc_trade_volume": 0.00003473, "timestamp": 1735792911165_u64
+        });
+        let candle = upbit_parser::parse_candle(&frame, 1.0).expect(wire);
+        assert_eq!(candle.interval, interval, "{wire}");
+        assert_eq!(candle.start, 1_735_792_911.0, "{wire}");
+        assert_eq!(candle.end, candle.start + seconds, "{wire}");
+        // The venue never says a bar is final; completion is not inferred.
+        assert_eq!(candle.closed, None, "{wire}");
+        assert_eq!(candle.exchange_ts, 1_735_792_911.165, "{wire}");
+    }
+    assert_eq!(upbit_parser::normalize_candle_interval("2m"), None);
+    assert_eq!(upbit_parser::normalize_candle_interval("1d"), None);
+}
+
+#[test]
+fn upbit_subscription_array_uses_ticket_type_codes_and_format() {
+    let feed = cryptofeed_rs::prelude::Upbit::new()
+        .trade()
+        .l2_book()
+        .l2_book_depth(5)
+        .candles()
+        .candles_interval("1h")
+        .symbol("BTC-KRW")
+        .exchange_symbol("KRW-BTC")
+        .build();
+    let frames = UpbitAdapter::subscription_messages(&feed).expect("frames");
+    assert_eq!(frames.len(), 1);
+    let request: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
+    let entries = request.as_array().expect("array");
+    assert_eq!(entries[0]["ticket"], "cryptofeed-rs");
+    assert_eq!(entries[1]["type"], "trade");
+    assert_eq!(entries[2]["type"], "orderbook");
+    assert_eq!(entries[2]["codes"], json!(["KRW-BTC.5"]));
+    assert_eq!(entries[3]["type"], "candle.60m");
+    assert_eq!(entries[4]["format"], "DEFAULT");
+    assert!(
+        UpbitAdapter::error(&json!({"error": {"name": "WRONG_FORMAT"}}))
+            .expect("error")
+            .to_string()
+            .contains("WRONG_FORMAT")
+    );
+}
+
+#[test]
+fn upbit_snapshot_book_sync_replaces_the_book_and_rejects_other_shapes() {
+    use cryptofeed_rs::upbit::book_sync::UpbitBookSync;
+    let symbol = Symbol::spot("BTC", "KRW");
+    let mut sync = UpbitBookSync::new(symbol.clone(), Some(1));
+    let frame = json!({
+        "type": "orderbook", "code": "KRW-BTC.1", "timestamp": 1746602359173_u64,
+        "orderbook_units": [
+            {"ask_price": 125056000.0, "bid_price": 124743000.0, "ask_size": 0.17, "bid_size": 0.17}
+        ]
+    });
+    let first = upbit_parser::parse_book_for_symbol(&frame, 1.0, &symbol).expect("book");
+    sync.apply(first).expect("snapshot");
+    assert_eq!(sync.state().bids()[0].price.to_string(), "124743000.0");
+    let delta = L2Book::Delta(cryptofeed_orderbook::L2BookDelta {
+        exchange: cryptofeed_core::exchange::ExchangeId::Upbit,
+        symbol: symbol.clone(),
+        bids: vec![],
+        asks: vec![],
+        exchange_ts: 1.0,
+        received_ts: 2.0,
+    });
+    assert!(sync.apply(delta).is_err());
+}
+
+#[test]
+fn bithumb_trade_and_snapshot_orderbook_match_documented_shapes() {
+    let trade_frame = json!({
+        "type": "trade", "code": "KRW-BTC", "trade_price": 48970000.0,
+        "trade_volume": 1.4825, "ask_bid": "BID",
+        "prev_closing_price": 48450000.0, "change": "RISE", "change_price": 520000.0,
+        "trade_date": "2024-09-10", "trade_time": "09:58:54",
+        "trade_timestamp": 1725929934373_u64, "sequential_id": 17259299343730000_u64,
+        "timestamp": 1725929934483_u64, "stream_type": "REALTIME"
+    });
+    let trade = bithumb_parser::parse_trade(&trade_frame, 1.0).expect("trade");
+    assert_eq!(trade.symbol, Symbol::spot("BTC", "KRW"));
+    assert_eq!(trade.side, cryptofeed_rs::prelude::Side::Buy);
+    assert_eq!(trade.price.to_string(), "48970000.0");
+    assert_eq!(trade.id.as_deref(), Some("17259299343730000"));
+
+    let book_frame = json!({
+        "type": "orderbook", "code": "KRW-BTC",
+        "total_ask_size": 450.3526, "total_bid_size": 63.3006,
+        "orderbook_units": [
+            {"ask_price": 47880000.0, "bid_price": 47830000.0, "ask_size": 4.3478, "bid_size": 5.6370},
+            {"ask_price": 48970000.0, "bid_price": 47790000.0, "ask_size": 2.3642, "bid_size": 0.9705}
+        ],
+        "timestamp": 1725929934483_u64, "stream_type": "REALTIME"
+    });
+    let book = bithumb_parser::parse_book(&book_frame, 1.0).expect("book");
+    let L2Book::Snapshot(snapshot) = &book else {
+        panic!("bithumb orderbook is snapshot-only");
+    };
+    assert_eq!(snapshot.symbol.as_str(), "BTC-KRW");
+    assert_eq!(snapshot.bids[1].price.to_string(), "47790000.0");
+    assert_eq!(snapshot.asks[0].amount.to_string(), "4.3478");
+}
+
+#[test]
+fn bithumb_subscription_array_and_depth_rejection() {
+    let feed = cryptofeed_rs::prelude::Bithumb::new()
+        .trade()
+        .l2_book()
+        .symbol("BTC-KRW")
+        .exchange_symbol("KRW-BTC")
+        .build();
+    let frames = cryptofeed_rs::bithumb::adapter::BithumbAdapter::subscription_messages(&feed)
+        .expect("frames");
+    assert_eq!(frames.len(), 1);
+    let request: serde_json::Value = serde_json::from_str(&frames[0]).expect("json");
+    let entries = request.as_array().expect("array");
+    assert_eq!(entries[0]["ticket"], "cryptofeed-rs");
+    assert_eq!(entries[1]["type"], "trade");
+    assert_eq!(entries[1]["codes"], json!(["KRW-BTC"]));
+    assert_eq!(entries[2]["type"], "orderbook");
+    assert_eq!(entries[3]["format"], "DEFAULT");
+
+    // Bithumb documents no unit-count parameter; a depth request fails closed.
+    let unsupported = cryptofeed_rs::prelude::Bithumb::new()
+        .l2_book()
+        .l2_book_depth(5)
+        .symbol("BTC-KRW")
+        .build();
+    assert!(
+        cryptofeed_rs::bithumb::adapter::BithumbAdapter::subscription_messages(&unsupported)
+            .is_err()
     );
 }
