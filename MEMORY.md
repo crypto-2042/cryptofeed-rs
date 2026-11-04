@@ -2,6 +2,37 @@
 
 Project-specific memory for `rust/cryptofeed-rs`.
 
+## Hyperliquid public market data (2026-11-04)
+
+- Hyperliquid is a DEX with a centralized-style public WS/REST feed: one host
+  `wss://api.hyperliquid.xyz/ws`, `POST https://api.hyperliquid.xyz/info` for
+  catalogs. No explicit API version; target the current GitBook shape and
+  fail closed on unmapped frames.
+- Subscription `coin` is case-sensitive on the wire. `kPEPE` subscribes;
+  `KPEPE` closed the connection live (no `error` channel reply). The catalog,
+  registry and builder must preserve the native spelling for this venue and the
+  adapter must never re-case a coin.
+- `l2Book` is a whole-book replacement snapshot (20 levels default, 5 with
+  `fast:true`). There is no sequence/checksum/delta; never invent one. Only
+  requested depths 20/5 are accepted; reconnect is the only recovery.
+- `bbo` sides may be `null`; emit Ticker+L1Book only when both are present and
+  never fabricate a one-sided quote. `trades.tid` is a 50-bit hash, not
+  globally unique; preserve it verbatim.
+- Perp `activeAssetCtx` splits into Funding (`funding`), OpenInterest
+  (`openInterest`), MarkPrice (`markPx`) and IndexPrice (`oraclePx`); the spot
+  live channel is `activeSpotAssetCtx` and yields MarkPrice only. The payload
+  has no exchange timestamp; use the receive timestamp. Docs say candle data is
+  `Candle[]` while the live push is a single object; accept both.
+- Spot identity: subscription coin is `universe[].name` (`PURR/USDC` or `@N`);
+  normalized base/quote come from token names and arbitrary quotes (`USDT0`,
+  `USDH`, `USDE`) are preserved. Removed spot pairs are absent from `universe`
+  (indices have gaps), and `isDelisted` is honored for both products.
+- No public liquidation channel exists (liquidations are private user events),
+  so Liquidations stays unsupported. Documented limits: 1200 REST weight/min
+  (meta/spotMeta weight 20), 10 WS connections, 30 new connections/min, 1000
+  subscriptions, 2000 outbound messages/min; the runtime caps connections at 10
+  with a 2 s start interval and plans at most 1000 subscriptions per socket.
+
 ## Static WebSocket trust roots (2026-10-21)
 
 - Direct/proxied WS and HTTP share static WebPKI roots and the explicit ring

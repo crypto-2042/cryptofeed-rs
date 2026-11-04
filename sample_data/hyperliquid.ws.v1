@@ -1,0 +1,11 @@
+{"channel":"subscriptionResponse","data":{"method":"subscribe","subscription":{"type":"l2Book","coin":"BTC","nSigFigs":null,"mantissa":null,"fast":false}}}
+{"channel":"l2Book","data":{"coin":"BTC","time":1793782877454,"levels":[[{"px":"78454.0","sz":"0.09296","n":5},{"px":"78452.0","sz":"0.00236","n":2}],[{"px":"78455.0","sz":"20.3117","n":62}]]}}
+{"channel":"l2Book","data":{"coin":"PURR/USDC","time":1793782877454,"levels":[[{"px":"0.11525","sz":"1202.0","n":1}],[{"px":"0.11552","sz":"728.0","n":1}]]}}
+{"channel":"trades","data":[{"coin":"BTC","side":"A","px":"78468.0","sz":"0.10569","time":1793782868033,"hash":"0x00","tid":282768822863722,"users":["0x0000000000000000000000000000000000000000","0x0000000000000000000000000000000000000001"]},{"coin":"BTC","side":"B","px":"78469.0","sz":"0.2","time":1793782868100,"hash":"0x01","tid":902595192366748,"users":["0x0000000000000000000000000000000000000000","0x0000000000000000000000000000000000000002"]}]}
+{"channel":"bbo","data":{"coin":"BTC","time":1793782877739,"bbo":[{"px":"78451.0","sz":"0.22297","n":1},{"px":"78452.0","sz":"13.21482","n":74}]}}
+{"channel":"bbo","data":{"coin":"PURR/USDC","time":1793782879034,"bbo":[{"px":"0.11525","sz":"1202.0","n":1},{"px":"0.11552","sz":"728.0","n":1}]}}
+{"channel":"candle","data":{"t":1793782860000,"T":1793782919999,"s":"BTC","i":"1m","o":"78469.0","c":"78451.0","h":"78469.0","l":"78451.0","v":"11.58778","n":86}}
+{"channel":"activeAssetCtx","data":{"coin":"BTC","ctx":{"funding":"0.0000125","openInterest":"39370.73328","prevDayPx":"76611.0","dayNtlVlm":"3444111352.420372963","premium":"-0.0004510106","oraclePx":"78490.4","markPx":"78464.8","midPx":"78454.5","impactPxs":["78454.0","78455.0"],"dayBaseVlm":"44617.00231"}}}
+{"channel":"activeSpotAssetCtx","data":{"coin":"PURR/USDC","ctx":{"prevDayPx":"0.11235","dayNtlVlm":"1869165.0426500002","markPx":"0.11552","midPx":"0.115385","circulatingSupply":"594666965.8429700136","coin":"PURR/USDC","totalSupply":"594666977.1494899988","dayBaseVlm":"16536048.0"}}}
+{"channel":"pong"}
+{"channel":"error","data":"Error parsing JSON into valid websocket request: {\"method\": \"subscribe\", \"subscription\": {\"type\": \"bogusChannel\", \"coin\": \"BTC\"}}"}

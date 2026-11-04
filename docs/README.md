@@ -75,6 +75,18 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
   capability rows, layer-by-layer changes, the HTX GZIP dependency decision and
   verification gates.
 
+## Hyperliquid expansion (implemented)
+
+- [Hyperliquid scope and API version](hyperliquid-research-2026-11-04.md): why
+  the venue was selected and the current public API version.
+- [Hyperliquid protocol baseline](hyperliquid-protocol.md): endpoints,
+  subscription/ack/error framing, the verified ping/pong heartbeat,
+  channel-to-normalized mapping, snapshot-only `l2Book` semantics and depth
+  limits, candle intervals, `meta`/`spotMeta` catalog identity, rate limits and
+  connection/subscription caps, live verification log and open questions.
+- [Hyperliquid design and implementation plan](hyperliquid-plan-2026-11-04.md):
+  capability rows, layer-by-layer changes, ordered work and verification gates.
+
 ## Acceptance verification
 
 - [Issue #9/#10 acceptance verification](reports/issue-9-10-acceptance-verification-2026-11-03.md):
