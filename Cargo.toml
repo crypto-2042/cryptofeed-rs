@@ -38,3 +38,12 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 tokio-tungstenite = { version = "0.30", features = ["__rustls-tls"] }
 tracing = "0.1"
 url = "2"
+
+# Local builds only need file:line backtraces, not variable-level debug info.
+# Third-party crates never need debug info here; this keeps `target/` small
+# without disabling incremental compilation or changing dependency features.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
