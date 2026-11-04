@@ -56,10 +56,19 @@ pub fn market_code(raw: &str) -> &str {
 
 pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
-        Value::String(text) => Decimal::from_str_exact(text).ok(),
-        Value::Number(number) => Decimal::from_str_exact(&number.to_string()).ok(),
+        Value::String(text) => decimal_from_text(text),
+        Value::Number(number) => decimal_from_text(&number.to_string()),
         _ => None,
     }
+}
+
+/// Accepts both plain decimals and the scientific notation that JSON numbers
+/// use for very small prices (e.g. `5.213462e-06`); `from_str_exact` alone
+/// rejects the exponent form.
+fn decimal_from_text(text: &str) -> Option<Decimal> {
+    Decimal::from_str_exact(text)
+        .or_else(|_| Decimal::from_scientific(text))
+        .ok()
 }
 
 /// Milliseconds since the epoch (integer or numeric string) to seconds.

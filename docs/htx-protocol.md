@@ -191,6 +191,16 @@ non-data.
   subscribes funding/liquidations; the runtime plans it separately from the
   market connection.
 
+## JSON number formatting
+
+Market rows may serialize very small prices as JSON numbers in scientific
+notation (live 2026-11-04: PEPE spot `price=5.213462e-06`, USDT-M
+`price=5.1935e-06`). Parsers accept both plain decimals and exponent form
+(`Decimal::from_scientific` fallback); `from_str_exact` alone rejects the
+exponent and previously produced `malformed market data` reconnect loops
+(issue #21). Trade `amount` on USDT-M remains contracts; the normalized amount
+uses the documented base-coin `quantity` field.
+
 ## Candle intervals
 
 | Normalized | Spot wire | Swap wire |
