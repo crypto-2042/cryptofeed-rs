@@ -242,7 +242,7 @@ cause resolved. Synthetic tests or warning samples alone cannot establish it.
 ## Known Gaps
 
 - Capture files are reference artifacts rather than direct test inputs.
-- Full-session WebSocket doubles cover all five active exchanges (subscribe
+- Full-session WebSocket doubles cover every active venue (subscribe
   framing, control acknowledgements, market-data delivery, and clean shutdown;
   Binance additionally exercises an injected snapshot bootstrap). REST snapshot
   wire-level HTTP doubles are incomplete for other exchanges. Gateio additionally
@@ -272,7 +272,7 @@ Keep this section aligned with `PARITY.md` as those capabilities are added.
 
 `cargo test -p cryptofeed-rs --test subscriptions` checks canonical groups,
 configuration rejection, typed/native identity, and concrete subscription
-planning across the five active exchanges. Runtime unit tests cover exact
+planning across the active venues. Runtime unit tests cover exact
 callback/broadcast/counter/book-state filtering after hydration. The
 `feature_boundaries` target verifies mapped channel preflight under each feature.
 These tests reuse current adapter protocol paths; grouping is not a new wire

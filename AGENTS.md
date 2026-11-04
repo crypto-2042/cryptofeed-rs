@@ -161,8 +161,9 @@ the HTTP catalog fetchers per exchange.
 - Explicit normalized parsing over opaque dynamic conversion; batch messages
   normalize every entry.
 - Decimal precision preserved; exchange and receive timestamps kept distinct.
-- Coinbase/Kraken builders exist but are not live runtimes and are rejected by
-  capability validation.
+- Every advertised builder is a live runtime; unsupported products/channels
+  (including Coinbase derivatives, Deribit options/spot and HTX delivery/margin)
+  are rejected by capability validation.
 - Preserve the `FeedHandler` user-facing entrypoint.
 - Keep runtime behavior changes covered by focused tests.
 - If the Rust implementation moves beyond the original design/plan, update the
@@ -172,8 +173,8 @@ the HTTP catalog fetchers per exchange.
 
 - Follow `docs/harness.md` for fixture, replay, and public parity work.
 - `crates/runtime/tests/public_parity.rs` holds executable inline JSON payloads
-  + assertions for all five active exchanges (Binance, Bitget v3, Bybit v5,
-  OKX v5, Gate.io v4).
+  + assertions for the implemented venues (Binance, Bitget v3, Bybit v5, OKX v5,
+  Gate.io v4, KuCoin, Kraken Spot, Upbit, Bithumb, Coinbase, Deribit, HTX).
 - Keep the default harness deterministic and offline; live exchange examples
   are manual smoke tests.
 - `sample_data/<exchange>.<transport>.<api-version>` files (e.g.

@@ -1,14 +1,14 @@
 # Python Baseline vs Rust Parity Checklist
 
-Last updated: 2026-11-03
+Last updated: 2026-11-04
 
 ## Goal
 
 `cryptofeed-rs` aligns core normalized public-market behavior with Python
 `cryptofeed` while using the current official protocols for Binance, Bitget,
-Bybit, OKX, Gate.io, KuCoin, Kraken Spot, Upbit and Bithumb. Python remains a
-semantic migration reference; official exchange documentation and sourced
-fixtures define protocol correctness.
+Bybit, OKX, Gate.io, KuCoin, Kraken Spot, Upbit, Bithumb, Coinbase Advanced
+Trade, Deribit and HTX. Python remains a semantic migration reference; official
+exchange documentation and sourced fixtures define protocol correctness.
 
 ## Linux release qualification boundary (2026-10-16)
 
@@ -104,6 +104,11 @@ tracked in [the usage alignment plan](docs/python-usage-alignment.md).
 | Kraken WS v2 | spot | yes | yes | yes | no | yes | no | no | no | no | no |
 | Upbit quotation WS | spot (KRW/BTC/USDT quotes) | no | yes | yes | no | yes | no | no | no | no | no |
 | Bithumb public WS | spot (KRW/BTC quotes) | no | yes | yes | no | no | no | no | no | no | no |
+| Coinbase Advanced Trade | spot | yes | yes | yes | yes | no (5m only) | no | no | no | no | no |
+| Deribit JSON-RPC v2 | perpetual | yes | yes | yes | no | yes | yes | no | yes | yes | yes |
+| Deribit JSON-RPC v2 | dated futures | yes | yes | yes | no | yes | no | no | yes | yes | yes |
+| HTX spot | spot | yes | yes | yes | yes | yes | no | no | no | no | no |
+| HTX USDT-M | perpetual | yes | yes | yes | yes | yes | yes | yes | no | no | no |
 
 Bybit funding rides the derivative `tickers.{symbol}` stream (the standalone
 `funding.{symbol}` channel was removed by Bybit; verified live 2026-08-06).
@@ -147,8 +152,55 @@ a mismatch enters the bounded resnapshot path instead of publishing a corrupt
 book. `ohlc` intervals are Kraken's documented minute set (1m/5m/15m/30m/1h/4h/
 1d/1w); the 15-day interval is not expressible in the normalized vocabulary.
 
+Coinbase Advanced Trade is spot-only and public (no JWT). The `ticker` payload
+carries best bid/ask **with sizes**, so `Ticker` and `L1Book` are both
+advertised from the same native channel; `level2` is a full-book snapshot plus
+absolute-size updates (`new_quantity`, `0` removes) with no per-product
+sequence or checksum, and the documented reconnect is the recovery. The public
+`candles` channel only transmits five-minute buckets, so the `Candles` cell is
+accepted only with `candles_interval("5m")`; the default `1m` and every other
+interval fail preflight, and the REST candle endpoint is recorded as a
+non-stream gap rather than a hidden fallback.
+
+Deribit is JSON-RPC 2.0 over `wss://www.deribit.com/ws/api/v2` for perpetuals
+and dated futures only (options are filtered by the catalog and rejected by
+preflight). One public `ticker.{instrument}.100ms` subscription is split into
+`Ticker`, `MarkPrice`, `IndexPrice`, `OpenInterest` and `Funding`; `trades`
+normalize every documented row; `book` uses the public `100ms` interval (`raw`
+is authenticated-only) with `change_id`/`prev_change_id` chaining, stale-change
+drops and a bounded in-session unsubscribe/subscribe resnapshot on a gap;
+`chart.trades` maps the documented resolution enum to normalized intervals
+(`1m`..`1d`; `1w`/`4h` are not in the enum). Book/trade/open-interest amounts
+are the venue's documented native USD unit and are preserved rather than
+converted. There is no public liquidation stream, so `Liquidations` stays
+unsupported.
+
+HTX spot uses `wss://api.huobi.pro/ws` with `sub`/`id` framing (the brief's
+`/ws/v2` is the account socket and rejected a live market subscription; see the
+protocol baseline); USDT-M market topics use `linear-swap-ws` `sub`/`id` and
+funding/liquidation notification topics use `linear-swap-notification`
+`op`/`topic`, so a perpetual feed with those channels plans a second
+connection. Every frame is GZIP-compressed (pinned `flate2` with the pure-Rust
+`rust_backend`, decoded in the session layer only for `ExchangeId::Htx`).
+Spot `depth.step0` pushes are replacement snapshots deduped by documented
+`version`; USDT-M `depth.size_20.high_freq` is snapshot-then-versioned-update
+with a bounded in-session resubscribe on a version gap. Spot trades/depth are
+base quantity; USDT-M level sizes are contract counts and trades use the
+documented base-coin `quantity` (a row without it fails closed). Mark price,
+index price and open interest have **no current public WebSocket topic**
+(`market.<contract>.mark_price.*`/`index.*` were rejected live) and are not
+advertised; no REST polling is invented.
+
 Candles are parameterized: the normalized interval (default `1m`) is
 validated per exchange during preflight (`1m`..`1M` subsets; Gate.io maps to
+`10s`/`24h`/`7d`/`30d`). L2 depth levels are parameterized where the exchange
+exposes partial books: Binance `@depth5/10/20@100ms`, Bybit
+`orderbook.{50,200,1000}` for spot/linear/inverse,
+OKX `books5` (the 50/400 tick-by-tick channels are VIP4+-gated and stay
+unsupported), Bitget `books1/5/50`; Gate.io WebSocket depth stays full-depth.
+Binance L2 update intervals are parameterized via `l2_book_interval(...)`:
+spot `100ms`/`1000ms`, USD-M/COIN-M `100ms`/`250ms`/`500ms` (default `100ms`).
+ (`1m`..`1M` subsets; Gate.io maps to
 `10s`/`24h`/`7d`/`30d`). L2 depth levels are parameterized where the exchange
 exposes partial books: Binance `@depth5/10/20@100ms`, Bybit
 `orderbook.{50,200,1000}` for spot/linear/inverse,
@@ -433,6 +485,81 @@ remain offline-verified in this increment. See
   `PublicRestClient::candle_history` for Bithumb remains an explicitly deferred
   follow-up.
 
+### Coinbase Advanced Trade public WebSocket
+
+- [x] Public no-JWT connection to `wss://advanced-trade-ws.coinbase.com` with
+  one channel per `{"type":"subscribe","channel":..,"product_ids":[..]}` frame,
+  a mandatory `heartbeats` subscription, cumulative `subscriptions`
+  acknowledgements and `{"type":"error","message":..}` fail-fast errors.
+- [x] Spot-only capability row: `Ticker`, `Trade`, `L2Book`, `L1Book` and
+  `Candles`. `Ticker` and `L1Book` are projected from the documented ticker BBO
+  with sizes; `Trade.side` inverts the documented maker side to the aggressor
+  side.
+- [x] `level2` snapshot then absolute `new_quantity` updates; pre-snapshot
+  updates fail closed, rows with unknown side/malformed price or size are
+  rejected, and reconnect rebuilds the book (no invented sequence/checksum).
+- [x] Five-minute-only candle cell: `candles_interval("5m")` is the only
+  accepted value (`start` from wire, `end = start + 300`, `closed = None`);
+  1m and every other interval fail preflight. REST candles are documented but
+  not wired as a hidden backfill.
+- [x] REST catalog `GET /api/v3/brokerage/market/products?product_type=SPOT`
+  with cursor pagination, native/base/quote identity cross-check, SPOT-only
+  filtering and `MarketInfo` increments/minimums.
+- [x] Full-session WebSocket double: subscribe framing, cumulative ack,
+  level2 snapshot/update delivery, out-of-order fail-closed and clean shutdown;
+  documented-frame parser/book-sync/catalog/preflight parity tests.
+
+### Deribit JSON-RPC v2 public market data
+
+- [x] Public JSON-RPC 2.0 connection to `wss://www.deribit.com/ws/api/v2` with
+  `public/set_heartbeat` + one `public/subscribe` call, JSON-RPC result/error
+  handling, documented `heartbeat`/`test_request` notifications answered with
+  `public/test` and filtered as control frames.
+- [x] Capability rows for perpetual and dated futures only: `Ticker`, `Trade`,
+  `L2Book`, `Candles`, and the ticker-derived `MarkPrice`, `IndexPrice`,
+  `OpenInterest`, `Funding` (funding for perpetuals only). Options, spot and a
+  requested L2 depth fail preflight; no liquidation cell exists.
+- [x] `book.{instrument}.100ms` snapshot then `change_id`/`prev_change_id`
+  chained changes: stale changes dropped, gap enters a bounded (3/connection)
+  in-session unsubscribe/subscribe resnapshot, malformed rows fail closed.
+- [x] `chart.trades.{instrument}.{resolution}` normalized intervals
+  (1m/3m/5m/10m/15m/30m/1h/2h/3h/6h/12h/1d) with derived `end` and unknown
+  completion (`closed = None`); unsupported intervals fail preflight.
+- [x] REST catalog `public/get_instruments?currency=any&kind=future&expired=false`
+  with perpetual/dated classification by `settlement_period`, option skipping,
+  `state=open`/`is_active` eligibility and base/quote identity validation.
+- [x] Full-session WebSocket double: heartbeat setup, subscribe ack, ticker
+  split into four/five normalized categories, book gap resnapshot and clean
+  shutdown; documented-frame parser/book-sync/catalog/preflight parity tests.
+
+### HTX spot and USDT-M public WebSocket
+
+- [x] Live-verified framing: spot market `wss://api.huobi.pro/ws` with
+  `sub`/`id` (the documented account `/ws/v2` endpoint rejected a market
+  subscription), USDT-M market `wss://api.hbdm.com/linear-swap-ws` with
+  `sub`/`id`, and funding/liquidation notifications on
+  `wss://api.hbdm.com/linear-swap-notification` with `op`/`topic`; GZIP binary
+  frames decoded in the session layer and integer/`op` server heartbeats
+  answered from the message path.
+- [x] Capability rows: spot `Ticker`/`Trade`/`L2Book`/`L1Book`/`Candles`;
+  USDT-M perpetual adds `Funding`/`Liquidations`; delivery contracts, margin,
+  mark price, index price and open interest fail preflight (no current public
+  WS topic for the last three).
+- [x] Spot `depth.step0` replacement snapshots deduped by documented `version`;
+  USDT-M `depth.size_20.high_freq` snapshot then consecutive-version updates
+  with a bounded (3/connection) in-session resubscribe on a gap. No checksum
+  exists and none is invented.
+- [x] Documented interval sets are product-qualified (spot includes `1w`/`1M`;
+  USDT-M has no weekly/weekly-unsupported mapping; `1hour` alias accepted),
+  with derived `end` and unknown completion.
+- [x] REST catalogs `/v1/common/symbols` (`state=online`, lowercase identity)
+  and `/linear-swap-api/v1/swap_contract_info` (`business_type/contract_type =
+  swap`, `contract_status = 1`) with market info mapping.
+- [x] Full-session WebSocket doubles: spot trade/snapshot-book delivery,
+  USDT-M incremental depth gap resubscribe, notification funding+liquidation
+  delivery, ping/pong echo and clean shutdown; documented-frame
+  parser/book-sync/catalog/preflight parity tests.
+
 ### Gate.io v4
 
 - [x] Public perpetual liquidation subscription, signed-size normalization,
@@ -475,7 +602,6 @@ cargo test -p cryptofeed-rs --test public_parity
   based on multi-symbol rate-limit exposure; current REST availability does
   not enable a capability cell. See [the decision record](docs/binance-open-interest-decision.md).
 
-- Coinbase live runtime path.
 - Authenticated feeds and trading.
 - Options and MARGIN as public runtime products. Their existing protocol
   helpers and fixtures are retained, but all such feeds fail 0.1 preflight.
@@ -492,11 +618,14 @@ Gate.io, KuCoin), index price (OKX explicit index/contract mapping, Binance
 derivative index-price stream, Bitget/Bybit/Gate.io derivative tickers, KuCoin
 shared mark-price payload), and L1 (the five original active exchanges) are
 implemented for spot/contract scope; KuCoin intentionally exposes no L1Book or
-liquidation cell, Kraken Spot exposes no derivative or L1 cell, and the Korean
+liquidation cell, Kraken Spot exposes no derivative or L1 cell, the Korean
 venues expose no `Ticker`/`L1Book` cell because their public ticker frames carry
-no quote (Bithumb additionally exposes no live candle channel). Options,
-MARGIN, and L3 are deferred. Further expansion requires a new explicit plan and current official
-protocol evidence. See [the harness guide](docs/harness.md) for acceptance
+no quote (Bithumb additionally exposes no live candle channel), Coinbase exposes
+only the documented five-minute candle cell, Deribit exposes no L1 or
+liquidation cell, and HTX exposes no mark-price/index/open-interest cell because
+those public WebSocket topics are not currently served. Options, MARGIN, and L3
+are deferred. Further expansion requires a new explicit plan and current
+official protocol evidence. See [the harness guide](docs/harness.md) for acceptance
 criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.
 
 ## API currency review — 2026-10-09

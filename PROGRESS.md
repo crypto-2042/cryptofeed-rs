@@ -1732,3 +1732,62 @@ feature boundaries.
   gates, README exchange/capability tables, `docs/feature-status.html`,
   `docs/exchange-protocol-baseline.md`, `docs/README.md` and
   `sample_data/SOURCES.md` provenance.
+
+## Monitoring venue additions (2026-11-04)
+
+- Coinbase Advanced Trade public spot (`wss://advanced-trade-ws.coinbase.com`,
+  no JWT): one-channel-per-frame `subscribe`, mandatory `heartbeats`, cumulative
+  `subscriptions` acks and `{"type":"error"}` fail-fast handling. `ticker`
+  carries best bid/ask **with sizes**, so `Ticker` and `L1Book` are both
+  advertised from it; `level2` is a full-book snapshot + absolute
+  `new_quantity` stream (no per-product sequence/checksum, reconnect is the
+  documented recovery); `Trade.side` inverts the documented maker side.
+  `candles` is five-minute-only, so `Candles` is accepted only with
+  `candles_interval("5m")`; the 1m cell is an explicit documented gap, not a
+  hidden REST backfill. Catalog:
+  `GET /api/v3/brokerage/market/products?product_type=SPOT` with cursor
+  pagination and identity cross-checks.
+- Deribit JSON-RPC v2 public market data (`wss://www.deribit.com/ws/api/v2`) for
+  perpetuals and dated futures only; options are skipped by the catalog and
+  rejected by preflight. `public/set_heartbeat` + one `public/subscribe`;
+  documented `heartbeat`/`test_request` notifications are answered with
+  `public/test` and filtered as control. One `ticker.<instrument>.100ms`
+  subscription is split into `Ticker`, `MarkPrice`, `IndexPrice`,
+  `OpenInterest` and `Funding`; `book` uses `change_id`/`prev_change_id` with
+  stale-change drops and a bounded in-session unsubscribe/subscribe resnapshot;
+  `chart.trades` maps the documented resolution enum (1m..1d). Book/trade/OI
+  amounts stay the documented native USD unit. No public liquidation stream.
+  Catalog: `public/get_instruments?currency=any&kind=future&expired=false` with
+  perpetual/dated classification and `state=open`/`is_active` eligibility.
+- HTX spot + USDT-M public market data. Live verification on 2026-11-04 changed
+  two assumptions: spot market data is `wss://api.huobi.pro/ws` with
+  `sub`/`id` (the account `/ws/v2` endpoint rejected a market subscription and
+  is not GZIP), and USDT-M market topics use `linear-swap-ws` `sub`/`id` while
+  funding/liquidation notifications use `op`/`topic` on
+  `wss://api.hbdm.com/linear-swap-notification`. Every frame is GZIP-compressed;
+  a pinned `flate2` (`default-features = false`, `rust_backend`, MIT/Apache-2.0,
+  MSRV-compatible) decodes Htx binary frames in the shared session layer only.
+  Spot `depth.step0` replacement snapshots are deduped by documented `version`;
+  USDT-M `depth.size_20.high_freq` (`data_type=incremental`) is snapshot +
+  consecutive-`version` updates with a bounded in-session resubscribe on a gap.
+  USDT-M trades use the documented base-coin `quantity` (missing => fail
+  closed) while level sizes stay documented contract counts. Mark price, index
+  price and open interest have no current public WebSocket topic
+  (`market.<contract>.mark_price.*`/`index.*` rejected live) and are not
+  advertised; no REST polling is invented. Catalogs: `/v1/common/symbols`
+  (`state=online`) and `/linear-swap-api/v1/swap_contract_info`
+  (`business_type/contract_type=swap`, `contract_status=1`).
+- Deterministic coverage: documented-frame parser/book-sync unit tests, catalog
+  mapping/identity rejections, capability preflight accept/reject matrices,
+  `public_parity` fixtures for all three venues, and full-session WebSocket
+  doubles (Coinbase spot, Deribit ticker split + book-gap resnapshot, HTX spot,
+  HTX USDT-M incremental-depth resnapshot, HTX notification funding+liquidation,
+  HTX ping/pong). No live-network tests were added and no live capture is
+  committed; sanitized references live in
+  `sample_data/coinbase.ws.v1`, `sample_data/deribit.ws.v2`,
+  `sample_data/htx.ws.v2` with provenance in `sample_data/SOURCES.md`.
+- Docs: `docs/coinbase-protocol.md`, `docs/deribit-protocol.md`,
+  `docs/htx-protocol.md`, `docs/monitoring-venue-plan-2026-11-04.md`,
+  `PARITY.md` matrix rows/protocol gates, README exchange/capability tables,
+  `docs/feature-status.html`, `docs/exchange-protocol-baseline.md` and
+  `docs/README.md`.

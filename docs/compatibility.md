@@ -32,7 +32,8 @@ The current implementation is the baseline, with supported combinations in
 - Public spot, perpetual/swap and dated futures on Binance, Bitget v3, Bybit v5,
   OKX v5 and Gate.io v4, only for combinations admitted by the capability matrix.
   Preserve explicit preflight failure for unsupported combinations and mixed
-  products. Coinbase/Kraken builders do not imply live runtime support.
+  products. Every advertised builder is backed by a live public runtime for its
+  documented products; unsupported products/channels fail capability preflight.
 - Options, MARGIN, private/account channels, trading, L3 and Binance contract OI
   are outside 0.1. Cross-process/multi-machine quota coordination is deferred;
   budgets are process-local. A shared egress IP still needs deployment-level limits.

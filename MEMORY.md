@@ -1118,3 +1118,37 @@ are separate from the ten-product 1m smoke; offline tests assert both week grids
 - Bithumb has no public WebSocket candle stream; candles are REST-only and are
   not exposed as a normalized live channel in this increment (same scope
   boundary as Kraken/KuCoin REST history).
+
+## Monitoring venue additions (2026-11-04)
+
+- Coinbase Advanced Trade public `ticker` carries best bid/ask **and sizes**;
+  use it for both `Ticker` and `L1Book` rather than rejecting the L1 cell. The
+  public `candles` channel is five-minute-only; do not silently map `1m` to it
+  or add a hidden REST backfill. `level2` has no per-product sequence/checksum:
+  snapshot then absolute `new_quantity`, reconnect is recovery; never synthesize
+  a sequence.
+- Deribit public channels only allow `100ms`/`agg2` for `book`/`trades`/`ticker`
+  (`raw` is authenticated-only). One `ticker` payload is split into five
+  normalized categories. `book` gap detection is `prev_change_id != last
+  change_id`, recovered by bounded unsubscribe/subscribe. Amounts for
+  perpetuals/futures are documented USD units; preserve them instead of
+  inventing a base-coin conversion. Options stay out of scope.
+- HTX current official + live evidence beats the older briefing: spot market
+  data is `wss://api.huobi.pro/ws` with `sub`/`id` and GZIP binary frames; the
+  documented account `/ws/v2` socket is not the market feed (it rejected a live
+  market subscription). USDT-M notification topics (funding, liquidation) live
+  on `wss://api.hbdm.com/linear-swap-notification` with `op`/`topic`, so a
+  perpetual feed with those channels needs a second planned connection. Do not
+  revive the stale `/ws/v2` assumption or mix `op`/`topic` with market topics.
+- HTX mark price/index price/open interest: the documented
+  `market.<contract>.mark_price.*` and `index.*` topics were rejected as
+  `invalid topic` on the current public market host. They stay unsupported and
+  fail preflight; no REST polling fallback is added without an explicit delivery
+  contract. USDT-M trades require the documented base-coin `quantity`; do not
+  publish the contract `amount` as coin.
+- HTX frames are GZIP: `flate2` is pinned with `default-features = false` and
+  `rust_backend` (no system zlib, no async stack) and decoding is scoped to
+  `ExchangeId::Htx` binary frames in the session layer. Keep it that narrow.
+- HTX spot depth is snapshot-per-push with documented `version` dedupe; USDT-M
+  incremental depth uses a per-connection `version` chain and a bounded
+  in-session resubscribe. No checksum exists for either; none is invented.
