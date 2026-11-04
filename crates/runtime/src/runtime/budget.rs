@@ -16,6 +16,19 @@ use tokio::{
 // SDK's process-local resource ceiling for the other exchanges, not a claim
 // about their remote limits or the activity of other processes sharing an IP.
 pub(crate) const MAX_CONNECTIONS_PER_EXCHANGE: usize = crate::resources::WS_LIMIT;
+/// Hyperliquid documents at most 10 WebSocket connections per IP and at most
+/// 30 new connections per minute. The start interval is the SDK's conservative
+/// pacing for that documented rate; it is not a claim about other processes.
+pub(crate) const HYPERLIQUID_MAX_CONNECTIONS: usize = 10;
+const HYPERLIQUID_CONNECTION_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Per-exchange connection ceiling used by planning and the runtime budget.
+pub(crate) fn max_connections(exchange: ExchangeId) -> usize {
+    match exchange {
+        ExchangeId::Hyperliquid => HYPERLIQUID_MAX_CONNECTIONS,
+        _ => MAX_CONNECTIONS_PER_EXCHANGE,
+    }
+}
 const CONNECTION_INTERVAL: Duration = crate::resources::WS_INTERVAL;
 #[derive(Debug)]
 pub(super) struct ConnectionSlots {
@@ -111,8 +124,12 @@ fn budget(exchange: ExchangeId) -> Arc<ConnectionBudget> {
         .entry(exchange)
         .or_insert_with(|| {
             Arc::new(ConnectionBudget::new(
-                MAX_CONNECTIONS_PER_EXCHANGE,
-                CONNECTION_INTERVAL,
+                max_connections(exchange),
+                if exchange == ExchangeId::Hyperliquid {
+                    HYPERLIQUID_CONNECTION_INTERVAL
+                } else {
+                    CONNECTION_INTERVAL
+                },
             ))
         })
         .clone()

@@ -1,6 +1,48 @@
 # Progress
 
-Last updated: 2026-11-03
+Last updated: 2026-11-04
+
+## Hyperliquid public perpetual and spot expansion (2026-11-04)
+
+- Selected Hyperliquid as a public DEX market-data venue with a documented
+  WebSocket/REST shape (scope note: docs/hyperliquid-research-2026-11-04.md;
+  protocol baseline: docs/hyperliquid-protocol.md; plan:
+  docs/hyperliquid-plan-2026-11-04.md).
+- Public host `wss://api.hyperliquid.xyz/ws` with per-coin
+  `{"method":"subscribe","subscription":{...}}`; `subscriptionResponse` acks,
+  permanent `error` channel failures, and the documented client
+  `{"method":"ping"}` -> `{"channel":"pong"}` heartbeat (verified live
+  2026-11-04; the runtime pings every 30 s inside the 60 s close window).
+- Catalog: `POST /info {"type":"meta"}` (perps; `isDelisted` skipped; quote
+  USD; `szDecimals` surfaced as quantity decimal places) and
+  `{"type":"spotMeta"}` (base/quote from token names, subscription coin
+  `PURR/USDC`/`@N`, arbitrary quotes `USDT0`/`USDH`/`USDE` preserved,
+  canonical/`@N`/token-index consistency checks). Native coin spelling is
+  case-sensitive (`kPEPE` acknowledged, `KPEPE` closed the connection live), so
+  Hyperliquid catalog/builder native symbols preserve case while reverse lookup
+  stays case-insensitive. The shared catalog cache/recording/replay key uses a
+  synthetic `?type=` discriminator; the POST itself goes to the documented URL.
+- Channels: `l2Book` whole-book replacement snapshots (20 levels default, 5
+  with the documented `fast` flag; only those depths accepted; no
+  sequence/checksum/delta invented; reconnect is recovery), `trades` (`B`/`A`,
+  non-unique `tid` preserved verbatim), `bbo` -> Ticker + L1Book only when both
+  sides are present (documented null side emits no quote), `candle` (documented
+  array and live single-object shapes; 14 documented intervals), and
+  `activeAssetCtx` split into Funding/OpenInterest/MarkPrice/IndexPrice for
+  perps with spot `activeSpotAssetCtx` -> MarkPrice only. No public liquidation
+  channel (private user events only), so Liquidations is not advertised.
+- Planning/connection budgets: 1000 subscriptions per connection and the
+  documented 10-connection / 30-per-minute ceiling (2 s start interval).
+- Deterministic coverage: documented-frame parser/book-sync unit tests, catalog
+  mapping (including `@N`, arbitrary quotes and delisted rows), preflight
+  accept/reject matrices, `bbo` null-side handling, `activeAssetCtx` splitting,
+  dispatch, full-session WebSocket doubles (subscribe/ack/delivery, ping/pong,
+  error-channel failure) and `public_parity` fixtures. No live-network tests
+  were added; sanitized references live in `sample_data/hyperliquid.ws.v1` with
+  provenance in `sample_data/SOURCES.md`.
+- Docs: protocol/plan notes, `PARITY.md` matrix rows and protocol gates,
+  README exchange/capability tables, `docs/feature-status.html`,
+  `docs/exchange-protocol-baseline.md` and `docs/README.md`.
 
 ## KuCoin contract quantity units and face-value metadata (#14, 2026-11-03)
 

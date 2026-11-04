@@ -7,7 +7,7 @@ Last updated: 2026-11-04
 `cryptofeed-rs` aligns core normalized public-market behavior with Python
 `cryptofeed` while using the current official protocols for Binance, Bitget,
 Bybit, OKX, Gate.io, KuCoin, Kraken Spot, Upbit, Bithumb, Coinbase Advanced
-Trade, Deribit and HTX. Python remains a semantic migration reference; official
+Trade, Deribit, HTX and Hyperliquid. Python remains a semantic migration reference; official
 exchange documentation and sourced fixtures define protocol correctness.
 
 ## Linux release qualification boundary (2026-10-16)
@@ -109,6 +109,8 @@ tracked in [the usage alignment plan](docs/python-usage-alignment.md).
 | Deribit JSON-RPC v2 | dated futures | yes | yes | yes | no | yes | no | no | yes | yes | yes |
 | HTX spot | spot | yes | yes | yes | yes | yes | no | no | no | no | no |
 | HTX USDT-M | perpetual | yes | yes | yes | yes | yes | yes | yes | no | no | no |
+| Hyperliquid | spot | yes | yes | yes (20/5 snapshot) | yes | yes | no | no | no | yes | no |
+| Hyperliquid | perpetual | yes | yes | yes (20/5 snapshot) | yes | yes | yes | yes | yes | yes | no |
 
 Bybit funding rides the derivative `tickers.{symbol}` stream (the standalone
 `funding.{symbol}` channel was removed by Bybit; verified live 2026-08-06).
@@ -560,6 +562,36 @@ remain offline-verified in this increment. See
   delivery, ping/pong echo and clean shutdown; documented-frame
   parser/book-sync/catalog/preflight parity tests.
 
+### Hyperliquid public perpetual and spot WebSocket
+
+- [x] Live-verified framing: one public host `wss://api.hyperliquid.xyz/ws`;
+  `{"method":"subscribe","subscription":{...}}` per coin, echoed by
+  `subscriptionResponse`, request failures on the `error` channel, and the
+  documented client `{"method":"ping"}` -> `{"channel":"pong"}` heartbeat.
+- [x] Capability rows: spot `Ticker`/`Trade`/`L2Book`/`L1Book`/`Candles`/
+  `MarkPrice`; perpetual adds `Funding`/`OpenInterest`/`Index`/`MarkPrice`.
+  `Liquidations` is deliberately absent (public liquidation data exists only in
+  private user events); dated futures, options, margin and HIP-3 dexs fail
+  preflight.
+- [x] `l2Book` is a whole-book replacement snapshot (20 levels default, 5 with
+  the documented `fast` flag); only those two requested depths are accepted and
+  every other depth fails preflight. No sequence/checksum/delta is invented and
+  reconnect is the only recovery.
+- [x] `trades` maps `side` `B`/`A` with `tid` preserved verbatim (not globally
+  unique); `bbo` emits `Ticker` + `L1Book` only when both documented sides are
+  present; `candle` accepts the documented array and the live single-object
+  shape with the documented 14 intervals; `activeAssetCtx` splits perpetual
+  funding/open-interest/mark/index fields and spot emits mark price only.
+- [x] Catalog: `POST /info {"type":"meta"}` (perps, `isDelisted` skipped, quote
+  USD) and `{"type":"spotMeta"}` (base/quote from token names, subscription
+  coin `PURR/USDC`/`@N`, arbitrary quotes preserved, canonical/`@N` consistency
+  checks). Native coin spelling is case-sensitive (`kPEPE`) and preserved.
+- [x] Connection/planning budgets: 1000 subscriptions per connection and the
+  documented 10-connection / 30-per-minute ceiling.
+- [x] Full-session WebSocket double: subscribe/ack/market-data delivery, the
+  documented ping/pong heartbeat, error-channel failure and clean shutdown;
+  documented-frame parser/book-sync/catalog/preflight parity tests.
+
 ### Gate.io v4
 
 - [x] Public perpetual liquidation subscription, signed-size normalization,
@@ -622,8 +654,10 @@ liquidation cell, Kraken Spot exposes no derivative or L1 cell, the Korean
 venues expose no `Ticker`/`L1Book` cell because their public ticker frames carry
 no quote (Bithumb additionally exposes no live candle channel), Coinbase exposes
 only the documented five-minute candle cell, Deribit exposes no L1 or
-liquidation cell, and HTX exposes no mark-price/index/open-interest cell because
-those public WebSocket topics are not currently served. Options, MARGIN, and L3
+liquidation cell, HTX exposes no mark-price/index/open-interest cell because
+those public WebSocket topics are not currently served, and Hyperliquid exposes
+no liquidation cell because public liquidation data exists only in private user
+events. Options, MARGIN, and L3
 are deferred. Further expansion requires a new explicit plan and current
 official protocol evidence. See [the harness guide](docs/harness.md) for acceptance
 criteria and [PROGRESS.md](PROGRESS.md) for remaining release work.

@@ -222,6 +222,60 @@ pub(crate) async fn fetch_json_with_limits(
     result
 }
 
+/// `POST` JSON request for a documented public catalog endpoint. `label_url`
+/// is the stable cache/recording/replay identity (the request URL plus any
+/// synthetic discriminator) while `request_url` is the URL actually sent.
+pub(crate) async fn fetch_json_post_with_limits(
+    request_url: &str,
+    label_url: &str,
+    body: &serde_json::Value,
+    transport: &crate::transport::TransportConfig,
+    exchange: ExchangeId,
+    timeout: Duration,
+    max_bytes: usize,
+) -> Result<serde_json::Value> {
+    #[cfg(feature = "recording")]
+    let observation = transport.begin_http(label_url, exchange);
+    #[cfg(feature = "recording")]
+    if let Some(result) = transport.replay_http(label_url, exchange, max_bytes) {
+        if let Some(observation) = observation {
+            observation.finish(&result);
+        }
+        return result;
+    }
+    let result = async {
+        let charge = super::weights::charge(exchange, label_url)?;
+        requests()
+            .run_admitted(
+                exchange,
+                transport.resource_budget().map(|budget| budget.http()),
+                charge,
+                transport
+                    .resource_budget()
+                    .map_or(6000, |budget| budget.policy().weight_ceiling()),
+                async {
+                    let response = transport
+                        .http_client()?
+                        .post(request_url)
+                        .header(reqwest::header::USER_AGENT, "cryptofeed-rs/0.1")
+                        .json(body)
+                        .timeout(timeout)
+                        .send()
+                        .await
+                        .map_err(|error| Error::Transport(error.to_string()))?;
+                    read_response(response, label_url, exchange, max_bytes, requests()).await
+                },
+            )
+            .await?
+    }
+    .await;
+    #[cfg(feature = "recording")]
+    if let Some(observation) = observation {
+        observation.finish(&result);
+    }
+    result
+}
+
 async fn read_response(
     mut response: reqwest::Response,
     url: &str,

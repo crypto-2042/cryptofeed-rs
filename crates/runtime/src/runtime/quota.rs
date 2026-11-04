@@ -49,6 +49,16 @@ pub(crate) fn websocket_error(
             "{exchange:?} websocket error: {name}"
         )));
     }
+    // Hyperliquid request errors arrive on the `error` channel. A rejected
+    // subscription is a permanent configuration failure and the server text
+    // (which echoes the request) is not retained.
+    if exchange == ExchangeId::Hyperliquid
+        && value.get("channel").and_then(Value::as_str) == Some("error")
+    {
+        return Some(cryptofeed_core::error::Error::Subscription(
+            "hyperliquid websocket error".into(),
+        ));
+    }
     if value.get("event").and_then(Value::as_str) != Some("error") {
         return None;
     }

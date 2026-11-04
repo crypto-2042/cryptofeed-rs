@@ -1,7 +1,8 @@
 use crate::exchange::{
     bithumb::adapter::BithumbAdapter, bybit::adapter::BybitAdapter,
-    deribit::adapter::DeribitAdapter, kraken::adapter::KrakenAdapter,
-    kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter, upbit::adapter::UpbitAdapter,
+    deribit::adapter::DeribitAdapter, hyperliquid::adapter::HyperliquidAdapter,
+    kraken::adapter::KrakenAdapter, kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter,
+    upbit::adapter::UpbitAdapter,
 };
 use cryptofeed_core::{
     error::{Error, Result},
@@ -111,6 +112,14 @@ impl HeartbeatPolicy {
                 Duration::from_secs(60),
                 Duration::from_secs(60),
             ),
+            // The documented client heartbeat is `{"method":"ping"}`, answered
+            // by `{"channel":"pong"}`. A 30 s cadence stays inside the
+            // documented 60 s server close window.
+            ExchangeId::Hyperliquid => (
+                HeartbeatKind::Text(HyperliquidAdapter::heartbeat_message()),
+                Duration::from_secs(30),
+                Duration::from_secs(60),
+            ),
             // `public/test` is a documented liveness call; JSON-RPC `result:ok`
             // replies are filtered as control frames.
             ExchangeId::Deribit => (
@@ -163,6 +172,13 @@ impl HeartbeatPolicy {
         // Deribit `public/test` returns a JSON-RPC success with `result:"ok"`.
         if value.get("result").and_then(serde_json::Value::as_str) == Some("ok")
             && value.get("method").is_none()
+        {
+            return true;
+        }
+        // Hyperliquid answers the documented client ping with the bare
+        // `{"channel":"pong"}` frame.
+        if self.exchange == Some(ExchangeId::Hyperliquid)
+            && value.get("channel").and_then(|value| value.as_str()) == Some("pong")
         {
             return true;
         }

@@ -716,3 +716,26 @@ or substituted while preserving the documented wire shape and precision.
   forms. The spot market host/framing was verified live against
   `wss://api.huobi.pro/ws` after `wss://api.huobi.pro/ws/v2` rejected a market
   subscription; the USDT-M notification-host split was verified the same day.
+
+## 2026-11-04 Hyperliquid addition
+
+- `hyperliquid.ws.v1`: [WebSocket overview](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket),
+  [subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions),
+  [timeouts and heartbeats](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/timeouts-and-heartbeats),
+  [info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+  and [rate limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits).
+  Frames are sanitized documented/live-shape references from read-only,
+  unauthenticated public probes on 2026-11-04 (not a recording): the
+  `subscriptionResponse` echo, whole-book `l2Book` snapshots for `BTC` and the
+  spot coin `PURR/USDC`, a `trades` array with `B`/`A` sides and numeric `tid`,
+  `bbo` with both sides, the live single-object `candle` push (the docs show
+  `Candle[]`), a perpetual `activeAssetCtx` context and the live spot
+  `activeSpotAssetCtx` channel, the documented `pong` heartbeat reply and the
+  `error` channel envelope. Prices, sizes, timestamps, hashes and user
+  addresses are shortened/substituted while preserving the documented wire
+  shape and precision relevant to normalization. The same day's read-only
+  probes also verified that `{"method":"ping"}` is answered by
+  `{"channel":"pong"}`, that `kPEPE` subscribes while `KPEPE` closes the
+  connection, and the `meta`/`spotMeta` catalog shapes recorded in
+  `docs/hyperliquid-protocol.md`; no live capture was retained.
+

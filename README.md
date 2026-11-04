@@ -165,7 +165,8 @@ Key API surface:
 - `FeedHandler::subscribe_status()` exposes terminal feed failures
   programmatically while healthy feeds continue running independently.
 - Per-exchange builders: `Binance`, `Bitget`, `Bybit`, `Okx`, `Gateio`,
-  `Kucoin`, `Kraken`, `Upbit`, `Bithumb`, `Coinbase`, `Deribit`, `Htx`.
+  `Kucoin`, `Kraken`, `Upbit`, `Bithumb`, `Coinbase`, `Deribit`, `Htx`,
+  `Hyperliquid`.
 - `ExchangeFeedBuilder` methods: `symbol("BTC-USDT")` /
   `symbol("BTC-USDT-PERP")` / `symbol("BTC-USDT-240628")` (normalized forms),
   `instrument(Symbol)` (typed product identity; option/MARGIN variants are
@@ -215,6 +216,7 @@ dated futures. Options and MARGIN remain implementation references and fail pref
 | Bithumb public WS | ✗ | ✓ | ✓ | ✗ | ✗ | ✗ |
 | Coinbase Advanced Trade | ✓ | ✓ | ✓ | ✓ | ✓ (5m only) | ✗ |
 | HTX spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Hyperliquid spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 
 The OKX Index entry is the SDK's explicit spot-index-symbol entrypoint. Spot
 feeds do not expose funding, liquidations, open interest, or derivative mark price.
@@ -236,6 +238,7 @@ stream (REST history only), hence its `Candles` gap; Upbit candles support
 | KuCoin UTA WS V2 perpetual (USDT/USDC/coin-margined) | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
 | Deribit JSON-RPC v2 perpetual | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
 | HTX USDT-M perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| Hyperliquid perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
 
 ### 交割合约 (Dated Futures)
 
@@ -356,6 +359,22 @@ Notes:
   documented base-coin `quantity`; level sizes stay documented contract counts.
   Mark price, index price and open interest have no current public WebSocket
   topic and are rejected at preflight rather than polled.
+- Hyperliquid uses one public host (`wss://api.hyperliquid.xyz/ws`): per-coin
+  `subscribe`/`unsubscribe` requests, `subscriptionResponse` acknowledgements,
+  an `error` channel for request failures, and the documented client
+  `{"method":"ping"}` -> `{"channel":"pong"}` heartbeat. `l2Book` is a
+  whole-book **snapshot** push (20 levels by default, 5 with `fast`), so only
+  `l2_book_depth(20)`/`l2_book_depth(5)` are accepted and no sequence/checksum
+  is invented; reconnect is the recovery. `bbo` carries best bid/ask with sizes
+  (`Ticker` + `L1Book`; a null side emits no quote), and `trades` maps
+  `B`/`A` with the non-unique `tid` preserved verbatim. One `activeAssetCtx`
+  subscription is split into `Funding`/`OpenInterest`/`MarkPrice`/`IndexPrice`
+  for perpetuals; spot uses the live `activeSpotAssetCtx` channel for
+  `MarkPrice` only. Catalog: `POST /info {"type":"meta"}` (perps, `isDelisted`
+  skipped, USD quote) and `{"type":"spotMeta"}` (base/quote from token names,
+  subscription coin `PURR/USDC`/`@N`, arbitrary quotes preserved, case-sensitive
+  native coins such as `kPEPE`). There is no public liquidation channel, so the
+  cell stays unsupported.
 - The additions above have deterministic offline regression coverage.
   [The 2026-10-08 smoke](docs/reports/live-smoke-2026-10-08.md) received Bitget
   spot/perpetual L1, derivative ticker fields, and OKX SWAP index events.

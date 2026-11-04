@@ -3864,3 +3864,350 @@ fn htx_capability_preflight_covers_spot_and_usdt_m_perpetual() {
         .build();
     assert!(cryptofeed_rs::markets::validate_feed(&depth).is_err());
 }
+
+// ---------------------------------------------------------------------------
+// Hyperliquid public perpetual and spot WebSocket
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hyperliquid_subscription_framing_and_payloads_match_documented_shapes() {
+    use cryptofeed_rs::hyperliquid::{adapter::HyperliquidAdapter, parser as hyperliquid_parser};
+    let perp = cryptofeed_rs::prelude::Hyperliquid::new()
+        .ticker()
+        .l1_book()
+        .trade()
+        .l2_book()
+        .candles()
+        .candles_interval("5m")
+        .funding()
+        .open_interest()
+        .mark_price()
+        .index()
+        .symbol("BTC-USD-PERP")
+        .exchange_symbol("BTC")
+        .build();
+    let frames = HyperliquidAdapter::subscription_messages(&perp).expect("frames");
+    let subscriptions: Vec<serde_json::Value> = frames
+        .iter()
+        .map(|frame| {
+            let value: serde_json::Value = serde_json::from_str(frame).expect("json");
+            assert_eq!(value["method"], "subscribe");
+            value["subscription"].clone()
+        })
+        .collect();
+    assert!(subscriptions.contains(&json!({"type": "bbo", "coin": "BTC"})));
+    assert!(subscriptions.contains(&json!({"type": "trades", "coin": "BTC"})));
+    assert!(subscriptions.contains(&json!({"type": "l2Book", "coin": "BTC"})));
+    assert!(subscriptions.contains(&json!({"type": "candle", "coin": "BTC", "interval": "5m"})));
+    // One shared activeAssetCtx subscription feeds Funding, OpenInterest,
+    // MarkPrice and IndexPrice.
+    assert_eq!(
+        subscriptions
+            .iter()
+            .filter(|subscription| subscription["type"] == "activeAssetCtx")
+            .count(),
+        1
+    );
+
+    let spot = cryptofeed_rs::prelude::Hyperliquid::new()
+        .ticker()
+        .l2_book()
+        .mark_price()
+        .symbol("HYPE-USDC")
+        .exchange_symbol("@107")
+        .build();
+    let frames = HyperliquidAdapter::subscription_messages(&spot).expect("spot frames");
+    assert!(
+        frames
+            .iter()
+            .any(|frame| frame.contains("\"coin\":\"@107\""))
+    );
+
+    let symbol = Symbol::perpetual("BTC", "USD");
+    let book = hyperliquid_parser::parse_book(
+        &json!({"coin": "BTC", "time": 1_793_782_877_454_i64, "levels": [
+            [{"px": "78454.0", "sz": "0.09296", "n": 5},
+             {"px": "78452.0", "sz": "0.00236", "n": 2}],
+            [{"px": "78455.0", "sz": "20.3117", "n": 62}]
+        ]}),
+        1.0,
+        &symbol,
+    )
+    .expect("book");
+    assert_eq!(book.bids.len(), 2);
+    assert_eq!(book.asks[0].amount.to_string(), "20.3117");
+
+    let trade = hyperliquid_parser::parse_trade(
+        &json!({"coin": "BTC", "side": "A", "px": "78468.0", "sz": "0.10569",
+                "time": 1_793_782_868_033_i64, "hash": "0x00",
+                "tid": 282_768_822_863_722_i64, "users": ["a", "b"]}),
+        1.0,
+        &symbol,
+    )
+    .expect("trade");
+    assert!(matches!(trade.side, cryptofeed_core::model::Side::Sell));
+    assert_eq!(trade.id.as_deref(), Some("282768822863722"));
+}
+
+#[test]
+fn hyperliquid_snapshot_only_book_never_invents_sequences() {
+    use cryptofeed_rs::hyperliquid::{
+        book_sync::{HyperliquidBookOutcome, HyperliquidBookSync},
+        parser as hyperliquid_parser,
+    };
+    let symbol = Symbol::perpetual("BTC", "USD");
+    let mut sync = HyperliquidBookSync::new(symbol.clone());
+    let first = hyperliquid_parser::parse_book(
+        &json!({"time": 1_i64, "levels": [
+            [{"px": "100", "sz": "2", "n": 1}],
+            [{"px": "101", "sz": "3", "n": 1}]
+        ]}),
+        2.0,
+        &symbol,
+    )
+    .expect("first snapshot");
+    let HyperliquidBookOutcome::Publish(L2Book::Snapshot(book)) = sync.apply(first).unwrap() else {
+        panic!("expected snapshot");
+    };
+    assert_eq!(book.bids[0].price.to_string(), "100");
+    // A later push replaces the whole book; there is no delta variant and no
+    // stale-level retention.
+    let second = hyperliquid_parser::parse_book(
+        &json!({"time": 2_i64, "levels": [
+            [{"px": "99", "sz": "4", "n": 1}],
+            [{"px": "102", "sz": "5", "n": 1}]
+        ]}),
+        3.0,
+        &symbol,
+    )
+    .expect("second snapshot");
+    let HyperliquidBookOutcome::Publish(L2Book::Snapshot(book)) = sync.apply(second).unwrap()
+    else {
+        panic!("expected replacement snapshot");
+    };
+    assert_eq!(book.bids.len(), 1);
+    assert_eq!(book.bids[0].price.to_string(), "99");
+    assert_eq!(sync.state().bids().len(), 1);
+    // Documented depth limits: 20 (default) and 5 (fast); anything else is
+    // rejected before connecting.
+    use cryptofeed_rs::hyperliquid::adapter::HyperliquidAdapter;
+    assert!(HyperliquidAdapter::l2_book_depth_supported(20));
+    assert!(HyperliquidAdapter::l2_book_depth_supported(5));
+    assert!(!HyperliquidAdapter::l2_book_depth_supported(10));
+    assert!(!HyperliquidAdapter::l2_book_depth_supported(50));
+}
+
+#[test]
+fn hyperliquid_active_asset_context_splits_perpetual_and_spot_fields() {
+    use cryptofeed_rs::hyperliquid::{adapter::HyperliquidAdapter, parser as hyperliquid_parser};
+    let perp = cryptofeed_rs::prelude::Hyperliquid::new()
+        .funding()
+        .open_interest()
+        .mark_price()
+        .index()
+        .symbol("BTC-USD-PERP")
+        .exchange_symbol("BTC")
+        .build();
+    let message = json!({"channel": "activeAssetCtx", "data": {"coin": "BTC", "ctx": {
+        "funding": "0.0000125", "openInterest": "39370.73328",
+        "oraclePx": "78490.4", "markPx": "78464.8",
+        "prevDayPx": "76611.0", "dayNtlVlm": "3444111352.420372963",
+        "midPx": "78454.5"
+    }}});
+    let events =
+        HyperliquidAdapter::parse_messages_for_feed(&perp, &message, 2.0).expect("perp ctx");
+    assert_eq!(events.len(), 4);
+    let funding = events
+        .iter()
+        .find_map(|event| match event {
+            cryptofeed_rs::hyperliquid::adapter::HyperliquidEvent::Funding(funding) => {
+                Some(funding.clone())
+            }
+            _ => None,
+        })
+        .expect("funding");
+    assert_eq!(
+        funding.rate,
+        Some(Decimal::from_str_exact("0.0000125").unwrap())
+    );
+    assert_eq!(
+        funding.mark_price,
+        Some(Decimal::from_str_exact("78464.8").unwrap())
+    );
+    assert_eq!(funding.next_funding_time, None);
+    let index = events
+        .iter()
+        .find_map(|event| match event {
+            cryptofeed_rs::hyperliquid::adapter::HyperliquidEvent::IndexPrice(index) => {
+                Some(index.clone())
+            }
+            _ => None,
+        })
+        .expect("index");
+    assert_eq!(index.price, Decimal::from_str_exact("78490.4").unwrap());
+
+    let spot = cryptofeed_rs::prelude::Hyperliquid::new()
+        .mark_price()
+        .symbol("PURR-USDC")
+        .exchange_symbol("PURR/USDC")
+        .build();
+    let message = json!({"channel": "activeSpotAssetCtx", "data": {
+        "coin": "PURR/USDC",
+        "ctx": {"markPx": "0.11552", "midPx": "0.115385",
+                "circulatingSupply": "594666965.8429700136"}
+    }});
+    let events =
+        HyperliquidAdapter::parse_messages_for_feed(&spot, &message, 2.0).expect("spot ctx");
+    assert_eq!(events.len(), 1);
+    // The payload carries no exchange timestamp; receive time is the anchor.
+    assert_eq!(
+        hyperliquid_parser::parse_asset_ctx(
+            &json!({"coin": "PURR/USDC", "ctx": {"markPx": "1"}}),
+            hyperliquid_parser::AssetCtxProduct::Spot,
+            7.0,
+        )
+        .unwrap()
+        .received_ts,
+        7.0
+    );
+}
+
+#[test]
+fn hyperliquid_bbo_null_side_does_not_fabricate_a_quote() {
+    use cryptofeed_rs::hyperliquid::adapter::HyperliquidAdapter;
+    let feed = cryptofeed_rs::prelude::Hyperliquid::new()
+        .ticker()
+        .l1_book()
+        .symbol("PURR-USDC")
+        .exchange_symbol("PURR/USDC")
+        .build();
+    let message = json!({"channel": "bbo", "data": {
+        "coin": "PURR/USDC", "time": 1_i64,
+        "bbo": [{"px": "0.11525", "sz": "1202.0", "n": 1}, null]
+    }});
+    assert!(
+        HyperliquidAdapter::parse_messages_for_feed(&feed, &message, 1.0)
+            .expect("one-sided bbo")
+            .is_empty()
+    );
+    let both = json!({"channel": "bbo", "data": {
+        "coin": "PURR/USDC", "time": 1_i64,
+        "bbo": [{"px": "0.11525", "sz": "1202.0", "n": 1},
+                {"px": "0.11552", "sz": "728.0", "n": 1}]
+    }});
+    assert_eq!(
+        HyperliquidAdapter::parse_messages_for_feed(&feed, &both, 1.0)
+            .expect("bbo")
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn hyperliquid_capability_preflight_covers_products_channels_intervals_and_depths() {
+    let spot = cryptofeed_rs::prelude::Hyperliquid::new()
+        .ticker()
+        .l1_book()
+        .trade()
+        .l2_book()
+        .candles()
+        .candles_interval("3m")
+        .mark_price()
+        .symbol("PURR-USDC")
+        .build();
+    assert_eq!(
+        cryptofeed_rs::markets::validate_feed(&spot).expect("spot matrix"),
+        cryptofeed_core::symbol::InstrumentKind::Spot
+    );
+    let perpetual = cryptofeed_rs::prelude::Hyperliquid::new()
+        .ticker()
+        .l1_book()
+        .trade()
+        .l2_book()
+        .l2_book_depth(5)
+        .candles()
+        .candles_interval("12h")
+        .funding()
+        .open_interest()
+        .index()
+        .mark_price()
+        .symbol("BTC-USD-PERP")
+        .build();
+    assert_eq!(
+        cryptofeed_rs::markets::validate_feed(&perpetual).expect("perpetual matrix"),
+        cryptofeed_core::symbol::InstrumentKind::Perpetual
+    );
+    // No public liquidation channel exists: liquidations appear only in
+    // private user events.
+    let liquidations = cryptofeed_rs::prelude::Hyperliquid::new()
+        .liquidations()
+        .symbol("BTC-USD-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&liquidations).is_err());
+    // Spot has no funding/open-interest/index stream.
+    let spot_funding = cryptofeed_rs::prelude::Hyperliquid::new()
+        .funding()
+        .symbol("PURR-USDC")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&spot_funding).is_err());
+    // Dated futures and options are not public Hyperliquid products here.
+    let futures = cryptofeed_rs::prelude::Hyperliquid::new()
+        .ticker()
+        .symbol("BTC-USD-261225")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&futures).is_err());
+    // Undocumented candle intervals fail preflight (6h is not served).
+    let interval = cryptofeed_rs::prelude::Hyperliquid::new()
+        .candles()
+        .candles_interval("6h")
+        .symbol("BTC-USD-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&interval).is_err());
+    // Only the documented 20-level default and 5-level fast depth are accepted.
+    let depth = cryptofeed_rs::prelude::Hyperliquid::new()
+        .l2_book()
+        .l2_book_depth(10)
+        .symbol("BTC-USD-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&depth).is_err());
+    // Binance-only L2 update intervals stay rejected.
+    let book_interval = cryptofeed_rs::prelude::Hyperliquid::new()
+        .l2_book()
+        .l2_book_interval("100ms")
+        .symbol("BTC-USD-PERP")
+        .build();
+    assert!(cryptofeed_rs::markets::validate_feed(&book_interval).is_err());
+}
+
+#[test]
+fn hyperliquid_control_frames_classify_acks_errors_and_heartbeats() {
+    use cryptofeed_rs::hyperliquid::adapter::{HyperliquidAdapter, HyperliquidControl};
+    assert_eq!(
+        HyperliquidAdapter::parse_control_message(&json!({
+            "channel": "subscriptionResponse",
+            "data": {"method": "subscribe",
+                     "subscription": {"type": "trades", "coin": "BTC"}}
+        }))
+        .expect("ack")
+        .expect("ok"),
+        HyperliquidControl::Ack
+    );
+    assert!(
+        HyperliquidAdapter::parse_control_message(&json!({
+            "channel": "error",
+            "data": "Error parsing JSON into valid websocket request"
+        }))
+        .expect("error")
+        .is_err()
+    );
+    assert_eq!(
+        HyperliquidAdapter::parse_control_message(&json!({"channel": "pong"}))
+            .expect("pong")
+            .expect("ok"),
+        HyperliquidControl::Pong
+    );
+    assert_eq!(
+        HyperliquidAdapter::heartbeat_message(),
+        r#"{"method":"ping"}"#
+    );
+}

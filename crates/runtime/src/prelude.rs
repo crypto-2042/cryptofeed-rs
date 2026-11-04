@@ -1,8 +1,8 @@
 pub use crate::catalog::MarketCatalog;
 pub use crate::exchange::{
     ExchangeFeed, ExchangeFeedBuilder, binance::Binance, bitget::Bitget, bithumb::Bithumb,
-    bybit::Bybit, coinbase::Coinbase, deribit::Deribit, gateio::Gateio, htx::Htx, kraken::Kraken,
-    kucoin::Kucoin, okx::Okx, upbit::Upbit,
+    bybit::Bybit, coinbase::Coinbase, deribit::Deribit, gateio::Gateio, htx::Htx,
+    hyperliquid::Hyperliquid, kraken::Kraken, kucoin::Kucoin, okx::Okx, upbit::Upbit,
 };
 pub use crate::feed::{
     AnchoredSubscription, EventCounters, FeedEvent, FeedHandler, FeedStatus,

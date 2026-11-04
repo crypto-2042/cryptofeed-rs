@@ -8,8 +8,8 @@ This document is the protocol input to the offline parity harness. It records
 wire facts separately from SDK normalization decisions so that a fixture cannot
 silently turn a project assumption into an exchange guarantee. The supported
 scope remains public market data for Binance, Bitget, Bybit, OKX, Gate.io,
-KuCoin, Kraken Spot (2026-11-03), Coinbase Advanced Trade, Deribit and HTX
-(2026-11-04; see the venue sections below).
+KuCoin, Kraken Spot (2026-11-03), Coinbase Advanced Trade, Deribit, HTX and
+Hyperliquid (2026-11-04; see the venue sections below).
 For the 0.1 release, only spot, perpetual/swap, and dated-futures products are
 runtime capabilities. Option and MARGIN sections below document retained
 parser/catalog evidence, not enabled capability-matrix cells.
@@ -1095,6 +1095,22 @@ Full per-venue references live in
 | Coinbase Advanced Trade | Public WS `wss://advanced-trade-ws.coinbase.com`; public REST `/api/v3/brokerage/market/products` (catalog) | [WS overview](https://docs.cdp.coinbase.com/coinbase-app/advanced-trade-apis/websocket/websocket-overview), [AsyncAPI contract](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/advanced-trade-asyncapi.json), [OpenAPI contract](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/advanced-trade-spec.yaml). Public channels need no JWT. `ticker` carries BBO **with sizes** (Ticker + L1Book); `level2` is snapshot + absolute updates with no per-product sequence/checksum; `candles` is five-minute-only; `heartbeats` is a product-less liveness channel. |
 | Deribit | Public JSON-RPC v2 WS `wss://www.deribit.com/ws/api/v2`; REST `public/get_instruments` | [JSON-RPC overview](https://docs.deribit.com/articles/json-rpc-overview), [get_instruments](https://docs.deribit.com/api-reference/market-data/public-get_instruments), [public/subscribe](https://docs.deribit.com/api-reference/subscription-management/public-subscribe), [book](https://docs.deribit.com/subscriptions/orderbook/bookinstrument_nameinterval), [trades](https://docs.deribit.com/subscriptions/trades/tradesinstrument_nameinterval), [ticker](https://docs.deribit.com/subscriptions/market-data/tickerinstrument_nameinterval), [chart.trades](https://docs.deribit.com/subscriptions/market-data/charttradesinstrument_nameresolution). Perpetual/dated futures only; options skipped and rejected. `ticker` splits into Ticker/MarkPrice/IndexPrice/OpenInterest/Funding; `book` uses `change_id`/`prev_change_id`; `chart.trades` maps the resolution enum; public `100ms` interval ( `raw` is authenticated-only). |
 | HTX | Spot WS `wss://api.huobi.pro/ws`; USDT-M WS `wss://api.hbdm.com/linear-swap-ws`; notifications `wss://api.hbdm.com/linear-swap-notification`; REST catalogs `/v1/common/symbols` and `/linear-swap-api/v1/swap_contract_info` | [Spot v1](https://huobiapi.github.io/docs/spot/v1/en/), [USDT-M v1](https://huobiapi.github.io/docs/usdt_swap/v1/en/). Live verification 2026-11-04: market data is GZIP binary, market topics use `sub`/`id` (the account `/ws/v2` endpoint rejected a market subscription), notification topics use `op`/`topic` on the notification host, heartbeats are integer `{"ping":..}` on market hosts and `{"op":"ping","ts":..}` on the notification host. Spot `depth.step0` is a replacement snapshot with a documented `version`; USDT-M `depth.size_20.high_freq` (`data_type=incremental`) is snapshot + per-connection `version` updates. No current public WS topic serves mark price/index price/open interest (`market.<contract>.mark_price.*`/`index.*` rejected live), so those cells stay unsupported. |
+
+## Hyperliquid baseline — 2026-11-04
+
+Full field tables, live verification and open questions live in
+[hyperliquid-protocol.md](hyperliquid-protocol.md). Selected facts:
+
+| Exchange | Enabled API selection | Official references / result |
+| --- | --- | --- |
+| Hyperliquid | Public WS `wss://api.hyperliquid.xyz/ws`; `POST https://api.hyperliquid.xyz/info` with `{"type":"meta"}` (perps) and `{"type":"spotMeta"}` (spot) | [WebSocket overview](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket), [subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [timeouts and heartbeats](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/timeouts-and-heartbeats), [info endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint), [rate limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits). Live verification 2026-11-04: per-coin `{"method":"subscribe","subscription":{...}}` is echoed by `subscriptionResponse`, request failures use the `error` channel, and the documented `{"method":"ping"}` is answered by `{"channel":"pong"}`. `l2Book` is a whole-book replacement snapshot (20 levels default, 5 with `fast`), no sequence/checksum/delta. `trades` side `B`/`A` with non-globally-unique `tid`; `bbo` may carry a documented null side; `candle` is documented as `Candle[]` but pushed as a single object; `activeAssetCtx` splits into Funding/OpenInterest/MarkPrice/IndexPrice for perps and the live spot channel `activeSpotAssetCtx` supplies MarkPrice only. Catalog: `meta.universe[]` perps (`isDelisted` skipped, USD quote), `spotMeta` base/quote from token names with subscription coin `PURR/USDC`/`@N` and arbitrary quotes preserved. Native coin spelling is case-sensitive (`kPEPE` acknowledged, `KPEPE` closed the connection live). No public liquidation channel (private user events only); rate limits 1200 REST weight/min, 10 WS connections, 30 new connections/min, 1000 subscriptions, 2000 outbound messages/min. |
+
+Note the Hyperliquid catalog uses one `POST /info` URL for both bodies; the
+runtime distinguishes the two catalog cache/recording/replay keys with a
+synthetic `?type=` query while sending the documented JSON body to the base
+URL. The WebSocket `coin` is `universe[].name` for both products and is
+case-sensitive; the runtime preserves the catalog spelling instead of
+upper-casing it.
 
 Note the HTX source wording: the current official spot v1 page documents the
 market feed at `wss://api.huobi.pro/ws` and the account/order feed (with the

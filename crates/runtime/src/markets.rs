@@ -270,6 +270,34 @@ const HTX_PERPETUAL_CHANNELS: &[Channel] = &[
     Channel::Liquidations,
 ];
 
+/// Hyperliquid spot public channels: `trades`, whole-book snapshot `l2Book`,
+/// `bbo` (best bid/ask with sizes, so both Ticker and L1Book are advertised),
+/// `candle` and the spot `activeAssetCtx`/`activeSpotAssetCtx` mark price. No
+/// public liquidation channel exists (liquidations appear only in private user
+/// events) and there is no spot funding/open-interest/index stream.
+const HYPERLIQUID_SPOT_CHANNELS: &[Channel] = &[
+    Channel::Ticker,
+    Channel::Trade,
+    Channel::L2Book,
+    Channel::L1Book,
+    Channel::Candles,
+    Channel::MarkPrice,
+];
+/// Hyperliquid perpetual public channels. `activeAssetCtx` is split into
+/// Funding (`funding`), OpenInterest (`openInterest`), MarkPrice (`markPx`) and
+/// IndexPrice (`oraclePx`). There is no public liquidation stream.
+const HYPERLIQUID_PERPETUAL_CHANNELS: &[Channel] = &[
+    Channel::Ticker,
+    Channel::Trade,
+    Channel::L2Book,
+    Channel::L1Book,
+    Channel::Candles,
+    Channel::Funding,
+    Channel::OpenInterest,
+    Channel::Index,
+    Channel::MarkPrice,
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capability {
     pub exchange: ExchangeId,
@@ -403,6 +431,16 @@ const CAPABILITIES: &[Capability] = &[
         product: InstrumentKind::Perpetual,
         channels: HTX_PERPETUAL_CHANNELS,
     },
+    Capability {
+        exchange: ExchangeId::Hyperliquid,
+        product: InstrumentKind::Spot,
+        channels: HYPERLIQUID_SPOT_CHANNELS,
+    },
+    Capability {
+        exchange: ExchangeId::Hyperliquid,
+        product: InstrumentKind::Perpetual,
+        channels: HYPERLIQUID_PERPETUAL_CHANNELS,
+    },
 ];
 
 pub fn capability_matrix() -> &'static [Capability] {
@@ -520,6 +558,12 @@ fn validate_candle_interval(feed: &ExchangeFeed, product: InstrumentKind) -> Res
             product,
         )
         .is_some(),
+        ExchangeId::Hyperliquid => {
+            crate::exchange::hyperliquid::adapter::HyperliquidAdapter::candle_interval_wire(
+                &feed.candle_interval,
+            )
+            .is_some()
+        }
         _ => false,
     };
     if supported {
@@ -582,6 +626,11 @@ fn validate_l2_book_depth(feed: &ExchangeFeed, product: InstrumentKind) -> Resul
         }
         ExchangeId::Htx => {
             crate::exchange::htx::adapter::HtxAdapter::l2_book_depth_supported(level)
+        }
+        ExchangeId::Hyperliquid => {
+            crate::exchange::hyperliquid::adapter::HyperliquidAdapter::l2_book_depth_supported(
+                level,
+            )
         }
         _ => false,
     };
@@ -680,14 +729,15 @@ impl SymbolRegistry {
         row: &Value,
         settlement: Option<&str>,
     ) -> Result<()> {
-        let info = crate::market_info::parse(
-            exchange,
-            symbol.clone(),
-            &native.to_ascii_uppercase(),
-            row,
-            settlement,
-        )?;
-        self.insert(symbol.clone(), native)?;
+        let preserve_case = exchange == ExchangeId::Hyperliquid;
+        let metadata_native = if preserve_case {
+            native.to_owned()
+        } else {
+            native.to_ascii_uppercase()
+        };
+        let info =
+            crate::market_info::parse(exchange, symbol.clone(), &metadata_native, row, settlement)?;
+        self.insert_native(symbol.clone(), native, preserve_case)?;
         if self
             .metadata
             .get(&symbol)
@@ -702,34 +752,51 @@ impl SymbolRegistry {
     }
 
     pub fn insert(&mut self, symbol: Symbol, exchange_symbol: &str) -> Result<()> {
-        let exchange_symbol = exchange_symbol.to_ascii_uppercase();
+        self.insert_native(symbol, exchange_symbol, false)
+    }
+
+    /// Inserts a normalized/native pair. Hyperliquid native coin spelling is
+    /// case-sensitive (`kPEPE` subscribes while `KPEPE` closes the connection),
+    /// so its catalog preserves the native value verbatim while reverse lookup
+    /// stays case-insensitive.
+    fn insert_native(
+        &mut self,
+        symbol: Symbol,
+        exchange_symbol: &str,
+        preserve_case: bool,
+    ) -> Result<()> {
         if exchange_symbol.is_empty() {
             return Err(Error::UnsupportedSymbol(symbol.as_str().to_owned()));
         }
+        let native = if preserve_case {
+            exchange_symbol.to_owned()
+        } else {
+            exchange_symbol.to_ascii_uppercase()
+        };
+        let reverse = native.to_ascii_uppercase();
         if matches!(
             self.normalized_to_exchange.get(&symbol),
-            Some(existing) if existing != &exchange_symbol
+            Some(existing) if existing != &native
         ) {
             return Err(Error::AmbiguousSymbol(symbol.as_str().to_owned()));
         }
 
-        let reverse_key = (exchange_symbol.clone(), symbol.kind());
+        let reverse_key = (reverse.clone(), symbol.kind());
         if matches!(
             self.exchange_to_normalized.get(&reverse_key),
             Some(existing) if existing != &symbol
         ) {
             return Err(Error::AmbiguousSymbol(format!(
-                "{exchange_symbol} ({:?})",
+                "{reverse} ({:?})",
                 symbol.kind()
             )));
         }
 
-        self.normalized_to_exchange
-            .insert(symbol.clone(), exchange_symbol.clone());
+        self.normalized_to_exchange.insert(symbol.clone(), native);
         self.exchange_to_normalized
             .insert(reverse_key, symbol.clone());
         self.exchange_products
-            .entry(exchange_symbol)
+            .entry(reverse)
             .or_default()
             .insert(symbol.kind());
         Ok(())
@@ -775,8 +842,9 @@ pub async fn resolve_feed_symbols(feed: &ExchangeFeed) -> Result<Vec<String>> {
             ));
         }
         let mut registry = SymbolRegistry::default();
+        let preserve_case = feed.exchange == ExchangeId::Hyperliquid;
         for (symbol, exchange_symbol) in feed.symbols.iter().zip(&feed.exchange_symbols) {
-            registry.insert(symbol.clone(), exchange_symbol)?;
+            registry.insert_native(symbol.clone(), exchange_symbol, preserve_case)?;
         }
         return feed
             .symbols
@@ -1051,6 +1119,20 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
             _ => {
                 return Err(Error::UnsupportedCapability(format!(
                     "{:?}/{:?} symbol discovery; HTX USDT-M delivery contracts are out of scope",
+                    exchange, product
+                )));
+            }
+        },
+        ExchangeId::Hyperliquid => match product {
+            InstrumentKind::Spot => {
+                fetch_hyperliquid_spot_catalog(&mut registry, refresh, transport).await?;
+            }
+            InstrumentKind::Perpetual => {
+                fetch_hyperliquid_perpetual_catalog(&mut registry, refresh, transport).await?;
+            }
+            _ => {
+                return Err(Error::UnsupportedCapability(format!(
+                    "{:?}/{:?} symbol discovery; Hyperliquid exposes public perpetuals and spot only",
                     exchange, product
                 )));
             }
@@ -1987,6 +2069,187 @@ fn add_htx_swap_markets(registry: &mut SymbolRegistry, payload: &Value) -> Resul
     Ok(())
 }
 
+/// Documented public info endpoint. Both catalogs are POST requests to the
+/// same URL with different JSON bodies.
+const HYPERLIQUID_INFO_URL: &str = "https://api.hyperliquid.xyz/info";
+
+async fn fetch_hyperliquid_perpetual_catalog(
+    registry: &mut SymbolRegistry,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<()> {
+    let payload = fetch_hyperliquid_info("meta", refresh, transport).await?;
+    add_hyperliquid_perpetual_catalog(registry, &payload)
+}
+
+async fn fetch_hyperliquid_spot_catalog(
+    registry: &mut SymbolRegistry,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<()> {
+    let payload = fetch_hyperliquid_info("spotMeta", refresh, transport).await?;
+    add_hyperliquid_spot_catalog(registry, &payload)
+}
+
+/// `POST /info` with `{"type": <kind>}`. The synthetic `?type=` query is only
+/// the cache/recording/replay key that distinguishes the two POST bodies; the
+/// request itself goes to the documented base URL.
+async fn fetch_hyperliquid_info(
+    kind: &str,
+    refresh: bool,
+    transport: &TransportConfig,
+) -> Result<Value> {
+    let key_url = format!("{HYPERLIQUID_INFO_URL}?type={kind}");
+    let key = transport.cache_key(&key_url);
+    fetch_catalog_with(&key, refresh, || async {
+        #[cfg(feature = "recording")]
+        transport.check_replay_catalog_fetch(&key_url, ExchangeId::Hyperliquid, refresh)?;
+        let body = serde_json::json!({ "type": kind });
+        let result = fetch_catalog_json_post(
+            HYPERLIQUID_INFO_URL,
+            &key_url,
+            &body,
+            transport,
+            ExchangeId::Hyperliquid,
+        )
+        .await;
+        #[cfg(feature = "recording")]
+        if result.is_ok() {
+            transport.replay_catalog_loaded(&key_url, ExchangeId::Hyperliquid);
+        }
+        result
+    })
+    .await
+}
+
+/// `isDelisted` is the documented perpetual/spot removal flag; absent means
+/// listed. A non-boolean value fails the catalog closed.
+fn hyperliquid_delisted(item: &Value) -> Result<bool> {
+    match item.get("isDelisted") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(Error::MalformedData(
+            "Hyperliquid isDelisted must be a boolean".to_owned(),
+        )),
+    }
+}
+
+/// `{"type":"meta"}`: `universe[]` perpetual rows. The WS `coin` is
+/// `universe[].name`; perpetuals are quoted in USD. Delisted rows are skipped.
+fn add_hyperliquid_perpetual_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
+    for item in array_at(payload, &["universe"])? {
+        if hyperliquid_delisted(item)? {
+            continue;
+        }
+        let coin = required_str(item, "name")?;
+        if coin.contains(['-', '/']) {
+            return Err(Error::MalformedData(format!(
+                "Hyperliquid perpetual name {coin} is not a plain base symbol"
+            )));
+        }
+        registry.insert_market(
+            Symbol::perpetual(coin, "USD"),
+            coin,
+            ExchangeId::Hyperliquid,
+            item,
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+/// `{"type":"spotMeta"}`: `tokens[]` carries token names and `universe[]`
+/// carries `tokens:[base,quote]` plus the WS `coin` (`PURR/USDC` for the
+/// canonical pair or `@{index}` otherwise). The normalized symbol is built from
+/// the token names, never from the UI name; arbitrary quote tokens (`USDT0`,
+/// `USDH`, `USDE`) are preserved exactly. Removed pairs are absent from
+/// `universe`; `isDelisted` is honored when present.
+fn add_hyperliquid_spot_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
+    let mut token_names = HashMap::new();
+    for token in array_at(payload, &["tokens"])? {
+        let index = token
+            .get("index")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| Error::MalformedData("Hyperliquid token is missing index".to_owned()))?;
+        let name = required_str(token, "name")?;
+        if token_names.insert(index, name.to_owned()).is_some() {
+            return Err(Error::MalformedData(format!(
+                "Hyperliquid token index {index} is duplicated"
+            )));
+        }
+    }
+    for item in array_at(payload, &["universe"])? {
+        if hyperliquid_delisted(item)? {
+            continue;
+        }
+        let coin = required_str(item, "name")?;
+        let pair = item
+            .get("tokens")
+            .and_then(Value::as_array)
+            .filter(|pair| pair.len() == 2)
+            .ok_or_else(|| {
+                Error::MalformedData(format!(
+                    "Hyperliquid spot pair {coin} has no [base, quote] token indices"
+                ))
+            })?;
+        let base_index = pair[0].as_u64().ok_or_else(|| {
+            Error::MalformedData(format!(
+                "Hyperliquid spot pair {coin} has an invalid base index"
+            ))
+        })?;
+        let quote_index = pair[1].as_u64().ok_or_else(|| {
+            Error::MalformedData(format!(
+                "Hyperliquid spot pair {coin} has an invalid quote index"
+            ))
+        })?;
+        let base = token_names.get(&base_index).ok_or_else(|| {
+            Error::MalformedData(format!(
+                "Hyperliquid spot pair {coin} references an unknown base"
+            ))
+        })?;
+        let quote = token_names.get(&quote_index).ok_or_else(|| {
+            Error::MalformedData(format!(
+                "Hyperliquid spot pair {coin} references an unknown quote"
+            ))
+        })?;
+        if base.contains(['-', '/']) || quote.contains(['-', '/']) {
+            return Err(Error::MalformedData(format!(
+                "Hyperliquid spot token names {base}/{quote} are not plain asset symbols"
+            )));
+        }
+        match coin.strip_prefix('@') {
+            Some(embedded) => {
+                let index = item.get("index").and_then(Value::as_u64).ok_or_else(|| {
+                    Error::MalformedData(format!(
+                        "Hyperliquid spot pair {coin} is missing its pair index"
+                    ))
+                })?;
+                if embedded.parse::<u64>().ok() != Some(index) {
+                    return Err(Error::MalformedData(format!(
+                        "Hyperliquid spot pair {coin} disagrees with index {index}"
+                    )));
+                }
+            }
+            None => {
+                let expected = format!("{base}/{quote}");
+                if coin != expected {
+                    return Err(Error::MalformedData(format!(
+                        "Hyperliquid spot pair {coin} disagrees with token pair {expected}"
+                    )));
+                }
+            }
+        }
+        registry.insert_market(
+            Symbol::spot(base, quote),
+            coin,
+            ExchangeId::Hyperliquid,
+            item,
+            None,
+        )?;
+    }
+    Ok(())
+}
+
 /// KuCoin base aliases used before product qualification (`XBT` -> `BTC`).
 fn kucoin_alias_asset(asset: &str) -> &str {
     if asset.eq_ignore_ascii_case("XBT") {
@@ -2249,21 +2512,60 @@ async fn fetch_catalog_json(
     transport: &TransportConfig,
     exchange: ExchangeId,
 ) -> Result<Value> {
+    fetch_catalog_json_request(url, url, None, transport, exchange).await
+}
+
+/// `POST` catalog request. `label` is the stable public cache/recording key
+/// (for Hyperliquid the documented `/info` URL plus the synthetic `type`
+/// query), while `request_url` is the URL actually sent to the venue.
+async fn fetch_catalog_json_post(
+    request_url: &str,
+    label: &str,
+    body: &Value,
+    transport: &TransportConfig,
+    exchange: ExchangeId,
+) -> Result<Value> {
+    fetch_catalog_json_request(request_url, label, Some(body), transport, exchange).await
+}
+
+async fn fetch_catalog_json_request(
+    request_url: &str,
+    label: &str,
+    body: Option<&Value>,
+    transport: &TransportConfig,
+    exchange: ExchangeId,
+) -> Result<Value> {
     let attempt = async |_attempt: u8| -> Result<Value> {
-        let value = crate::runtime::snapshot::fetch_json_with_limits(
-            url,
-            transport,
-            exchange,
-            std::time::Duration::from_secs(45),
-            MAX_CATALOG_RESPONSE_BYTES,
-        )
-        .await?;
+        let value = match body {
+            Some(body) => {
+                crate::runtime::snapshot::fetch_json_post_with_limits(
+                    request_url,
+                    label,
+                    body,
+                    transport,
+                    exchange,
+                    std::time::Duration::from_secs(45),
+                    MAX_CATALOG_RESPONSE_BYTES,
+                )
+                .await?
+            }
+            None => {
+                crate::runtime::snapshot::fetch_json_with_limits(
+                    request_url,
+                    transport,
+                    exchange,
+                    std::time::Duration::from_secs(45),
+                    MAX_CATALOG_RESPONSE_BYTES,
+                )
+                .await?
+            }
+        };
         if let Some(code) = crate::runtime::quota::native_code(exchange, &value) {
             return Err(Error::Protocol(format!(
                 "{exchange:?} catalog reports native rate limit {code}"
             )));
         }
-        validate_catalog_envelope(url, exchange, &value)?;
+        validate_catalog_envelope(label, exchange, &value)?;
         Ok(value)
     };
     match attempt(1).await {
@@ -2275,7 +2577,7 @@ async fn fetch_catalog_json(
                 Err(second)
             }
             Err(second) => Err(Error::Transport(format!(
-                "catalog fetch failed twice for {url}: first: {first}; second: {second}"
+                "catalog fetch failed twice for {label}: first: {first}; second: {second}"
             ))),
         },
     }
@@ -2347,10 +2649,10 @@ mod tests {
         SymbolRegistry, add_binance_markets, add_binance_option_market, add_bitget_markets,
         add_bybit_option_market, add_bybit_option_page, add_bybit_page, add_coinbase_spot_page,
         add_deribit_markets, add_gateio_delivery_markets, add_gateio_perpetual_markets,
-        add_htx_spot_catalog, add_htx_swap_markets, add_korean_spot_catalog,
-        add_kraken_spot_catalog, add_kucoin_futures_markets, add_kucoin_spot_catalog,
-        add_okx_markets, capability_matrix, record_bybit_cursor, resolve_feed_symbols,
-        validate_catalog_envelope, validate_feed,
+        add_htx_spot_catalog, add_htx_swap_markets, add_hyperliquid_perpetual_catalog,
+        add_hyperliquid_spot_catalog, add_korean_spot_catalog, add_kraken_spot_catalog,
+        add_kucoin_futures_markets, add_kucoin_spot_catalog, add_okx_markets, capability_matrix,
+        record_bybit_cursor, resolve_feed_symbols, validate_catalog_envelope, validate_feed,
     };
     use crate::exchange::binance::Binance;
     use crate::exchange::{
@@ -4622,6 +4924,119 @@ mod tests {
             .symbol("BTC-USD")
             .build();
         assert!(super::validate_feed(&feed).is_err());
+    }
+
+    #[test]
+    fn hyperliquid_perpetual_catalog_skips_delisted_and_preserves_native_case() {
+        let payload = json!({"universe": [
+            {"szDecimals": 5, "name": "BTC", "maxLeverage": 40, "marginTableId": 56},
+            {"szDecimals": 1, "name": "MATIC", "maxLeverage": 20, "isDelisted": true},
+            {"szDecimals": 0, "name": "kPEPE", "maxLeverage": 10}
+        ]});
+        let mut registry = SymbolRegistry::default();
+        add_hyperliquid_perpetual_catalog(&mut registry, &payload).unwrap();
+
+        assert_eq!(
+            registry
+                .to_exchange(&Symbol::perpetual("BTC", "USD"))
+                .unwrap(),
+            "BTC"
+        );
+        // Native coin spelling is case-sensitive on the wire and preserved.
+        assert_eq!(
+            registry
+                .to_exchange(&Symbol::perpetual("kPEPE", "USD"))
+                .unwrap(),
+            "kPEPE"
+        );
+        assert_eq!(
+            registry
+                .to_normalized("kpepe", InstrumentKind::Perpetual)
+                .unwrap(),
+            &Symbol::perpetual("kPEPE", "USD")
+        );
+        assert!(
+            registry
+                .to_exchange(&Symbol::perpetual("MATIC", "USD"))
+                .is_err()
+        );
+
+        // A non-boolean isDelisted flag fails the catalog closed.
+        let contradiction = json!({"universe": [{"name": "BTC", "isDelisted": "yes"}]});
+        assert!(matches!(
+            add_hyperliquid_perpetual_catalog(&mut SymbolRegistry::default(), &contradiction),
+            Err(Error::MalformedData(_))
+        ));
+    }
+
+    #[test]
+    fn hyperliquid_spot_catalog_uses_token_names_and_native_coin_identity() {
+        let payload = json!({
+            "tokens": [
+                {"name": "USDC", "index": 0},
+                {"name": "PURR", "index": 1},
+                {"name": "HYPE", "index": 150},
+                {"name": "UBTC", "index": 234},
+                {"name": "USDH", "index": 235}
+            ],
+            "universe": [
+                {"tokens": [1, 0], "name": "PURR/USDC", "index": 0, "isCanonical": true},
+                {"tokens": [150, 0], "name": "@107", "index": 107, "isCanonical": false},
+                {"tokens": [234, 235], "name": "@234", "index": 234, "isCanonical": false},
+                {"tokens": [150, 235], "name": "@235", "index": 235, "isCanonical": false},
+                {"tokens": [1, 0], "name": "@999", "index": 999, "isDelisted": true}
+            ]
+        });
+        let mut registry = SymbolRegistry::default();
+        add_hyperliquid_spot_catalog(&mut registry, &payload).unwrap();
+
+        // The normalized symbol comes from the token names; the subscription
+        // coin comes from `universe[].name` and may be `@N`.
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("PURR", "USDC")).unwrap(),
+            "PURR/USDC"
+        );
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("HYPE", "USDC")).unwrap(),
+            "@107"
+        );
+        // Arbitrary quote tokens are preserved exactly.
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("UBTC", "USDH")).unwrap(),
+            "@234"
+        );
+        assert_eq!(
+            registry.to_exchange(&Symbol::spot("HYPE", "USDH")).unwrap(),
+            "@235"
+        );
+
+        // Canonical names must agree with the token pair.
+        let contradiction = json!({
+            "tokens": [{"name": "USDC", "index": 0}, {"name": "PURR", "index": 1}],
+            "universe": [{"tokens": [1, 0], "name": "WRONG/USDC", "index": 0}]
+        });
+        assert!(matches!(
+            add_hyperliquid_spot_catalog(&mut SymbolRegistry::default(), &contradiction),
+            Err(Error::MalformedData(_))
+        ));
+        // `@N` must agree with the pair index.
+        let mismatch = json!({
+            "tokens": [{"name": "USDC", "index": 0}, {"name": "PURR", "index": 1}],
+            "universe": [{"tokens": [1, 0], "name": "@2", "index": 1}]
+        });
+        assert!(matches!(
+            add_hyperliquid_spot_catalog(&mut SymbolRegistry::default(), &mismatch),
+            Err(Error::MalformedData(_))
+        ));
+        // An unknown token index fails closed.
+        let unknown = json!({
+            "tokens": [{"name": "USDC", "index": 0}],
+            "universe": [{"tokens": [1, 0], "name": "@1", "index": 1}]
+        });
+        assert!(matches!(
+            add_hyperliquid_spot_catalog(&mut SymbolRegistry::default(), &unknown),
+            Err(Error::MalformedData(_))
+        ));
     }
 }
 

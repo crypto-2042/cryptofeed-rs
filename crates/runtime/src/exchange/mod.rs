@@ -6,6 +6,7 @@ pub mod coinbase;
 pub mod deribit;
 pub mod gateio;
 pub mod htx;
+pub mod hyperliquid;
 pub mod kraken;
 pub mod kucoin;
 pub mod okx;
@@ -34,6 +35,8 @@ use crate::exchange::deribit::book_sync::DeribitBookSync;
 use crate::exchange::gateio::book_sync::GateioBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::htx::book_sync::HtxBookSync;
+#[cfg(feature = "orderbook")]
+use crate::exchange::hyperliquid::book_sync::HyperliquidBookSync;
 #[cfg(feature = "orderbook")]
 use crate::exchange::kraken::book_sync::KrakenBookSync;
 #[cfg(feature = "orderbook")]
@@ -162,6 +165,8 @@ pub struct ExchangeFeed {
     #[cfg(feature = "orderbook")]
     pub(crate) htx_book_syncs: Arc<Mutex<HashMap<String, HtxBookSync>>>,
     #[cfg(feature = "orderbook")]
+    pub(crate) hyperliquid_book_syncs: Arc<Mutex<HashMap<String, HyperliquidBookSync>>>,
+    #[cfg(feature = "orderbook")]
     pub(crate) bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
     #[cfg(feature = "orderbook")]
     pub(crate) bybit_book_syncs: Arc<Mutex<HashMap<String, BybitBookSync>>>,
@@ -234,6 +239,10 @@ impl ExchangeFeed {
                 .expect("book sync lock")
                 .remove(key);
             self.htx_book_syncs
+                .lock()
+                .expect("book sync lock")
+                .remove(key);
+            self.hyperliquid_book_syncs
                 .lock()
                 .expect("book sync lock")
                 .remove(key);
@@ -323,6 +332,7 @@ impl ExchangeFeed {
             self.coinbase_book_syncs = Default::default();
             self.deribit_book_syncs = Default::default();
             self.htx_book_syncs = Default::default();
+            self.hyperliquid_book_syncs = Default::default();
             self.bitget_book_syncs = Default::default();
             self.bybit_book_syncs = Default::default();
             self.gateio_book_syncs = Default::default();
@@ -735,6 +745,8 @@ pub struct ExchangeFeedBuilder {
     #[cfg(feature = "orderbook")]
     htx_book_syncs: Arc<Mutex<HashMap<String, HtxBookSync>>>,
     #[cfg(feature = "orderbook")]
+    hyperliquid_book_syncs: Arc<Mutex<HashMap<String, HyperliquidBookSync>>>,
+    #[cfg(feature = "orderbook")]
     bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
     #[cfg(feature = "orderbook")]
     bybit_book_syncs: Arc<Mutex<HashMap<String, BybitBookSync>>>,
@@ -821,6 +833,8 @@ impl ExchangeFeedBuilder {
             deribit_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             htx_book_syncs: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "orderbook")]
+            hyperliquid_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             bitget_book_syncs: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
@@ -1149,8 +1163,14 @@ impl ExchangeFeedBuilder {
     }
 
     pub fn exchange_symbol(mut self, exchange_symbol: &str) -> Self {
-        self.exchange_symbols
-            .push(exchange_symbol.to_ascii_uppercase());
+        // Hyperliquid coin spelling is case-sensitive on the wire (`kPEPE`);
+        // every other adapter upper-cases its native symbols.
+        let native = if self.exchange == ExchangeId::Hyperliquid {
+            exchange_symbol.to_owned()
+        } else {
+            exchange_symbol.to_ascii_uppercase()
+        };
+        self.exchange_symbols.push(native);
         self
     }
 
@@ -1256,6 +1276,8 @@ impl ExchangeFeedBuilder {
             deribit_book_syncs: self.deribit_book_syncs,
             #[cfg(feature = "orderbook")]
             htx_book_syncs: self.htx_book_syncs,
+            #[cfg(feature = "orderbook")]
+            hyperliquid_book_syncs: self.hyperliquid_book_syncs,
             #[cfg(feature = "orderbook")]
             bitget_book_syncs: self.bitget_book_syncs,
             #[cfg(feature = "orderbook")]

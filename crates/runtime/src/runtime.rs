@@ -45,6 +45,7 @@ use crate::exchange::{
     deribit::adapter::{DeribitAdapter, DeribitControl, DeribitEvent},
     gateio::adapter::{GateioAdapter, GateioConnectionPlan, GateioEvent},
     htx::adapter::{HtxAdapter, HtxControl, HtxEvent},
+    hyperliquid::adapter::{HyperliquidAdapter, HyperliquidControl, HyperliquidEvent},
     kraken::adapter::{KrakenAdapter, KrakenEvent},
     kucoin::adapter::{KucoinAdapter, KucoinEvent},
     okx::adapter::{OkxAdapter, OkxEvent},
@@ -65,6 +66,7 @@ use crate::exchange::{
         parser as gateio_parser,
     },
     htx::book_sync::{HtxBookMode, HtxBookOutcome, HtxBookSync},
+    hyperliquid::book_sync::{HyperliquidBookOutcome, HyperliquidBookSync},
     kraken::{
         book_sync::{KrakenBookOutcome, KrakenBookSync},
         parser as kraken_parser,
@@ -80,7 +82,8 @@ use crate::exchange::{
 // the book-sync types stay orderbook-gated.
 use crate::exchange::{
     bithumb::parser as bithumb_parser, coinbase::parser as coinbase_parser,
-    deribit::parser as deribit_parser, htx::parser as htx_parser, upbit::parser as upbit_parser,
+    deribit::parser as deribit_parser, htx::parser as htx_parser,
+    hyperliquid::parser as hyperliquid_parser, upbit::parser as upbit_parser,
 };
 use crate::feed::FeedHandler;
 use crate::markets;
@@ -226,6 +229,7 @@ async fn consume_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Re
         ExchangeId::Coinbase => consume_coinbase_feed(feed, shutdown).await,
         ExchangeId::Deribit => consume_deribit_feed(feed, shutdown).await,
         ExchangeId::Htx => consume_htx_feed(feed, shutdown).await,
+        ExchangeId::Hyperliquid => consume_hyperliquid_feed(feed, shutdown).await,
         // Any future exchange is rejected by capability validation before a
         // feed reaches this point.
         _ => Ok(()),
@@ -269,6 +273,7 @@ fn planned_url(feed: &ExchangeFeed) -> String {
         ExchangeId::Coinbase => CoinbaseAdapter::subscription_url(feed),
         ExchangeId::Deribit => DeribitAdapter::subscription_url(feed),
         ExchangeId::Htx => HtxAdapter::subscription_url(feed),
+        ExchangeId::Hyperliquid => HyperliquidAdapter::subscription_url(feed),
         ExchangeId::Gateio => GateioAdapter::connection_plans(feed)
             .ok()
             .and_then(|plans| plans.into_iter().next())
@@ -821,6 +826,91 @@ async fn consume_htx_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -
         });
     }
     collect_connection_results("HTX", tasks).await
+}
+
+async fn consume_hyperliquid_feed(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let url = planned_url(&feed);
+    let books = if feed.channels.contains(&Channel::L2Book) {
+        feed.symbols
+            .iter()
+            .filter(|symbol| feed.subscribes(Channel::L2Book, symbol))
+            .map(|symbol| symbol.as_str().to_owned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    readiness::track(&mut feed, &url, books);
+    supervisor::retry_with_progress(
+        feed.runtime_options.retry_limit(),
+        supervisor::Backoff::new(1, 8),
+        shutdown.clone(),
+        feed.retry_progress.clone(),
+        feed.runtime_options.startup_delay(),
+        move || {
+            let feed = feed.clone();
+            let shutdown = shutdown.clone();
+            async move { consume_hyperliquid_session(feed, shutdown).await }
+        },
+    )
+    .await
+    .map(|_| ())
+}
+
+async fn consume_hyperliquid_session(
+    mut feed: ExchangeFeed,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()> {
+    let attempt = readiness::begin(&mut feed);
+    // `l2Book` is snapshot-only, so every connection starts from a fresh local
+    // book and the next push is a complete replacement.
+    reset_connection_books(&feed, true, &feed.symbols);
+    let url = Url::parse(&planned_url(&feed)).map_err(|e| Error::Transport(e.to_string()))?;
+    let connection = connection::WsConnection::new(url, feed.exchange)
+        .runtime_options(feed.runtime_options)
+        .transport(feed.transport.clone())
+        .capture_feed(&feed);
+    let mut session = match connection.connect().await {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(attempt) = &attempt {
+                attempt.failed(&error, "connect");
+            }
+            return Err(error);
+        }
+    };
+    #[cfg(feature = "recording")]
+    {
+        feed.raw_session = session.raw_link();
+    }
+    session.set_readiness(attempt);
+    session.set_retry_progress(feed.retry_progress.clone());
+    let result = consume_hyperliquid_session_with(feed, shutdown, &mut session).await;
+    session.record_result(&result);
+    result
+}
+
+async fn consume_hyperliquid_session_with<S, E>(
+    feed: ExchangeFeed,
+    mut shutdown: watch::Receiver<bool>,
+    session: &mut Session<S>,
+) -> Result<()>
+where
+    S: Sink<Message, Error = E> + Stream<Item = std::result::Result<Message, E>> + Unpin,
+    E: Display,
+{
+    session.queue_subscriptions(HyperliquidAdapter::subscription_messages(&feed)?);
+    // The documented client heartbeat is sent by the shared session policy;
+    // there is no in-session snapshot request or resubscription contract, so a
+    // reconnect is the only recovery.
+    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+        let received_ts = session.received_timestamp();
+        session.processing();
+        process_hyperliquid_text_message(&feed, &text, received_ts).await?;
+    }
+    Ok(())
 }
 
 async fn collect_connection_results(label: &str, mut tasks: JoinSet<Result<()>>) -> Result<()> {
@@ -2071,6 +2161,37 @@ async fn dispatch_htx_event(feed: &ExchangeFeed, event: HtxEvent) -> Result<()> 
 
 #[cfg(feature = "orderbook")]
 async fn dispatch_htx_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
+    dispatch_l2_book(feed, book).await
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+async fn dispatch_hyperliquid_event(feed: &ExchangeFeed, event: HyperliquidEvent) -> Result<()> {
+    let _ = feed;
+    match event {
+        #[cfg(feature = "candles")]
+        HyperliquidEvent::Candle(candle) => dispatch_candle(feed, candle).await,
+        #[cfg(feature = "funding")]
+        HyperliquidEvent::Funding(funding) => dispatch_funding(feed, funding).await,
+        #[cfg(feature = "index")]
+        HyperliquidEvent::IndexPrice(index_price) => dispatch_index_price(feed, index_price).await,
+        #[cfg(feature = "orderbook")]
+        HyperliquidEvent::L1Book(book) => dispatch_l1_book(feed, book).await,
+        #[cfg(feature = "markprice")]
+        HyperliquidEvent::MarkPrice(mark_price) => dispatch_mark_price(feed, mark_price).await,
+        #[cfg(feature = "openinterest")]
+        HyperliquidEvent::OpenInterest(open_interest) => {
+            dispatch_open_interest(feed, open_interest).await;
+        }
+        #[cfg(feature = "ticker")]
+        HyperliquidEvent::Ticker(ticker) => dispatch_ticker(feed, ticker).await,
+        #[cfg(feature = "trade")]
+        HyperliquidEvent::Trade(trade) => dispatch_trade(feed, trade).await,
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn dispatch_hyperliquid_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
     dispatch_l2_book(feed, book).await
 }
 
@@ -4308,6 +4429,69 @@ async fn process_htx_orderbook_message(
     Ok(true)
 }
 
+async fn process_hyperliquid_text_message(
+    feed: &ExchangeFeed,
+    text: &str,
+    received_ts: f64,
+) -> Result<()> {
+    let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(control) = HyperliquidAdapter::parse_control_message(&message) {
+        match control? {
+            HyperliquidControl::Ack | HyperliquidControl::Pong => {}
+        }
+        return Ok(());
+    }
+    #[cfg(feature = "orderbook")]
+    if process_hyperliquid_orderbook_message(feed, &message, received_ts).await? {
+        return Ok(());
+    }
+    for event in HyperliquidAdapter::parse_messages_for_feed(feed, &message, received_ts)? {
+        dispatch_hyperliquid_event(feed, event).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "orderbook")]
+async fn process_hyperliquid_orderbook_message(
+    feed: &ExchangeFeed,
+    message: &Value,
+    received_ts: f64,
+) -> Result<bool> {
+    let Some(channel) = hyperliquid_parser::channel(message) else {
+        return Ok(false);
+    };
+    if channel != "l2Book" {
+        return Ok(false);
+    }
+    let data = hyperliquid_parser::data(message)
+        .ok_or_else(|| Error::Parse("Hyperliquid l2Book frame has no payload".to_owned()))?;
+    let coin = hyperliquid_parser::data_coin(data)
+        .ok_or_else(|| Error::Parse("Hyperliquid l2Book frame has no coin".to_owned()))?;
+    let Some(symbol) = HyperliquidAdapter::symbol_for_native(feed, coin).cloned() else {
+        return Ok(true);
+    };
+    if !feed.subscribes(Channel::L2Book, &symbol) {
+        return Ok(true);
+    }
+    let update = hyperliquid_parser::parse_book(data, received_ts, &symbol)
+        .ok_or_else(|| Error::Parse("failed to parse Hyperliquid l2Book".to_owned()))?;
+    let symbol_key = symbol.as_str().to_owned();
+    let outcome = {
+        let mut syncs = feed
+            .hyperliquid_book_syncs
+            .lock()
+            .expect("hyperliquid sync lock");
+        let sync = syncs
+            .entry(symbol_key)
+            .or_insert_with(|| HyperliquidBookSync::new(symbol.clone()));
+        sync.apply(update)?
+    };
+    match outcome {
+        HyperliquidBookOutcome::Publish(book) => dispatch_hyperliquid_l2_book(feed, book).await?,
+    }
+    Ok(true)
+}
+
 #[cfg_attr(not(test), allow(dead_code))]
 async fn process_gateio_text_message(
     feed: &ExchangeFeed,
@@ -4594,6 +4778,7 @@ mod tests {
         exchange::deribit::Deribit,
         exchange::gateio::Gateio,
         exchange::htx::Htx,
+        exchange::hyperliquid::Hyperliquid,
         exchange::kraken::Kraken,
         exchange::kucoin::Kucoin,
         exchange::okx::Okx,
@@ -4790,6 +4975,23 @@ mod tests {
         assert_eq!(
             planned_connection_urls(&handler),
             vec!["wss://ws.kraken.com/v2".to_owned()]
+        );
+    }
+
+    #[test]
+    fn plans_hyperliquid_connection_urls() {
+        let mut handler = FeedHandler::new();
+        handler.add_feed(
+            Hyperliquid::new()
+                .ticker()
+                .trade()
+                .l2_book()
+                .symbol("BTC-USD-PERP")
+                .build(),
+        );
+        assert_eq!(
+            planned_connection_urls(&handler),
+            vec!["wss://api.hyperliquid.xyz/ws".to_owned()]
         );
     }
 
@@ -9486,5 +9688,198 @@ mod tests {
         let mut unrelated = serde_json::json!({"topic":"tickers.ETHUSDT","type":"snapshot","data":{"symbol":"ETHUSDT","markPrice":"3000"}});
         super::merge_bybit_ticker_message(&feed, &mut state, &mut unrelated).unwrap();
         assert_eq!(state.len(), 1);
+    }
+
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
+    #[tokio::test]
+    async fn hyperliquid_full_session_subscribes_acknowledges_and_delivers() {
+        let ticker_seen = Arc::new(Mutex::new(0));
+        let trade_seen = Arc::new(Mutex::new(0));
+        let book_seen = Arc::new(Mutex::new(0));
+        let l1_seen = Arc::new(Mutex::new(0));
+        let feed = Hyperliquid::new()
+            .ticker()
+            .trade()
+            .l2_book()
+            .l1_book()
+            .ticker_handler(Arc::new(TestTickerHandler {
+                seen: ticker_seen.clone(),
+            }))
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: trade_seen.clone(),
+            }))
+            .orderbook_handler(Arc::new(TestOrderBookHandler {
+                seen: book_seen.clone(),
+            }))
+            .add_orderbook_handler(Arc::new(TestL1BookHandler {
+                seen: l1_seen.clone(),
+            }))
+            .symbol("BTC-USD-PERP")
+            .exchange_symbol("BTC")
+            .build();
+        let observed = feed.clone();
+        let (mut client, mut server) = duplex_session(ExchangeId::Hyperliquid).await;
+        client.set_exchange_for_test(ExchangeId::Hyperliquid);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_hyperliquid_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        // ticker and l1_book share one documented `bbo` subscription.
+        let mut subscriptions = Vec::new();
+        for _ in 0..3 {
+            let frame = match server.next().await {
+                Some(Ok(Message::Text(text))) => text.to_string(),
+                other => panic!("expected text subscribe frame, got {other:?}"),
+            };
+            let frame: serde_json::Value = serde_json::from_str(&frame).expect("json");
+            assert_eq!(frame["method"], "subscribe");
+            subscriptions.push(frame["subscription"].clone());
+        }
+        assert!(subscriptions.contains(&serde_json::json!({"type": "bbo", "coin": "BTC"})));
+        assert!(subscriptions.contains(&serde_json::json!({"type": "trades", "coin": "BTC"})));
+        assert!(subscriptions.contains(&serde_json::json!({"type": "l2Book", "coin": "BTC"})));
+        server
+            .send(Message::Text(
+                serde_json::json!({
+                    "channel": "subscriptionResponse",
+                    "data": {"method": "subscribe",
+                             "subscription": {"type": "l2Book", "coin": "BTC"}}
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("ack");
+        server
+            .send(Message::Text(
+                serde_json::json!({
+                    "channel": "l2Book",
+                    "data": {"coin": "BTC", "time": 1_793_782_877_454_i64,
+                        "levels": [
+                            [{"px": "78454.0", "sz": "0.09296", "n": 5}],
+                            [{"px": "78455.0", "sz": "20.3117", "n": 62}]
+                        ]}
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("book");
+        server
+            .send(Message::Text(
+                serde_json::json!({
+                    "channel": "trades",
+                    "data": [{"coin": "BTC", "side": "A", "px": "78468.0",
+                        "sz": "0.10569", "time": 1_793_782_868_033_i64,
+                        "hash": "0x00", "tid": 1_i64, "users": ["a", "b"]}]
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("trade");
+        server
+            .send(Message::Text(
+                serde_json::json!({
+                    "channel": "bbo",
+                    "data": {"coin": "BTC", "time": 1_793_782_877_739_i64,
+                        "bbo": [{"px": "78451.0", "sz": "0.22297", "n": 1},
+                                {"px": "78452.0", "sz": "13.21482", "n": 74}]}
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("bbo");
+        wait_for_seen(|| {
+            *trade_seen.lock().expect("lock") == 1
+                && *book_seen.lock().expect("lock") == 1
+                && *ticker_seen.lock().expect("lock") == 1
+                && *l1_seen.lock().expect("lock") == 1
+        })
+        .await;
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+        let states = observed.orderbook_states.lock().expect("lock");
+        let state = states.get("BTC-USD-PERP").expect("book state");
+        assert_eq!(state.bids()[0].amount.to_string(), "0.09296");
+        assert_eq!(state.asks()[0].amount.to_string(), "20.3117");
+    }
+
+    #[cfg(feature = "ticker")]
+    #[tokio::test(start_paused = true)]
+    async fn hyperliquid_documented_ping_heartbeat_is_sent_and_pong_is_filtered() {
+        let feed = Hyperliquid::new()
+            .ticker()
+            .ticker_handler(Arc::new(TestTickerHandler {
+                seen: Arc::new(Mutex::new(0)),
+            }))
+            .symbol("BTC-USD-PERP")
+            .exchange_symbol("BTC")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Hyperliquid).await;
+        client.set_exchange_for_test(ExchangeId::Hyperliquid);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_hyperliquid_session_with(feed, shutdown_rx, &mut client).await
+        });
+        assert!(matches!(server.next().await, Some(Ok(Message::Text(_)))));
+        // With time paused the 30 s client heartbeat deadline auto-advances.
+        let ping = match server.next().await {
+            Some(Ok(Message::Text(text))) => text.to_string(),
+            other => panic!("expected heartbeat ping, got {other:?}"),
+        };
+        assert_eq!(ping, r#"{"method":"ping"}"#);
+        // The documented `pong` reply is liveness, not market data.
+        server
+            .send(Message::Text(r#"{"channel":"pong"}"#.into()))
+            .await
+            .expect("pong");
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn hyperliquid_error_channel_fails_the_session() {
+        let feed = Hyperliquid::new()
+            .trade()
+            .trade_handler(Arc::new(TestTradeHandler {
+                seen: Arc::new(Mutex::new(0)),
+            }))
+            .symbol("BTC-USD-PERP")
+            .exchange_symbol("BTC")
+            .build();
+        let (mut client, mut server) = duplex_session(ExchangeId::Hyperliquid).await;
+        client.set_exchange_for_test(ExchangeId::Hyperliquid);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_hyperliquid_session_with(feed, shutdown_rx, &mut client).await
+        });
+        assert!(matches!(server.next().await, Some(Ok(Message::Text(_)))));
+        server
+            .send(Message::Text(
+                serde_json::json!({
+                    "channel": "error",
+                    "data": "Error parsing JSON into valid websocket request"
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .expect("error");
+        let error = session
+            .await
+            .expect("session task")
+            .expect_err("error channel must fail the session");
+        assert!(matches!(error, Error::Subscription(_)));
+        drop(shutdown_tx);
     }
 }
