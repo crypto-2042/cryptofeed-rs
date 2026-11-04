@@ -43,6 +43,7 @@ step and no native denomination is guessed from the normalized quote.
 | Bybit v5 | priceFilter tickSize; Spot basePrecision is the reported quantity quantum and minOrderAmt the amount minimum. Deprecated Spot minOrderQty is omitted. Derivatives use qtyStep/minOrderQty/minNotionalValue, priceScale and settleCoin. |
 | OKX v5 | tickSz, lotSz and minSz are separate; derivative ctVal, ctValCcy, ctMult, ctType and settleCcy remain independent reported fields. |
 | Gate v4 | Spot precision/amount_precision remain decimal-place counts, with min_base_amount/min_quote_amount. Derivatives retain order_price_round, order_size_min and quanto_multiplier; settlement comes from the validated request route. No quantity step is invented. |
+| KuCoin UTA V2 | Spot keeps tradingStatus/tickSize/baseOrderStep/minBaseOrderSize/minQuoteOrderSize. Futures retain lotSize as the contract quantity increment, minBaseOrderSize, raw settlementCurrency, and `unitSize`/`isInverse` as contract_value/contract_value_currency. UTA V2 has no separate multiplier field, so contract_multiplier remains None. |
 
 Only existing eligible catalog rows are returned; this does not list delisted,
 preopen or otherwise filtered markets. Native statuses are source strings, not
@@ -67,6 +68,26 @@ used to synthesize another denomination. For example, Binance contractSize is
 retained but its value currency remains None because that row has no explicit
 value-currency field; OKX ctValCcy is retained directly. Gate quanto_multiplier
 is a native multiplier, not a guessed contract face-value currency.
+
+KuCoin UTA V2 reports futures trade `q`, `obu` level sizes and `openInterest`
+in contract counts (`UNIT`), while spot trade/OBU sizes are base quantity; see
+[kucoin-protocol.md](kucoin-protocol.md#quantity-units-and-contract-metadata)
+for the per-field evidence. The catalog therefore retains the per-contract face
+value: `contract_value` is `unitSize`, and `contract_value_currency` is the
+normalized base asset for a linear contract or the normalized quote asset for
+an inverse coin-swap contract. The reported `settlementCurrency` stays separate:
+XBTUSDM settles in XBT but its face value is 1 USD. UTA V2 exposes no separate
+multiplier, so `contract_multiplier` is None. Missing `unitSize` leaves both
+value fields None and missing `isInverse` leaves the currency undetermined;
+nothing is inferred from the symbol or settlement currency.
+
+For callers that need base quantity,
+`cryptofeed_rs::kucoin::units::contracts_to_base(&MarketInfo, contracts, price)`
+is the explicit, tested conversion: linear = `contracts * contract_value`,
+inverse = `contracts * contract_value / price`. It rejects missing, zero or
+negative metadata, an undetermined/foreign value currency, non-KuCoin or
+non-contract markets, non-positive inverse prices and overflow. Catalog
+snapshots themselves never convert or rewrite normalized amounts.
 
 This is not a complete order validator: market-order filters, applicability flags,
 price bands, fees, account/risk limits and private trading permissions are outside
@@ -120,4 +141,8 @@ Primary field sources: [Binance Spot](https://github.com/binance/binance-spot-ap
 [Bybit instruments](https://bybit-exchange.github.io/docs/v5/market/instrument),
 [OKX instruments](https://app.okx.com/docs-v5/en/#public-data-rest-api-get-instruments),
 [Gate Spot](https://www.gate.com/docs/developers/apiv4/en/spot/),
-[Gate futures](https://www.gate.com/docs/developers/apiv4/en/futures/).
+[Gate futures](https://www.gate.com/docs/developers/apiv4/en/futures/),
+[KuCoin UTA V2 Get Symbol](https://www.kucoin.com/docs-new/v2/rest/ua/instrument),
+[KuCoin UTA V2 Place Order](https://www.kucoin.com/docs-new/v2/rest/ua/place-order),
+[KuCoin UTA V2 Get Futures Open Interest](https://www.kucoin.com/docs-new/v2/rest/ua/get-futures-open-interest),
+[KuCoin classic futures Get Symbol](https://www.kucoin.com/docs-new/rest/futures-trading/market-data/get-symbol).

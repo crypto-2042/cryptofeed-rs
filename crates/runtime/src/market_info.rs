@@ -7,6 +7,14 @@ use cryptofeed_core::{
 use rust_decimal::Decimal;
 use serde_json::Value;
 
+/// Base and quote asset of a normalized symbol (`BTC-USDT`, `BTC-USDT-PERP`,
+/// `BTC-USD-261225`).
+pub(crate) fn base_quote(symbol: &Symbol) -> Option<(&str, &str)> {
+    let (base, rest) = symbol.as_str().split_once('-')?;
+    let quote = rest.split('-').next()?;
+    (!base.is_empty() && !quote.is_empty()).then_some((base, quote))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct MarketInfo {
@@ -58,6 +66,15 @@ fn text(row: &Value, field: &str) -> Result<Option<String>> {
         Some(Value::String(value)) => Ok(Some(value.clone())),
         _ => Err(Error::MalformedData(format!(
             "market metadata {field} must be a string"
+        ))),
+    }
+}
+fn boolean(row: &Value, field: &str) -> Result<Option<bool>> {
+    match row.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        _ => Err(Error::MalformedData(format!(
+            "market metadata {field} must be a boolean"
         ))),
     }
 }
@@ -265,6 +282,28 @@ pub(crate) fn parse(
             info.quantity_increment = decimal(row, "lotSize")?;
             info.minimum_quantity = decimal(row, "minBaseOrderSize")?;
             info.settlement_currency = text(row, "settlementCurrency")?;
+            // UTA V2 supplies the per-contract face value as `unitSize` and the
+            // linear/inverse distinction as `isInverse`. The face value is
+            // denominated in the base asset for linear contracts and in the
+            // quote asset for inverse coin-swap contracts; the native
+            // settlement currency is a separate field and is not substituted
+            // (inverse contracts settle in the base asset). UTA V2 has no
+            // separate multiplier field, so `unitSize` is the complete face
+            // value and `contract_multiplier` stays None.
+            let inverse = boolean(row, "isInverse")?;
+            info.contract_value = decimal(row, "unitSize")?;
+            info.contract_value_currency = match (info.contract_value, inverse) {
+                (Some(_), Some(inverse)) => {
+                    let (base, quote) = base_quote(&info.symbol).ok_or_else(|| {
+                        Error::MalformedData(format!(
+                            "KuCoin futures {} has no base/quote identity",
+                            info.exchange_symbol
+                        ))
+                    })?;
+                    Some(if inverse { quote } else { base }.to_owned())
+                }
+                _ => None,
+            };
         }
         _ => {}
     }
@@ -379,6 +418,105 @@ mod tests {
         assert_eq!(future.price_increment, Some(Decimal::new(1, 1)));
         assert_eq!(future.settlement_currency.as_deref(), Some("BTC"));
     }
+    #[test]
+    fn kucoin_unit_size_is_the_contract_face_value_in_its_documented_currency() {
+        let linear = parse(
+            ExchangeId::Kucoin,
+            Symbol::perpetual("BTC", "USDT"),
+            "XBTUSDTM",
+            &json!({"tradingStatus":"Open","contractType":"0","tickSize":"0.1","lotSize":"1",
+                    "settlementCurrency":"USDT","unitSize":"0.001","isInverse":false}),
+            None,
+        )
+        .unwrap();
+        // XBTUSDTM: one contract is 0.001 BTC, reported in the base asset.
+        assert_eq!(linear.contract_value, Some(Decimal::new(1, 3)));
+        assert_eq!(linear.contract_value_currency.as_deref(), Some("BTC"));
+        assert_eq!(linear.contract_multiplier, None);
+        // The native settlement currency stays a separate source string.
+        assert_eq!(linear.settlement_currency.as_deref(), Some("USDT"));
+        assert_eq!(linear.quantity_increment, Some(Decimal::ONE));
+
+        // ETHUSDTM has a different face value; nothing is derived from XBT.
+        let eth = parse(
+            ExchangeId::Kucoin,
+            Symbol::perpetual("ETH", "USDT"),
+            "ETHUSDTM",
+            &json!({"unitSize":"0.01","isInverse":false}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(eth.contract_value, Some(Decimal::new(1, 2)));
+        assert_eq!(eth.contract_value_currency.as_deref(), Some("ETH"));
+
+        // Inverse coin-swap contracts are denominated in the quote asset
+        // (each XBTUSDM contract is 1 USD) even though they settle in XBT.
+        let inverse = parse(
+            ExchangeId::Kucoin,
+            Symbol::perpetual("BTC", "USD"),
+            "XBTUSDM",
+            &json!({"unitSize":"1.0","isInverse":true,"settlementCurrency":"XBT"}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(inverse.contract_value, Some(Decimal::ONE));
+        assert_eq!(inverse.contract_value_currency.as_deref(), Some("USD"));
+        assert_eq!(inverse.settlement_currency.as_deref(), Some("XBT"));
+
+        let dated = parse(
+            ExchangeId::Kucoin,
+            Symbol::futures("BTC", "USD", "261225"),
+            "XBTMZ26",
+            &json!({"unitSize":"1.0","isInverse":true}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(dated.contract_value, Some(Decimal::ONE));
+        assert_eq!(dated.contract_value_currency.as_deref(), Some("USD"));
+    }
+
+    #[test]
+    fn kucoin_missing_zero_or_invalid_contract_metadata_fails_closed() {
+        let kucoin = |row: Value| {
+            parse(
+                ExchangeId::Kucoin,
+                Symbol::perpetual("BTC", "USDT"),
+                "XBTUSDTM",
+                &row,
+                None,
+            )
+        };
+
+        let missing = kucoin(json!({"tradingStatus":"Open"})).unwrap();
+        assert_eq!(missing.contract_value, None);
+        assert_eq!(missing.contract_value_currency, None);
+
+        // A known `isInverse` without a face value reports no denomination.
+        let no_value = kucoin(json!({"isInverse":false})).unwrap();
+        assert_eq!(no_value.contract_value, None);
+        assert_eq!(no_value.contract_value_currency, None);
+
+        // A face value without the linear/inverse flag stays undetermined.
+        let no_flag = kucoin(json!({"unitSize":"0.001"})).unwrap();
+        assert_eq!(no_flag.contract_value, Some(Decimal::new(1, 3)));
+        assert_eq!(no_flag.contract_value_currency, None);
+
+        // Zero is preserved like other reported zero constraints; conversion
+        // helpers must reject it rather than treating it as a valid divisor.
+        let zero = kucoin(json!({"unitSize":"0","isInverse":false})).unwrap();
+        assert_eq!(zero.contract_value, Some(Decimal::ZERO));
+        assert_eq!(zero.contract_value_currency.as_deref(), Some("BTC"));
+
+        assert!(matches!(
+            kucoin(json!({"unitSize":"-0.001","isInverse":false})),
+            Err(Error::MalformedData(_))
+        ));
+        assert!(matches!(
+            kucoin(json!({"unitSize":"0.001","isInverse":"false"})),
+            Err(Error::MalformedData(_))
+        ));
+    }
+
     #[test]
     fn decimal_numbers_scientific_values_and_invalid_metadata_never_round() {
         let row: Value =

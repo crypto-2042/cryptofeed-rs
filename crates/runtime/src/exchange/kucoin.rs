@@ -5,6 +5,8 @@ pub mod adapter;
 pub mod book_sync;
 #[doc(hidden)]
 pub mod parser;
+/// KuCoin futures contract-quantity conversion from catalog metadata.
+pub mod units;
 
 use cryptofeed_core::exchange::ExchangeId;
 
