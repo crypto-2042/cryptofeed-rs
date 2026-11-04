@@ -29,7 +29,7 @@ authentication is required for those four types.
 
 ## Subscription framing
 
-One request message is a JSON **array** sent as one WebSocket text frame:
+One request message is a JSON **array** sent as one WebSocket **text** frame; the server's market pushes arrive as **binary** frames whose payload is UTF-8 JSON (verified live 2026-11-04), so the session decodes them before parsing:
 
 ```json
 [

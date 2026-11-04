@@ -479,12 +479,21 @@ impl ConnectionAttempt {
                 .map(|key| (key, None))
                 .into_iter()
                 .collect(),
-            // Deribit echoes the JSON-RPC id; one pending entry per request.
-            ExchangeId::Deribit => payload
-                .get("id")
-                .map(|id| (format!("d:{id}"), None))
-                .into_iter()
-                .collect(),
+            // Deribit echoes the JSON-RPC id; one pending entry per
+            // `public/subscribe` request. `public/set_heartbeat` also returns
+            // an `id`/`result` ack that the liveness filter consumes, so it
+            // must not create a subscription entry that can never confirm.
+            ExchangeId::Deribit => {
+                if payload.get("method").and_then(Value::as_str) != Some("public/subscribe") {
+                    Vec::new()
+                } else {
+                    payload
+                        .get("id")
+                        .map(|id| (format!("d:{id}"), None))
+                        .into_iter()
+                        .collect()
+                }
+            }
             ExchangeId::Kraken => payload
                 .pointer("/params/symbol")
                 .and_then(Value::as_array)
@@ -639,6 +648,10 @@ impl ConnectionAttempt {
                 Some("subscriptionResponse" | "error")
             ),
             ExchangeId::Kucoin => payload.get("id").is_some() && payload.get("result").is_some(),
+            ExchangeId::Kraken => {
+                payload.get("method").and_then(Value::as_str) == Some("subscribe")
+                    && payload.get("req_id").is_some()
+            }
             ExchangeId::Deribit => {
                 payload.get("id").is_some()
                     && (payload.get("result").is_some() || payload.get("error").is_some())
@@ -1276,5 +1289,76 @@ mod tests {
         let d = monitor.snapshot().book_sync.remove(0);
         assert!(d.synchronized);
         assert!(d.unsynchronized_since.is_none());
+    }
+
+    #[test]
+    fn kraken_method_subscribe_ack_confirms_symbol_scoped_pending() {
+        let monitor = monitor(ExchangeId::Kraken, vec![]);
+        let tracker = monitor.register("synthetic".into(), vec![]);
+        let mut attempt = tracker.begin();
+        attempt.connected();
+        let messages = attempt.prepare_messages(vec![
+            json!({
+                "method": "subscribe",
+                "params": {"channel": "trade", "symbol": ["BTC/USD"]},
+                "req_id": 1
+            })
+            .to_string(),
+        ]);
+        attempt.sent(&messages[0], Instant::now());
+        assert!(attempt.deadline().is_some());
+
+        let handled = attempt
+            .control(&json!({
+                "method": "subscribe",
+                "req_id": 1,
+                "result": {"channel": "trade", "snapshot": false, "symbol": "BTC/USD"},
+                "success": true
+            }))
+            .expect("ack");
+        assert!(handled);
+        assert!(attempt.deadline().is_none());
+        assert!(monitor.snapshot().is_ready());
+    }
+
+    #[test]
+    fn deribit_heartbeat_ack_does_not_create_a_subscription_entry() {
+        let monitor = monitor(ExchangeId::Deribit, vec![]);
+        let tracker = monitor.register("synthetic".into(), vec![]);
+        let mut attempt = tracker.begin();
+        attempt.connected();
+        let messages = attempt.prepare_messages(vec![
+            json!({
+                "jsonrpc": "2.0", "id": 1, "method": "public/set_heartbeat",
+                "params": {"interval": 30}
+            })
+            .to_string(),
+            json!({
+                "jsonrpc": "2.0", "id": 2, "method": "public/subscribe",
+                "params": {"channels": ["ticker.BTC-PERPETUAL.100ms"]}
+            })
+            .to_string(),
+        ]);
+        // Only `public/subscribe` is a subscription; the heartbeat command
+        // must not add an entry whose ack the liveness filter consumes.
+        assert_eq!(monitor.snapshot().connections[0].subscriptions_expected, 1);
+
+        attempt.sent(&messages[0], Instant::now());
+        assert!(attempt.deadline().is_none());
+        attempt
+            .control(&json!({"jsonrpc": "2.0", "id": 1, "result": "ok"}))
+            .expect("heartbeat ack");
+        assert!(attempt.deadline().is_none());
+
+        attempt.sent(&messages[1], Instant::now());
+        assert!(attempt.deadline().is_some());
+        attempt
+            .control(&json!({
+                "jsonrpc": "2.0", "id": 2,
+                "result": ["ticker.BTC-PERPETUAL.100ms"]
+            }))
+            .expect("subscribe ack");
+        assert!(attempt.deadline().is_none());
+        assert!(monitor.snapshot().is_ready());
     }
 }

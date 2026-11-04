@@ -636,15 +636,36 @@ where
                                 return Ok(read);
                             }
                         }
-                        Some(Ok(Message::Binary(bytes))) if self.exchange == Some(ExchangeId::Htx) => {
-                            // Every HTX market and notification frame is a
-                            // GZIP-compressed binary message; decode it before
-                            // the shared control/market classification.
+                        Some(Ok(Message::Binary(bytes))) => {
+                            let decoded = match self.exchange {
+                                // Every HTX market and notification frame is a
+                                // GZIP-compressed binary message.
+                                Some(ExchangeId::Htx) => {
+                                    Some(crate::exchange::htx::adapter::HtxAdapter::decode_gzip_frame(&bytes)?)
+                                }
+                                // Upbit, Bithumb and KuCoin deliver their
+                                // documented JSON market/ack frames as UTF-8
+                                // binary messages, not text frames.
+                                Some(ExchangeId::Upbit | ExchangeId::Bithumb | ExchangeId::Kucoin) => Some(
+                                    String::from_utf8(bytes.to_vec()).map_err(|error| {
+                                        Error::Parse(format!(
+                                            "{} binary frame is not UTF-8 JSON: {error}",
+                                            self.exchange.map_or("venue", |exchange| match exchange {
+                                                ExchangeId::Upbit => "upbit",
+                                                ExchangeId::Kucoin => "kucoin",
+                                                _ => "bithumb",
+                                            })
+                                        ))
+                                    })?,
+                                ),
+                                _ => None,
+                            };
                             self.last_received = Instant::now();
                             if let Some(readiness) = &self.readiness { readiness.received(); }
-                            let text = crate::exchange::htx::adapter::HtxAdapter::decode_gzip_frame(&bytes)?;
-                            if let Some(read) = self.handle_text_frame(text).await? {
-                                return Ok(read);
+                            if let Some(text) = decoded {
+                                if let Some(read) = self.handle_text_frame(text).await? {
+                                    return Ok(read);
+                                }
                             }
                         }
                         Some(Ok(Message::Ping(payload))) => {
@@ -655,7 +676,7 @@ where
                                 .map_err(|_| Error::Transport("websocket pong timed out".to_owned()))?
                                 .map_err(|error| Error::Transport(error.to_string()))?;
                         }
-                        Some(Ok(Message::Pong(_) | Message::Binary(_) | Message::Frame(_))) => {
+                        Some(Ok(Message::Pong(_) | Message::Frame(_))) => {
                             self.last_received = Instant::now();
                             if let Some(readiness) = &self.readiness { readiness.received(); }
                         }

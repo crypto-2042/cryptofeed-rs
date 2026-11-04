@@ -22,7 +22,7 @@ implements public v1.
 ## Subscription framing
 
 The request format is the same ticket/type/format array model Upbit uses; one
-JSON **array** is sent as one WebSocket text frame:
+JSON **array** is sent as one WebSocket **text** frame; the server's market pushes arrive as **binary** frames carrying UTF-8 JSON (verified live 2026-11-04), decoded by the session before parsing:
 
 ```json
 [
