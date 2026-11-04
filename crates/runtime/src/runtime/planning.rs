@@ -3,7 +3,8 @@ use crate::exchange::{
     ExchangeFeed, binance::adapter::BinanceAdapter, bitget::adapter::BitgetAdapter,
     bithumb::adapter::BithumbAdapter, bybit::adapter::BybitAdapter,
     coinbase::adapter::CoinbaseAdapter, deribit::adapter::DeribitAdapter,
-    gateio::adapter::GateioAdapter, htx::adapter::HtxAdapter, kraken::adapter::KrakenAdapter,
+    gateio::adapter::GateioAdapter, htx::adapter::HtxAdapter,
+    hyperliquid::adapter::HyperliquidAdapter, kraken::adapter::KrakenAdapter,
     kucoin::adapter::KucoinAdapter, okx::adapter::OkxAdapter, upbit::adapter::UpbitAdapter,
 };
 use cryptofeed_core::{
@@ -36,6 +37,9 @@ const HTX_BYTES: usize = 64 * 1024;
 /// Neither venue documents a per-connection message/subscription maximum, so
 /// this is a conservative local budget, not a claimed exchange limit.
 const KOREAN_BYTES: usize = 64 * 1024;
+/// Hyperliquid documents a maximum of 1000 WebSocket subscriptions per
+/// connection; generated subscription count is the native budget.
+const HYPERLIQUID_SUBSCRIPTIONS: usize = 1000;
 const GATE_MESSAGES: usize = 1024;
 const GATE_MESSAGE_BYTES: usize = 64 * 1024;
 const REQUEST_METADATA_BYTES: usize = 64;
@@ -110,6 +114,9 @@ fn fits(feed: &ExchangeFeed) -> Result<bool> {
             .map(|message| message.len() + REQUEST_METADATA_BYTES)
             .sum::<usize>()
             <= MONITORING_BYTES),
+        ExchangeId::Hyperliquid => {
+            Ok(HyperliquidAdapter::subscription_messages(feed)?.len() <= HYPERLIQUID_SUBSCRIPTIONS)
+        }
         ExchangeId::Htx => Ok(HtxAdapter::subscription_urls(feed).iter().all(|url| {
             let planned = HtxAdapter::feed_for_url(feed, url);
             HtxAdapter::subscription_messages(&planned)
@@ -146,6 +153,7 @@ fn native_routes(feed: &ExchangeFeed) -> Result<Vec<String>> {
         ExchangeId::Coinbase => vec![CoinbaseAdapter::websocket_url().to_owned()],
         ExchangeId::Deribit => vec![DeribitAdapter::websocket_url().to_owned()],
         ExchangeId::Htx => HtxAdapter::subscription_urls(feed),
+        ExchangeId::Hyperliquid => vec![HyperliquidAdapter::websocket_url().to_owned()],
         _ => return Err(Error::UnsupportedExchange(format!("{:?}", feed.exchange))),
     };
     Ok(urls
@@ -290,11 +298,11 @@ pub(crate) fn validate_connection_counts(feeds: &[ExchangeFeed]) -> Result<()> {
         }
         let count = counts.entry(feed.exchange).or_insert(0);
         *count += connections;
-        if *count > super::budget::MAX_CONNECTIONS_PER_EXCHANGE {
+        let maximum = super::budget::max_connections(feed.exchange);
+        if *count > maximum {
             return Err(Error::InvalidConfiguration(format!(
-                "{:?}: planned connections exceed SDK budget of {}",
-                feed.exchange,
-                super::budget::MAX_CONNECTIONS_PER_EXCHANGE
+                "{:?}: planned connections exceed the connection budget of {maximum}",
+                feed.exchange
             )));
         }
     }

@@ -141,6 +141,10 @@ fn pressure(feed: &ExchangeFeed) -> Result<(usize, usize)> {
                 .sum(),
             MONITORING_BYTES,
         )),
+        ExchangeId::Hyperliquid => Ok((
+            HyperliquidAdapter::subscription_messages(feed)?.len(),
+            HYPERLIQUID_SUBSCRIPTIONS,
+        )),
         ExchangeId::Htx => Ok((
             HtxAdapter::subscription_urls(feed)
                 .iter()

@@ -467,6 +467,18 @@ impl ConnectionAttempt {
                     Vec::new()
                 }
             }
+            // Hyperliquid acknowledges each request with a
+            // `subscriptionResponse` that echoes the subscription object; the
+            // pending key is (type, coin, interval).
+            ExchangeId::Hyperliquid => payload
+                .pointer("/subscription")
+                .or_else(|| payload.pointer("/data/subscription"))
+                .and_then(
+                    crate::exchange::hyperliquid::adapter::HyperliquidAdapter::subscription_key,
+                )
+                .map(|key| (key, None))
+                .into_iter()
+                .collect(),
             // Deribit echoes the JSON-RPC id; one pending entry per request.
             ExchangeId::Deribit => payload
                 .get("id")
@@ -622,6 +634,10 @@ impl ConnectionAttempt {
                     || (payload.get("op").and_then(Value::as_str) == Some("sub")
                         && payload.get("err-code").is_some())
             }
+            ExchangeId::Hyperliquid => matches!(
+                payload.get("channel").and_then(Value::as_str),
+                Some("subscriptionResponse" | "error")
+            ),
             ExchangeId::Kucoin => payload.get("id").is_some() && payload.get("result").is_some(),
             ExchangeId::Deribit => {
                 payload.get("id").is_some()
@@ -667,6 +683,9 @@ impl ConnectionAttempt {
                         })
                         .is_some_and(|code| code != 0)
             }
+            ExchangeId::Hyperliquid => {
+                payload.get("channel").and_then(Value::as_str) == Some("error")
+            }
             ExchangeId::Kraken => payload["success"] != true,
             // Only reachable for an error envelope (see `is_control`).
             ExchangeId::Upbit | ExchangeId::Bithumb => true,
@@ -701,6 +720,12 @@ impl ConnectionAttempt {
                 } else {
                     format!("h:{}", payload["cid"])
                 }
+            }
+            ExchangeId::Hyperliquid => {
+                crate::exchange::hyperliquid::adapter::HyperliquidAdapter::acknowledgement_key(
+                    payload,
+                )
+                .unwrap_or_default()
             }
             ExchangeId::Kraken => {
                 let symbol = payload

@@ -82,7 +82,7 @@ impl Admission {
         if totals.iter().any(|(key, count)| {
             *count
                 > match key {
-                    AdmissionKey::Exchange(_) => super::budget::MAX_CONNECTIONS_PER_EXCHANGE,
+                    AdmissionKey::Exchange(exchange) => super::budget::max_connections(*exchange),
                     AdmissionKey::Scope { limit, .. } => *limit,
                 }
         }) {
