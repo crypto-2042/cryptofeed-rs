@@ -306,6 +306,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[cfg(all(feature = "ticker", feature = "orderbook"))]
     #[test]
     fn parses_documented_ticker_bbo_and_sizes() {
         let row = json!({
@@ -332,6 +333,7 @@ mod tests {
         assert_eq!(l1.exchange_ts, 2.0);
     }
 
+    #[cfg(feature = "trade")]
     #[test]
     fn inverts_documented_maker_side_to_aggressor_side() {
         let symbol = Symbol::spot("BTC", "USD");
@@ -351,6 +353,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "orderbook")]
     #[test]
     fn parses_documented_level2_snapshot_and_absolute_update() {
         let symbol = Symbol::spot("BTC", "USD");

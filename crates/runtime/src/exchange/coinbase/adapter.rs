@@ -373,7 +373,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "ticker")]
+    #[cfg(all(feature = "ticker", feature = "orderbook"))]
     #[test]
     fn feed_context_filters_unconfigured_products_and_normalizes() {
         let feed = Coinbase::new().ticker().symbol("BTC-USD").build();

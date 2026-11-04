@@ -320,6 +320,13 @@ mod tests {
         Symbol::perpetual("BTC", "USD")
     }
 
+    #[cfg(all(
+        feature = "ticker",
+        feature = "markprice",
+        feature = "index",
+        feature = "openinterest",
+        feature = "funding"
+    ))]
     #[test]
     fn parses_documented_ticker_split_into_normalized_categories() {
         let data = json!({
@@ -356,6 +363,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "trade")]
     #[test]
     fn parses_documented_trade_array_and_direction() {
         let trade = json!({
@@ -370,6 +378,7 @@ mod tests {
         assert_eq!(trade.id.as_deref(), Some("460199050"));
     }
 
+    #[cfg(feature = "orderbook")]
     #[test]
     fn parses_documented_book_snapshot_and_change_chain() {
         let snapshot = json!({

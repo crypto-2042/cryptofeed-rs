@@ -435,6 +435,7 @@ mod tests {
         Symbol::perpetual("BTC", "USDT")
     }
 
+    #[cfg(all(feature = "ticker", feature = "trade"))]
     #[test]
     fn parses_documented_spot_ticker_bbo_and_trade() {
         let ticker = json!({"bid": 52732.88, "bidSize": 0.036, "ask": 52732.89,
@@ -459,6 +460,7 @@ mod tests {
         assert_eq!(trade.id.as_deref(), Some("102523573486"));
     }
 
+    #[cfg(feature = "orderbook")]
     #[test]
     fn parses_documented_spot_snapshot_depth_with_version() {
         let data = json!({"bids": [[52690.69, 0.36281], [52690.68, 0.2]],
@@ -471,6 +473,7 @@ mod tests {
         assert!(parse_spot_depth(&json!({"bids": [], "asks": []}), 1.0, &spot()).is_none());
     }
 
+    #[cfg(all(feature = "ticker", feature = "trade", feature = "orderbook"))]
     #[test]
     fn parses_documented_swap_detail_bbo_trade_and_incremental_depth() {
         let detail = json!({"id": 1603707840, "open": 12916.2, "close": 13065.8,
