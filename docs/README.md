@@ -134,6 +134,10 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 - [Multiple handlers](handlers.md): registration order, per-callback deadlines,
   panic/error semantics, backpressure and shutdown.
 
+- [Bounded asynchronous handler dispatch](backpressure.md): opt-in decoupled
+  callbacks, per-channel coalescing/oldest-drop policy, diagnostics and the
+  explicit loss guarantees.
+
 - [Maximum delivered L2 depth](book-delivery-depth.md): consistent top-N
   snapshots/deltas, deletion/promotion and recovery/replay semantics.
 

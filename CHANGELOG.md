@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `HandlerDispatch::Async { capacity }` runtime policy decouples user
+  callback execution from the session read loop with one bounded background
+  task per logical feed. State channels coalesce to the latest value per
+  symbol; trade, liquidation and raw (no book store) L2 events use an
+  oldest-drop bounded ring. `FeedHandler::handler_dispatch_stats()` and a
+  retained handle expose delivered/coalesced/dropped counters and queue depth.
+  `Inline` remains the default and unchanged; loss is explicit and counted.
+  See `docs/backpressure.md`.
+
 ## [0.1.0-rc.1] - 2026-10-20
 
 ### Qualification

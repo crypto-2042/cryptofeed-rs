@@ -35,6 +35,18 @@ event is published/counted once before callback execution; adding handlers does
 not multiply broadcast events, metrics or book application. Channel/symbol and
 candle-completion filtering occurs before any callback.
 
+## Bounded asynchronous dispatch (opt-in)
+
+`HandlerDispatch::Async { capacity }` moves callback execution off the session
+read path: ingestion enqueues and continues parsing/heartbeats while one
+background task per logical feed executes registered callbacks sequentially.
+This is not lossless: state channels keep the latest value per symbol, and
+trade/liquidation (plus raw L2 without a configured book store) keep a bounded
+oldest-drop ring. Handler `Arc`s are captured at start, so late registrations
+are not observed in async mode. Diagnostics and the per-channel policy are
+documented in [bounded asynchronous handler dispatch](backpressure.md).
+`Inline` remains the default and awaits each callback as described below.
+
 ## Deadlines, failure and shutdown
 
 Each invocation has its own SDK timeout (default five seconds), starting when that
