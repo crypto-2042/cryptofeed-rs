@@ -109,6 +109,11 @@ Same shape, with uppercase contract codes:
 - Heartbeat: `{"op":"ping","ts":"..."}` → `{"op":"pong","ts":"<same>"}`.
 - Funding pushes are sent immediately on subscribe and then at the documented
   cadence (the current live host sends an initial notification right away).
+- Connection planning follows the channels actually configured: a perpetual
+  feed with only funding/liquidations plans a single notification connection
+  and no market connection. Planning an empty market connection left it with
+  `subscriptions_expected=0` and kept the feed permanently unready while
+  funding events were already arriving (issue #25).
 
 All market/notification frames are GZIP-compressed binary WebSocket messages.
 The runtime decompresses them with the pinned `flate2` dependency (`default-

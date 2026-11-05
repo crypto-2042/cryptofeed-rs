@@ -494,6 +494,38 @@ mod tests {
     }
 
     #[test]
+    fn htx_notification_only_feed_plans_one_connection() {
+        // Funding-only and liquidation-only perpetual feeds have no market
+        // channels; planning a market connection would leave it with zero
+        // subscriptions and the feed permanently unready (issue #25).
+        let funding = crate::exchange::htx::Htx::new()
+            .funding()
+            .symbol("BTC-USDT-PERP")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        assert_eq!(
+            physical_connection_count(&funding).expect("funding connections"),
+            1
+        );
+        assert_eq!(
+            native_routes(&funding).expect("funding routes"),
+            vec![crate::exchange::htx::adapter::SWAP_NOTIFICATION_WS_URL.to_owned()]
+        );
+        assert!(fits(&funding).expect("funding budget"));
+        assert_eq!(shard(&funding).expect("funding shard").len(), 1);
+
+        let liquidations = crate::exchange::htx::Htx::new()
+            .liquidations()
+            .symbol("ETH-USDT-PERP")
+            .exchange_symbol("ETH-USDT")
+            .build();
+        assert_eq!(
+            physical_connection_count(&liquidations).expect("liquidation connections"),
+            1
+        );
+    }
+
+    #[test]
     fn binance_exact_stream_limit_and_overflow() {
         assert_eq!(shard(&feed(ExchangeId::Binance, 1024)).unwrap().len(), 1);
         let groups = shard(&feed(ExchangeId::Binance, 1025)).unwrap();

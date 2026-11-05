@@ -95,21 +95,38 @@ impl HtxAdapter {
         url == SWAP_NOTIFICATION_WS_URL
     }
 
-    /// Market connection first; a second notification connection only when a
-    /// perpetual feed subscribes funding/liquidations.
+    /// Plans only the connections the feed actually subscribes on: the market
+    /// connection when at least one market channel is configured, and the
+    /// notification connection when a perpetual feed subscribes
+    /// funding/liquidations. A funding-only or liquidation-only feed therefore
+    /// plans a single notification connection instead of an empty market
+    /// connection that could never confirm a subscription.
     pub fn subscription_urls(feed: &ExchangeFeed) -> Vec<String> {
         let product = Self::product_for_feed(feed).unwrap_or(HtxProduct::Spot);
-        let mut urls = vec![match product {
-            HtxProduct::Spot => SPOT_WS_URL.to_owned(),
-            HtxProduct::Perpetual => SWAP_MARKET_WS_URL.to_owned(),
-        }];
-        if product == HtxProduct::Perpetual
-            && feed
-                .channels
-                .iter()
-                .any(|channel| matches!(channel, Channel::Funding | Channel::Liquidations))
-        {
+        let notification_channel =
+            |channel: &Channel| matches!(channel, Channel::Funding | Channel::Liquidations);
+        let has_notification = feed.channels.iter().any(notification_channel);
+        let has_market = feed
+            .channels
+            .iter()
+            .any(|channel| !notification_channel(channel));
+        let market_url = match product {
+            HtxProduct::Spot => SPOT_WS_URL,
+            HtxProduct::Perpetual => SWAP_MARKET_WS_URL,
+        };
+        let mut urls = Vec::new();
+        // Spot feeds cannot carry notification channels; a non-empty market
+        // channel set always needs the market connection.
+        if has_market || product == HtxProduct::Spot {
+            urls.push(market_url.to_owned());
+        }
+        if product == HtxProduct::Perpetual && has_notification {
             urls.push(SWAP_NOTIFICATION_WS_URL.to_owned());
+        }
+        if urls.is_empty() {
+            // Defensive: an empty channel set is rejected by preflight, but
+            // never plan zero connections.
+            urls.push(market_url.to_owned());
         }
         urls
     }
@@ -597,6 +614,54 @@ mod tests {
             .expect("resub")
             .len(),
             2
+        );
+    }
+
+    #[test]
+    fn notification_only_perpetual_feed_plans_no_empty_market_connection() {
+        let funding = Htx::new()
+            .funding()
+            .symbol("BTC-USDT-PERP")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        assert_eq!(
+            HtxAdapter::subscription_urls(&funding),
+            vec![SWAP_NOTIFICATION_WS_URL.to_owned()]
+        );
+
+        let liquidations = Htx::new()
+            .liquidations()
+            .symbol("ETH-USDT-PERP")
+            .exchange_symbol("ETH-USDT")
+            .build();
+        assert_eq!(
+            HtxAdapter::subscription_urls(&liquidations),
+            vec![SWAP_NOTIFICATION_WS_URL.to_owned()]
+        );
+
+        // Mixed feeds keep both connections, market first.
+        let mixed = Htx::new()
+            .trade()
+            .funding()
+            .symbol("BTC-USDT-PERP")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        assert_eq!(
+            HtxAdapter::subscription_urls(&mixed),
+            vec![
+                SWAP_MARKET_WS_URL.to_owned(),
+                SWAP_NOTIFICATION_WS_URL.to_owned()
+            ]
+        );
+
+        let market = Htx::new()
+            .trade()
+            .symbol("BTC-USDT-PERP")
+            .exchange_symbol("BTC-USDT")
+            .build();
+        assert_eq!(
+            HtxAdapter::subscription_urls(&market),
+            vec![SWAP_MARKET_WS_URL.to_owned()]
         );
     }
 
