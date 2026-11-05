@@ -11,6 +11,46 @@ pub enum IdlePolicy {
     Disabled,
 }
 
+/// Ordered delivery policy for user handler callbacks of one logical feed.
+///
+/// `Inline` (the default) awaits each callback on the session read path, which
+/// preserves today's lossless, in-session ordering but lets a slow handler
+/// block parsing, heartbeats and other channels. `Async` opts into one bounded
+/// background dispatch task per logical feed; ingestion enqueues without
+/// awaiting user code. See the repository's `docs/backpressure.md` for the
+/// delivery guarantees.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum HandlerDispatch {
+    /// Await each callback inline in the session read loop (default).
+    #[default]
+    Inline,
+    /// Enqueue callbacks on one bounded task per logical feed.
+    ///
+    /// `capacity` bounds each event channel's ring. State channels keep only
+    /// the latest value per symbol; event channels (trade, liquidation and,
+    /// without a configured book store, raw L2) drop the oldest pending event
+    /// and count the loss. Capacity is validated by
+    /// [`RuntimeOptions::handler_dispatch`].
+    Async {
+        /// Maximum pending events per event-channel ring; must be in
+        /// `1..=HandlerDispatch::MAX_CAPACITY`.
+        capacity: usize,
+    },
+}
+
+impl HandlerDispatch {
+    /// Largest accepted event-ring capacity (one million events).
+    pub const MAX_CAPACITY: usize = 1_000_000;
+
+    /// Ring capacity for `Async`, or `None` for `Inline`.
+    pub fn capacity(self) -> Option<usize> {
+        match self {
+            Self::Inline => None,
+            Self::Async { capacity } => Some(capacity),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RuntimeOptions {
     max_retries: Option<usize>,
@@ -18,6 +58,7 @@ pub struct RuntimeOptions {
     idle_policy: IdlePolicy,
     connect_timeout: Duration,
     handler_timeout: Duration,
+    handler_dispatch: HandlerDispatch,
     packing_evaluations: Option<u64>,
 }
 impl Default for RuntimeOptions {
@@ -28,6 +69,7 @@ impl Default for RuntimeOptions {
             idle_policy: IdlePolicy::ExchangeDefault,
             connect_timeout: Duration::from_secs(20),
             handler_timeout: Duration::from_secs(5),
+            handler_dispatch: HandlerDispatch::Inline,
             packing_evaluations: None,
         }
     }
@@ -67,6 +109,28 @@ impl RuntimeOptions {
         self.handler_timeout = timeout;
         Ok(self)
     }
+    /// Opts into bounded asynchronous handler dispatch for this logical feed.
+    /// Defaults to [`HandlerDispatch::Inline`]. Async capacity must be in
+    /// `1..=HandlerDispatch::MAX_CAPACITY`; invalid capacities are rejected
+    /// before a feed is built.
+    pub fn handler_dispatch(mut self, dispatch: HandlerDispatch) -> Result<Self> {
+        if let HandlerDispatch::Async { capacity } = dispatch {
+            if capacity == 0 || capacity > HandlerDispatch::MAX_CAPACITY {
+                return Err(Error::InvalidConfiguration(format!(
+                    "handler dispatch capacity must be between 1 and {}",
+                    HandlerDispatch::MAX_CAPACITY
+                )));
+            }
+        }
+        self.handler_dispatch = dispatch;
+        Ok(self)
+    }
+    /// Current handler dispatch policy; `Inline` preserves the historical
+    /// in-session callback await.
+    pub fn handler_dispatch_policy(self) -> HandlerDispatch {
+        self.handler_dispatch
+    }
+
     /// Initial per-physical-connection delay, before admission. Retry backoff
     /// does not repeat it; a replacement creates a new supervisor and delay.
     pub fn start_delay(mut self, delay: Duration) -> Self {
@@ -127,6 +191,36 @@ mod tests {
         assert!(options.connect_timeout(Duration::ZERO).is_err());
         assert!(options.handler_timeout(Duration::ZERO).is_err());
         assert_eq!(options.max_retries(Some(0)).retry_limit(), Some(0));
+        assert_eq!(options.handler_dispatch_policy(), HandlerDispatch::Inline);
+        let async_options = RuntimeOptions::default()
+            .handler_dispatch(HandlerDispatch::Async { capacity: 64 })
+            .unwrap();
+        assert_eq!(
+            async_options.handler_dispatch_policy(),
+            HandlerDispatch::Async { capacity: 64 }
+        );
+        assert!(
+            RuntimeOptions::default()
+                .handler_dispatch(HandlerDispatch::Async { capacity: 0 })
+                .is_err()
+        );
+        assert!(
+            RuntimeOptions::default()
+                .handler_dispatch(HandlerDispatch::Async {
+                    capacity: HandlerDispatch::MAX_CAPACITY + 1
+                })
+                .is_err()
+        );
+        assert_eq!(
+            RuntimeOptions::default()
+                .handler_dispatch(HandlerDispatch::Async {
+                    capacity: HandlerDispatch::MAX_CAPACITY
+                })
+                .unwrap()
+                .handler_dispatch_policy()
+                .capacity(),
+            Some(HandlerDispatch::MAX_CAPACITY)
+        );
     }
     #[tokio::test]
     async fn finite_retry_budget_counts_initial_attempt_separately() {

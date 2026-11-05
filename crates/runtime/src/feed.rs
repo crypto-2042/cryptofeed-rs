@@ -2,6 +2,9 @@ pub mod control;
 mod failure;
 mod subscription;
 use crate::exchange::ExchangeFeed;
+use crate::runtime::dispatch::{
+    DispatchCounters, HandlerDispatchStats, HandlerDispatchStatsHandle,
+};
 pub use control::{
     AnchoredEnvelope, BookSyncDiagnostic, ConnectionInfo, EventAnchor, FeedEnvelope, FeedId,
     FeedIdentity, FeedInfo, FeedSnapshot, FeedState, RuntimeControl,
@@ -235,6 +238,7 @@ pub struct FeedHandler {
     anchored_sender: Option<broadcast::Sender<AnchoredEnvelope>>,
     control_sender: Option<tokio::sync::mpsc::Sender<control::Command>>,
     control_receiver: Option<tokio::sync::mpsc::Receiver<control::Command>>,
+    dispatch_counters: Arc<DispatchCounters>,
 }
 
 impl Default for FeedHandler {
@@ -257,6 +261,7 @@ impl FeedHandler {
             anchored_sender: None,
             control_sender: None,
             control_receiver: None,
+            dispatch_counters: Arc::new(DispatchCounters::default()),
         }
     }
 
@@ -404,6 +409,7 @@ impl FeedHandler {
             anchored_sender: self.anchored_sender.clone(),
             status_sender: self.status_sender.clone(),
             counters: self.counters.clone(),
+            dispatch_counters: self.dispatch_counters.clone(),
         }
     }
 
@@ -440,6 +446,28 @@ impl FeedHandler {
     /// Obtain this handle before running; it remains readable after shutdown.
     pub fn event_counters(&self) -> Arc<EventCounters> {
         self.counters.clone()
+    }
+
+    /// Snapshot of the opt-in asynchronous handler-dispatch counters.
+    ///
+    /// Counters are aggregated across every logical feed of this handler and
+    /// remain zero for inline dispatch. Obtain
+    /// [`FeedHandler::handler_dispatch_stats_handle`] before `run` when a
+    /// readable view is needed after the handler is consumed.
+    pub fn handler_dispatch_stats(&self) -> HandlerDispatchStats {
+        self.dispatch_counters.snapshot()
+    }
+
+    /// Retains the asynchronous handler-dispatch counters while `run(self)`
+    /// owns the handler; the handle stays readable after shutdown.
+    pub fn handler_dispatch_stats_handle(&self) -> HandlerDispatchStatsHandle {
+        HandlerDispatchStatsHandle::new(self.dispatch_counters.clone())
+    }
+
+    /// Retained L2 recovery store used by managed control, when configured.
+    #[cfg(feature = "orderbook")]
+    pub(crate) fn dispatch_book_store(&self) -> Option<Arc<crate::books::BookStore>> {
+        self.book_store.clone()
     }
 
     #[cfg_attr(not(test), allow(dead_code))]

@@ -192,6 +192,8 @@ struct Prepared {
     exchange: ExchangeId,
     resource_scope: Option<(u64, usize)>,
     feeds: Vec<ExchangeFeed>,
+    #[cfg(feature = "orderbook")]
+    books: Option<Arc<crate::books::BookStore>>,
     reply: Option<Reply<FeedIdentity>>,
 }
 
@@ -213,13 +215,21 @@ struct Running {
     resource_scope: Option<(u64, usize)>,
     shutdown: watch::Sender<bool>,
     task: JoinHandle<Result<()>>,
+    dispatchers: super::dispatch::DispatchTasks,
     stop_at: Option<Instant>,
     forced: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Running {
-    fn start(prepared: Prepared, services: Services) -> Self {
+    fn start(mut prepared: Prepared, services: Services) -> Self {
         let (shutdown, receiver) = watch::channel(false);
+        let environment = super::dispatch::DispatchEnvironment {
+            #[cfg(feature = "orderbook")]
+            books: prepared.books.clone(),
+        };
+        // One dispatcher per logical feed, shared by every connection shard.
+        let dispatchers =
+            super::dispatch::attach_shared(&mut prepared.feeds, &receiver, &environment);
         let forced = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let books = prepared
             .feeds
@@ -255,6 +265,7 @@ impl Running {
             resource_scope: prepared.resource_scope,
             shutdown,
             task,
+            dispatchers,
             stop_at: None,
             forced,
         }
@@ -273,15 +284,21 @@ impl Running {
     }
     async fn stop(&mut self) -> std::result::Result<Result<()>, tokio::task::JoinError> {
         self.request_stop();
-        match tokio::time::timeout_at(self.stop_at.expect("stop deadline"), &mut self.task).await {
-            Ok(result) => result,
-            Err(_) => {
-                self.forced
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-                self.task.abort();
-                (&mut self.task).await
-            }
-        }
+        let result =
+            match tokio::time::timeout_at(self.stop_at.expect("stop deadline"), &mut self.task)
+                .await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    self.forced
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.task.abort();
+                    (&mut self.task).await
+                }
+            };
+        let dispatchers = std::mem::take(&mut self.dispatchers);
+        dispatchers.shutdown().await;
+        result
     }
 }
 
@@ -429,7 +446,7 @@ async fn worker(
                 });
                 match result {
                     Ok((feeds, connections)) => {
-                        prepared = Some(Prepared { monitor: candidate.monitor, connections, initial: candidate.initial, identity: candidate.identity, exchange: candidate.exchange, resource_scope: candidate.resource_scope, feeds, reply: candidate.reply });
+                        prepared = Some(Prepared { monitor: candidate.monitor, connections, initial: candidate.initial, identity: candidate.identity, exchange: candidate.exchange, resource_scope: candidate.resource_scope, feeds, #[cfg(feature = "orderbook")] books: context.books.clone(), reply: candidate.reply });
                         if let Some(active) = running.as_mut() { active.request_stop(); }
                     }
                     Err(error) => {

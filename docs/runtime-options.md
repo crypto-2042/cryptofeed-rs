@@ -102,6 +102,23 @@ and shared admission/send pacing remain fixed. Python's `timeout` is the idle
 message watcher, not the connection establishment deadline. [TransportConfig](transport.md) now handles explicit HTTP/WS
 proxy routing consistently, independently of these budgets. This increment does not claim general Python config-file parity.
 
+## Handler dispatch mode
+
+`handler_dispatch(HandlerDispatch::Async { capacity })` opts one logical feed
+into bounded background callback execution; the default `HandlerDispatch::Inline`
+keeps today's exact behavior. Async capacity must be between 1 and
+`HandlerDispatch::MAX_CAPACITY` (one million) and is validated by the setter;
+`handler_dispatch_policy()` exposes the current policy. Handler clones are
+captured when the runtime starts, so handlers registered after `run` begins are
+not delivered in async mode. Ingestion keeps parsing, applying book state and
+publishing to the bounded broadcast rings while callbacks run on one task per
+logical feed. State channels coalesce to the latest value per symbol; trade,
+liquidation and raw (no book store) L2 rings drop the oldest event on overflow.
+All losses are counted and exposed through `FeedHandler::handler_dispatch_stats()`
+and its retained handle. See [bounded asynchronous handler dispatch](backpressure.md)
+for the per-channel policy and the explicit non-lossless guarantees. Inline
+mode remains lossless but can block ingest.
+
 ## Verification
 
 Offline tests verify defaults/zero rejection, retry count versus initial attempt,

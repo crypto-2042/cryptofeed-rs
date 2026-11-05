@@ -36,10 +36,14 @@ If using another queue, bound it and make its overflow fatal/visible too. Consid
 separate FeedHandlers for documented workload isolation, while process-local
 exchange/resource budgets still apply; this is a changed test configuration.
 
-Typed async callbacks offer another supported processing path, but execute in
-session order with deadlines (five seconds by default). Waiting on storage or a
-backpressured callback can delay socket reading, trigger timeouts/reconnects and
-lose upstream market updates; callbacks are not an unconditional lossless path.
+Typed async callbacks offer another supported processing path. By default they
+execute in session order with deadlines (five seconds by default). Waiting on
+storage or a backpressured callback can delay socket reading, trigger
+timeouts/reconnects and lose upstream market updates; callbacks are not an
+unconditional lossless path. `HandlerDispatch::Async` opts into a bounded
+background dispatcher that keeps ingestion reading at the cost of explicit
+coalescing/oldest-drop semantics; see
+[bounded asynchronous handler dispatch](backpressure.md).
 Applications needing durable delivery own persistence, acknowledgements,
 deduplication and supported recovery. See [handlers](handlers.md) and
 [recording](recording.md) for their actual failure boundaries.
