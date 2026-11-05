@@ -549,6 +549,43 @@ mod ws_quota_tests {
         assert_eq!(tokio::time::Instant::now(), start);
     }
     #[tokio::test(start_paused = true)]
+    async fn htx_ping_expiry_close_retries_once_but_protocol_1003_stays_terminal() {
+        let attempts = AtomicUsize::new(0);
+        let result = retry_with_backoff::<(), _, _>(2, Backoff::new(0, 0), || async {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            if attempts.load(Ordering::SeqCst) == 1 {
+                Err(Error::WebSocketClosed {
+                    code: Some(1003),
+                    retryable: true,
+                })
+            } else {
+                Ok(())
+            }
+        })
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+
+        let attempts = AtomicUsize::new(0);
+        let result = retry_with_backoff::<(), _, _>(2, Backoff::new(0, 0), || async {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err(Error::WebSocketClosed {
+                code: Some(1003),
+                retryable: false,
+            })
+        })
+        .await;
+        assert!(matches!(
+            result,
+            Err(Error::WebSocketClosed {
+                code: Some(1003),
+                retryable: false
+            })
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn ws_quota_bounded_retry_respects_floor_and_preserves_terminal_error() {
         let attempts = AtomicUsize::new(0);
         let start = tokio::time::Instant::now();

@@ -88,10 +88,22 @@ pub(crate) fn websocket_error(
 pub(super) fn close_error(
     exchange: Option<ExchangeId>,
     code: Option<u16>,
+    reason: Option<&str>,
 ) -> cryptofeed_core::error::Error {
-    let terminal = matches!(code, Some(1002 | 1003 | 1007 | 1008 | 1009 | 1010))
-        || (exchange == Some(ExchangeId::Okx)
-            && matches!(code, Some(4001 | 4002 | 4003 | 4008 | 4009)));
+    let terminal = match (exchange, code) {
+        // HTX closes a public connection with 1003 "ping check expired" when
+        // the documented pong window (~15 s) lapses; a fresh connection
+        // recovers, so this cause stays inside the bounded retry budget. Other
+        // 1003 closes keep the protocol-failure terminal semantics.
+        (Some(ExchangeId::Htx), Some(1003)) => {
+            !reason.is_some_and(|reason| reason.to_ascii_lowercase().contains("ping"))
+        }
+        _ => {
+            matches!(code, Some(1002 | 1003 | 1007 | 1008 | 1009 | 1010))
+                || (exchange == Some(ExchangeId::Okx)
+                    && matches!(code, Some(4001 | 4002 | 4003 | 4008 | 4009)))
+        }
+    };
     cryptofeed_core::error::Error::WebSocketClosed {
         code,
         retryable: !terminal,
@@ -134,7 +146,7 @@ mod tests {
     fn ws_lifecycle_close_codes_keep_rfc_and_venue_scopes_separate() {
         use cryptofeed_core::error::Error;
         for code in [1002, 1003, 1007, 1008, 1009, 1010] {
-            let error = close_error(None, Some(code));
+            let error = close_error(None, Some(code), None);
             assert!(
                 matches!(error,Error::WebSocketClosed{code:Some(found),retryable:false} if found==code)
             );
@@ -149,23 +161,57 @@ mod tests {
             Some(4999),
         ] {
             assert!(!crate::runtime::supervisor::is_permanent(&close_error(
-                None, code
+                None, code, None
             )));
         }
         for code in [4001, 4002, 4003, 4008, 4009] {
             assert!(crate::runtime::supervisor::is_permanent(&close_error(
                 Some(ExchangeId::Okx),
-                Some(code)
+                Some(code),
+                None
             )));
             assert!(!crate::runtime::supervisor::is_permanent(&close_error(
                 Some(ExchangeId::Binance),
-                Some(code)
+                Some(code),
+                None
             )));
         }
+
+        // HTX uses 1003 for both protocol failures and a lapsed ping check.
+        // Only the documented ping-expiry cause stays retryable and bounded.
+        let ping_expired = close_error(
+            Some(ExchangeId::Htx),
+            Some(1003),
+            Some("ping check expired"),
+        );
+        assert!(!crate::runtime::supervisor::is_permanent(&ping_expired));
+        assert!(matches!(
+            ping_expired,
+            Error::WebSocketClosed {
+                code: Some(1003),
+                retryable: true
+            }
+        ));
+        assert!(!crate::runtime::supervisor::is_permanent(&close_error(
+            Some(ExchangeId::Htx),
+            Some(1003),
+            Some("PING CHECK EXPIRED"),
+        )));
+        assert!(crate::runtime::supervisor::is_permanent(&close_error(
+            Some(ExchangeId::Htx),
+            Some(1003),
+            Some("unsupported data"),
+        )));
+        assert!(crate::runtime::supervisor::is_permanent(&close_error(
+            Some(ExchangeId::Htx),
+            Some(1003),
+            None,
+        )));
         for code in [4004, 4005, 4006, 4007, 4013, 4999] {
             assert!(!crate::runtime::supervisor::is_permanent(&close_error(
                 Some(ExchangeId::Okx),
-                Some(code)
+                Some(code),
+                None
             )));
         }
     }

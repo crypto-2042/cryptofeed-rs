@@ -1734,19 +1734,101 @@ where
     E: Display,
 {
     session.queue_subscriptions(HtxAdapter::subscription_messages(&feed)?);
-    // Server heartbeat pongs and USDT-M incremental-depth resubscription pairs
-    // share the paced outbound queue.
-    let mut outbound: Vec<String> = Vec::new();
-    while let Some(text) = session.next_text_or_shutdown(&mut shutdown).await? {
+    // Server heartbeat pongs are answered immediately so the documented ~15 s
+    // `ping check` window is never queued behind paced subscriptions; only
+    // USDT-M incremental-depth resubscription pairs use the paced queue.
+    let mut outbound = HtxOutbound::default();
+    let mut pings = 0u64;
+    let mut pongs = 0u64;
+    let mut pong_failures = 0u64;
+    let result = loop {
+        let text = match session.next_text_or_shutdown(&mut shutdown).await {
+            Ok(Some(text)) => text,
+            Ok(None) => break Ok(()),
+            Err(error) => break Err(error),
+        };
         let received_ts = session.received_timestamp();
         session.processing();
         outbound.clear();
-        process_htx_text_message(&feed, &text, received_ts, &mut outbound).await?;
-        if !outbound.is_empty() {
-            session.queue_subscriptions(std::mem::take(&mut outbound));
+        if let Err(error) = process_htx_text_message(&feed, &text, received_ts, &mut outbound).await
+        {
+            break Err(error);
         }
+        pings += outbound.pings;
+        let mut pong_error = None;
+        for pong in std::mem::take(&mut outbound.priority) {
+            match session.send_text(&pong).await {
+                Ok(()) => pongs += 1,
+                Err(error) => {
+                    pong_failures += 1;
+                    pong_error = Some(error);
+                    break;
+                }
+            }
+        }
+        if let Some(error) = pong_error {
+            break Err(error);
+        }
+        if !outbound.subscriptions.is_empty() {
+            session.queue_subscriptions(std::mem::take(&mut outbound.subscriptions));
+        }
+    };
+    let frames = session.frame_stats();
+    // Bounded, sanitized diagnostics: frame kinds/counts/bytes and heartbeat
+    // correlation only; no payloads or raw close reasons.
+    if result.is_err() {
+        tracing::warn!(
+            exchange = ?ExchangeId::Htx,
+            feed_id = feed.identity.map(|identity| identity.id.as_u64()),
+            text_frames = frames.text_frames,
+            binary_frames = frames.binary_frames,
+            text_bytes = frames.text_bytes,
+            binary_bytes = frames.binary_bytes,
+            max_frame_bytes = frames.max_frame_bytes,
+            last_frame_age_ms = frames
+                .last_frame_at
+                .map(|at| at.elapsed().as_millis() as u64),
+            pings,
+            pongs,
+            pong_failures,
+            "HTX session ended with frame diagnostics"
+        );
+    } else {
+        tracing::debug!(
+            exchange = ?ExchangeId::Htx,
+            feed_id = feed.identity.map(|identity| identity.id.as_u64()),
+            text_frames = frames.text_frames,
+            binary_frames = frames.binary_frames,
+            text_bytes = frames.text_bytes,
+            binary_bytes = frames.binary_bytes,
+            max_frame_bytes = frames.max_frame_bytes,
+            last_frame_age_ms = frames
+                .last_frame_at
+                .map(|at| at.elapsed().as_millis() as u64),
+            pings,
+            pongs,
+            pong_failures,
+            "HTX session frame diagnostics"
+        );
     }
-    Ok(())
+    result
+}
+
+/// Outbound HTX frames separated by urgency: pongs are sent immediately while
+/// subscription frames stay behind the paced queue.
+#[derive(Default)]
+struct HtxOutbound {
+    priority: Vec<String>,
+    subscriptions: Vec<String>,
+    pings: u64,
+}
+
+impl HtxOutbound {
+    fn clear(&mut self) {
+        self.priority.clear();
+        self.subscriptions.clear();
+        self.pings = 0;
+    }
 }
 
 async fn consume_gateio_session(
@@ -4336,15 +4418,16 @@ async fn process_htx_text_message(
     feed: &ExchangeFeed,
     text: &str,
     received_ts: f64,
-    outbound: &mut Vec<String>,
+    outbound: &mut HtxOutbound,
 ) -> Result<()> {
     let message: Value = serde_json::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
     if let Some(control) = HtxAdapter::parse_control_message(&message) {
         match control? {
             HtxControl::Ack => {}
             HtxControl::Ping(_) => {
+                outbound.pings += 1;
                 if let Some(pong) = HtxAdapter::pong_message(&message) {
-                    outbound.push(pong);
+                    outbound.priority.push(pong);
                 }
             }
         }
@@ -4381,7 +4464,7 @@ async fn process_htx_orderbook_message(
     feed: &ExchangeFeed,
     message: &Value,
     received_ts: f64,
-    outbound: &mut Vec<String>,
+    outbound: &mut HtxOutbound,
 ) -> Result<bool> {
     let Some(channel) = htx_parser::channel(message) else {
         return Ok(false);
@@ -4423,7 +4506,9 @@ async fn process_htx_orderbook_message(
         HtxBookOutcome::Publish(book) => dispatch_htx_l2_book(feed, book).await?,
         HtxBookOutcome::Stale => {}
         HtxBookOutcome::Resnapshot => {
-            outbound.extend(HtxAdapter::book_resubscribe_messages(feed, &symbol)?);
+            outbound
+                .subscriptions
+                .extend(HtxAdapter::book_resubscribe_messages(feed, &symbol)?);
         }
     }
     Ok(true)
@@ -7574,6 +7659,26 @@ mod tests {
             .write_all(value.to_string().as_bytes())
             .expect("gzip write");
         Message::Binary(encoder.finish().expect("gzip finish").into())
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn htx_ping_routes_to_the_immediate_pong_queue() {
+        let feed = Htx::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .build();
+        let mut outbound = super::HtxOutbound::default();
+        super::process_htx_text_message(&feed, r#"{"ping":1793757093533}"#, 1.0, &mut outbound)
+            .await
+            .expect("ping");
+        assert_eq!(outbound.pings, 1);
+        assert_eq!(
+            outbound.priority,
+            vec![r#"{"pong":1793757093533}"#.to_owned()]
+        );
+        assert!(outbound.subscriptions.is_empty());
     }
 
     #[cfg(all(feature = "trade", feature = "orderbook"))]
