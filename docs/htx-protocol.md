@@ -294,6 +294,17 @@ window without a close. The SDK therefore:
 - keeps the close reason out of logs and status; only the code and the derived
   retryable flag are retained.
 
+### Post-fix 90-minute observation (2026-11-05)
+
+The SDK soak example ran 13 spot trade markets for 90 minutes (past the original
+76-minute failure): 26,518 anchored trade events, zero receiver lag, no terminal
+failure, and one automatic reconnect at ~85 minutes that re-subscribed and
+returned to `Ready` while events kept flowing. The harness does not initialise
+tracing, so the specific close code of that reconnect is not recorded; this
+verifies the recovery path and that a reconnect no longer ends the plan, while
+the `1003` classification itself is covered by deterministic tests and by the
+missing-pong probe above.
+
 A production 76-minute HTX spot trade feed terminated on `1003` with no tape
 before the fault (issue #28). Because the read loop awaited handlers inline, a
 slow callback could delay pong handling past the 15 s window; the opt-in
