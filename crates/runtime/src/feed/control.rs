@@ -294,6 +294,8 @@ pub(crate) struct ControlContext {
     pub anchored_sender: Option<broadcast::Sender<AnchoredEnvelope>>,
     pub status_sender: Option<broadcast::Sender<FeedStatus>>,
     pub counters: Arc<EventCounters>,
+    /// Handler-dispatch counters shared with the owning `FeedHandler`.
+    pub dispatch_counters: Arc<crate::runtime::dispatch::DispatchCounters>,
 }
 
 impl ControlContext {
@@ -307,6 +309,7 @@ impl ControlContext {
         feed.envelope_sender = self.envelope_sender.clone();
         feed.anchored_sender = self.anchored_sender.clone();
         feed.status_sender = self.status_sender.clone();
+        feed.dispatch_counters = Some(self.dispatch_counters.clone());
         feed.event_counts = Some(self.counters.clone());
         feed.fresh_runtime_state();
     }

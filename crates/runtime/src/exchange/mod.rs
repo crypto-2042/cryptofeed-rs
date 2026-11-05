@@ -189,6 +189,14 @@ pub struct ExchangeFeed {
     pub(crate) status_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedStatus>>,
     /// Per-channel counters injected by `FeedHandler::add_feed`.
     pub(crate) event_counts: Option<std::sync::Arc<crate::feed::EventCounters>>,
+    /// Opt-in asynchronous dispatcher shared by every connection shard of this
+    /// logical feed; `None` means inline callback delivery.
+    pub(crate) handler_dispatcher:
+        Option<std::sync::Arc<crate::runtime::dispatch::HandlerDispatcher>>,
+    /// Counters shared with the owning `FeedHandler` for handler-dispatch
+    /// diagnostics.
+    pub(crate) dispatch_counters:
+        Option<std::sync::Arc<crate::runtime::dispatch::DispatchCounters>>,
     pub(crate) identity: Option<crate::feed::FeedIdentity>,
     pub(crate) managed: bool,
     pub(crate) retry_progress: Option<Arc<crate::runtime::supervisor::RetryProgress>>,
@@ -1297,6 +1305,8 @@ impl ExchangeFeedBuilder {
             event_sender: None,
             status_sender: None,
             event_counts: None,
+            handler_dispatcher: None,
+            dispatch_counters: None,
             identity: None,
             managed: false,
             retry_progress: None,

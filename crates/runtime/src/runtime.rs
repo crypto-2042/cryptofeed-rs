@@ -19,6 +19,7 @@ pub mod connection;
 mod control;
 #[cfg(all(test, feature = "orderbook"))]
 mod cross_check_tests;
+pub(crate) mod dispatch;
 #[cfg(all(test, feature = "orderbook", feature = "recording"))]
 mod gateio_recovery_tests;
 #[cfg(all(test, feature = "trade"))]
@@ -95,7 +96,7 @@ use cryptofeed_core::{
 };
 #[cfg(feature = "orderbook")]
 use cryptofeed_orderbook::L2Book;
-use futures::{FutureExt, Sink, Stream};
+use futures::{Sink, Stream};
 use serde_json::Value;
 use std::fmt::Display;
 use std::future::Future;
@@ -198,7 +199,20 @@ pub async fn run_with_shutdown(
     if handler.has_control() {
         return control::run(handler, shutdown).await;
     }
-    let hydration = hydrate_feed_symbols(handler.into_feeds());
+    #[cfg(feature = "orderbook")]
+    let books = handler.dispatch_book_store();
+    let mut feeds = handler.into_feeds();
+    let environment = dispatch::DispatchEnvironment {
+        #[cfg(feature = "orderbook")]
+        books,
+    };
+    // Attach before hydration so every connection shard of one logical feed
+    // shares a single dispatcher.
+    let mut dispatchers = dispatch::DispatchTasks::default();
+    for feed in &mut feeds {
+        dispatchers.attach(feed, &shutdown, &environment);
+    }
+    let hydration = hydrate_feed_symbols(feeds);
     tokio::pin!(hydration);
     let feeds = loop {
         tokio::select! {
@@ -212,7 +226,9 @@ pub async fn run_with_shutdown(
             result = &mut hydration => break result?,
         }
     };
-    run_feeds_until_shutdown(feeds, shutdown, consume_feed).await
+    let result = run_feeds_until_shutdown(feeds, shutdown, consume_feed).await;
+    dispatchers.shutdown().await;
+    result
 }
 
 async fn consume_feed(feed: ExchangeFeed, shutdown: watch::Receiver<bool>) -> Result<()> {
@@ -2362,16 +2378,17 @@ async fn dispatch_candle(feed: &ExchangeFeed, candle: cryptofeed_candles::Candle
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Candle(candle.clone()));
-    for handler in feed
-        .candle_handler
-        .iter()
-        .chain(&feed.additional_candle_handlers)
-    {
-        await_handler(feed.runtime_options.callback_deadline(), "candle", async {
-            handler.on_candle(candle.clone()).await
-        })
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_candle(candle);
+        return;
     }
+    dispatch::deliver_candle(
+        feed.candle_handler.as_ref(),
+        &feed.additional_candle_handlers,
+        feed.runtime_options.callback_deadline(),
+        candle,
+    )
+    .await;
 }
 
 #[cfg(feature = "funding")]
@@ -2380,16 +2397,17 @@ async fn dispatch_funding(feed: &ExchangeFeed, funding: cryptofeed_funding::Fund
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Funding(funding.clone()));
-    for handler in feed
-        .funding_handler
-        .iter()
-        .chain(&feed.additional_funding_handlers)
-    {
-        await_handler(feed.runtime_options.callback_deadline(), "funding", async {
-            handler.on_funding(funding.clone()).await
-        })
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_funding(funding);
+        return;
     }
+    dispatch::deliver_funding(
+        feed.funding_handler.as_ref(),
+        &feed.additional_funding_handlers,
+        feed.runtime_options.callback_deadline(),
+        funding,
+    )
+    .await;
 }
 
 #[cfg(feature = "liquidations")]
@@ -2401,18 +2419,17 @@ async fn dispatch_liquidation(
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Liquidation(liquidation.clone()));
-    for handler in feed
-        .liquidation_handler
-        .iter()
-        .chain(&feed.additional_liquidation_handlers)
-    {
-        await_handler(
-            feed.runtime_options.callback_deadline(),
-            "liquidation",
-            async { handler.on_liquidation(liquidation.clone()).await },
-        )
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_liquidation(liquidation);
+        return;
     }
+    dispatch::deliver_liquidation(
+        feed.liquidation_handler.as_ref(),
+        &feed.additional_liquidation_handlers,
+        feed.runtime_options.callback_deadline(),
+        liquidation,
+    )
+    .await;
 }
 
 #[cfg(feature = "markprice")]
@@ -2421,18 +2438,17 @@ async fn dispatch_mark_price(feed: &ExchangeFeed, mark_price: cryptofeed_markpri
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::MarkPrice(mark_price.clone()));
-    for handler in feed
-        .mark_price_handler
-        .iter()
-        .chain(&feed.additional_mark_price_handlers)
-    {
-        await_handler(
-            feed.runtime_options.callback_deadline(),
-            "mark_price",
-            async { handler.on_mark_price(mark_price.clone()).await },
-        )
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_mark_price(mark_price);
+        return;
     }
+    dispatch::deliver_mark_price(
+        feed.mark_price_handler.as_ref(),
+        &feed.additional_mark_price_handlers,
+        feed.runtime_options.callback_deadline(),
+        mark_price,
+    )
+    .await;
 }
 
 #[cfg(feature = "openinterest")]
@@ -2444,18 +2460,17 @@ async fn dispatch_open_interest(
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::OpenInterest(open_interest.clone()));
-    for handler in feed
-        .open_interest_handler
-        .iter()
-        .chain(&feed.additional_open_interest_handlers)
-    {
-        await_handler(
-            feed.runtime_options.callback_deadline(),
-            "open_interest",
-            async { handler.on_open_interest(open_interest.clone()).await },
-        )
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_open_interest(open_interest);
+        return;
     }
+    dispatch::deliver_open_interest(
+        feed.open_interest_handler.as_ref(),
+        &feed.additional_open_interest_handlers,
+        feed.runtime_options.callback_deadline(),
+        open_interest,
+    )
+    .await;
 }
 
 #[cfg(feature = "index")]
@@ -2464,18 +2479,17 @@ async fn dispatch_index_price(feed: &ExchangeFeed, index_price: cryptofeed_index
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::IndexPrice(index_price.clone()));
-    for handler in feed
-        .index_price_handler
-        .iter()
-        .chain(&feed.additional_index_price_handlers)
-    {
-        await_handler(
-            feed.runtime_options.callback_deadline(),
-            "index_price",
-            async { handler.on_index_price(index_price.clone()).await },
-        )
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_index_price(index_price);
+        return;
     }
+    dispatch::deliver_index_price(
+        feed.index_price_handler.as_ref(),
+        &feed.additional_index_price_handlers,
+        feed.runtime_options.callback_deadline(),
+        index_price,
+    )
+    .await;
 }
 
 #[cfg(feature = "ticker")]
@@ -2484,16 +2498,17 @@ async fn dispatch_ticker(feed: &ExchangeFeed, ticker: cryptofeed_ticker::Ticker)
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Ticker(ticker.clone()));
-    for handler in feed
-        .ticker_handler
-        .iter()
-        .chain(&feed.additional_ticker_handlers)
-    {
-        await_handler(feed.runtime_options.callback_deadline(), "ticker", async {
-            handler.on_ticker(ticker.clone()).await
-        })
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_ticker(ticker);
+        return;
     }
+    dispatch::deliver_ticker(
+        feed.ticker_handler.as_ref(),
+        &feed.additional_ticker_handlers,
+        feed.runtime_options.callback_deadline(),
+        ticker,
+    )
+    .await;
 }
 
 #[cfg(feature = "trade")]
@@ -2502,16 +2517,17 @@ async fn dispatch_trade(feed: &ExchangeFeed, trade: cryptofeed_trade::Trade) {
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::Trade(trade.clone()));
-    for handler in feed
-        .trade_handler
-        .iter()
-        .chain(&feed.additional_trade_handlers)
-    {
-        await_handler(feed.runtime_options.callback_deadline(), "trade", async {
-            handler.on_trade(trade.clone()).await
-        })
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_trade(trade);
+        return;
     }
+    dispatch::deliver_trade(
+        feed.trade_handler.as_ref(),
+        &feed.additional_trade_handlers,
+        feed.runtime_options.callback_deadline(),
+        trade,
+    )
+    .await;
 }
 
 #[cfg(feature = "orderbook")]
@@ -2533,16 +2549,17 @@ async fn dispatch_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<()> {
         feed.book_synchronized(book.symbol().as_str());
     }
     feed.publish_event(crate::feed::FeedEvent::L2Book(book.clone()));
-    for handler in feed
-        .orderbook_handler
-        .iter()
-        .chain(&feed.additional_orderbook_handlers)
-    {
-        await_handler(feed.runtime_options.callback_deadline(), "l2_book", async {
-            handler.on_l2_book(book.clone()).await
-        })
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_l2_book(book);
+        return Ok(());
     }
+    dispatch::deliver_l2_book(
+        feed.orderbook_handler.as_ref(),
+        &feed.additional_orderbook_handlers,
+        feed.runtime_options.callback_deadline(),
+        book,
+    )
+    .await;
     Ok(())
 }
 
@@ -2552,16 +2569,17 @@ async fn dispatch_l1_book(feed: &ExchangeFeed, book: cryptofeed_orderbook::L1Boo
         return;
     }
     feed.publish_event(crate::feed::FeedEvent::L1Book(book.clone()));
-    for handler in feed
-        .orderbook_handler
-        .iter()
-        .chain(&feed.additional_orderbook_handlers)
-    {
-        await_handler(feed.runtime_options.callback_deadline(), "l1_book", async {
-            handler.on_l1_book(book.clone()).await
-        })
-        .await;
+    if let Some(dispatcher) = &feed.handler_dispatcher {
+        dispatcher.enqueue_l1_book(book);
+        return;
     }
+    dispatch::deliver_l1_book(
+        feed.orderbook_handler.as_ref(),
+        &feed.additional_orderbook_handlers,
+        feed.runtime_options.callback_deadline(),
+        book,
+    )
+    .await;
 }
 
 fn subscribed_to(
@@ -2570,17 +2588,6 @@ fn subscribed_to(
     symbol: &cryptofeed_core::symbol::Symbol,
 ) -> bool {
     feed.subscribes(channel, symbol)
-}
-
-async fn await_handler<F>(timeout: std::time::Duration, channel: &'static str, future: F)
-where
-    F: Future<Output = ()>,
-{
-    match tokio::time::timeout(timeout, std::panic::AssertUnwindSafe(future).catch_unwind()).await {
-        Ok(Ok(())) => {}
-        Ok(Err(_)) => tracing::error!(channel, "handler panicked; continuing remaining callbacks"),
-        Err(_) => tracing::warn!(channel, "handler timed out; event callback cancelled"),
-    }
 }
 
 #[cfg(feature = "orderbook")]
@@ -9888,5 +9895,177 @@ mod tests {
             .expect_err("error channel must fail the session");
         assert!(matches!(error, Error::Subscription(_)));
         drop(shutdown_tx);
+    }
+
+    #[cfg(feature = "trade")]
+    struct GatedSessionTradeHandler {
+        seen: Arc<Mutex<Vec<Option<String>>>>,
+        started: Arc<tokio::sync::Semaphore>,
+        release: Arc<tokio::sync::Semaphore>,
+    }
+
+    #[cfg(feature = "trade")]
+    #[async_trait]
+    impl TradeHandler for GatedSessionTradeHandler {
+        async fn on_trade(&self, trade: Trade) {
+            self.started.add_permits(1);
+            self.release.acquire().await.expect("release").forget();
+            self.seen.lock().expect("seen lock").push(trade.id);
+        }
+    }
+
+    #[cfg(feature = "trade")]
+    fn session_trade(id: u64) -> Trade {
+        Trade {
+            exchange: ExchangeId::Binance,
+            symbol: cryptofeed_core::symbol::Symbol::spot("BTC", "USDT"),
+            side: cryptofeed_trade::Side::Buy,
+            amount: rust_decimal::Decimal::ONE,
+            price: rust_decimal::Decimal::ONE,
+            exchange_ts: id as f64,
+            received_ts: id as f64,
+            id: Some(id.to_string()),
+            implied_volatility: None,
+        }
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn async_dispatch_keeps_ingest_reading_and_reports_oldest_drops() {
+        use crate::options::{HandlerDispatch, RuntimeOptions};
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(tokio::sync::Semaphore::new(0));
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let options = RuntimeOptions::default()
+            .handler_dispatch(HandlerDispatch::Async { capacity: 2 })
+            .unwrap();
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .runtime_options(options)
+            .trade_handler(Arc::new(GatedSessionTradeHandler {
+                seen: seen.clone(),
+                started: started.clone(),
+                release: release.clone(),
+            }))
+            .build();
+        let mut handler = FeedHandler::new();
+        let mut events = handler.subscribe();
+        handler.add_feed(feed);
+        let stats = handler.handler_dispatch_stats_handle();
+        let mut feed = handler.into_feeds().pop().expect("feed");
+        let (stop, mut shutdown) = watch::channel(false);
+        let dispatcher = super::dispatch::attach(
+            &mut feed,
+            &shutdown,
+            &super::dispatch::DispatchEnvironment::default(),
+        )
+        .expect("dispatcher");
+
+        let ingest_done = Arc::new(tokio::sync::Notify::new());
+        let ingest_done_consumer = ingest_done.clone();
+        let started_consumer = started.clone();
+        let session = tokio::spawn(async move {
+            let feed = feed;
+            super::dispatch_trade(&feed, session_trade(1)).await;
+            started_consumer
+                .acquire()
+                .await
+                .expect("handler started")
+                .forget();
+            for id in 2..=5 {
+                super::dispatch_trade(&feed, session_trade(id)).await;
+            }
+            ingest_done_consumer.notify_one();
+            loop {
+                if *shutdown.borrow() {
+                    break;
+                }
+                if shutdown.changed().await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Ingestion keeps running even though the first callback never yields.
+        tokio::time::timeout(Duration::from_secs(2), ingest_done.notified())
+            .await
+            .expect("ingest continues while a handler blocks");
+        assert!(seen.lock().expect("seen lock").is_empty());
+        let mut published = 0;
+        while events.try_recv().is_ok() {
+            published += 1;
+        }
+        assert_eq!(
+            published, 5,
+            "broadcast publication must keep up with ingestion"
+        );
+
+        release.add_permits(5);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while stats
+                .snapshot()
+                .delivered(cryptofeed_core::exchange::Channel::Trade)
+                < 3
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("handler deliveries");
+        assert_eq!(
+            *seen.lock().expect("seen lock"),
+            [
+                Some("1".to_owned()),
+                Some("4".to_owned()),
+                Some("5".to_owned())
+            ]
+        );
+        let snapshot = stats.snapshot();
+        assert_eq!(
+            snapshot.dropped_oldest(cryptofeed_core::exchange::Channel::Trade),
+            2
+        );
+        assert_eq!(
+            snapshot.coalesced(cryptofeed_core::exchange::Channel::Trade),
+            0
+        );
+        assert!(snapshot.peak_queued() >= 2);
+
+        stop.send(true).expect("stop");
+        session.await.expect("session");
+        dispatcher.shutdown().await;
+        assert_eq!(stats.snapshot().queued(), 0);
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn inline_dispatch_still_awaits_handlers() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(tokio::sync::Semaphore::new(0));
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let feed = Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .trade_handler(Arc::new(GatedSessionTradeHandler {
+                seen: seen.clone(),
+                started: started.clone(),
+                release: release.clone(),
+            }))
+            .build();
+        let mut dispatch = tokio::spawn(async move {
+            super::dispatch_trade(&feed, session_trade(1)).await;
+        });
+        started.acquire().await.expect("handler started").forget();
+        // Default inline mode still blocks the read path on user code.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut dispatch)
+                .await
+                .is_err()
+        );
+        assert!(seen.lock().expect("seen lock").is_empty());
+        release.add_permits(1);
+        dispatch.await.expect("inline dispatch");
+        assert_eq!(seen.lock().expect("seen lock").len(), 1);
     }
 }

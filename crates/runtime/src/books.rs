@@ -72,25 +72,8 @@ impl L2BookHandle {
     pub fn recover(&self, identity: FeedIdentity, symbol: &Symbol) -> BookRecovery {
         let state = self.0.state.lock().expect("book recovery lock");
         let receiver = self.0.sender.subscribe();
-        let snapshot = state
-            .entries
-            .get(&(identity.id, symbol.as_str().to_owned()))
-            .filter(|entry| entry.anchor.identity == identity)
-            .and_then(|entry| {
-                let levels = entry.state.as_ref()?;
-                let (exchange, exchange_ts, received_ts) = entry.meta?;
-                Some(BookSnapshot {
-                    anchor: entry.anchor,
-                    book: L2BookSnapshot {
-                        exchange,
-                        symbol: levels.symbol().clone(),
-                        bids: levels.bids(),
-                        asks: levels.asks(),
-                        exchange_ts,
-                        received_ts,
-                    },
-                })
-            });
+        let snapshot = snapshot_locked(&state, identity, symbol)
+            .map(|(anchor, book)| BookSnapshot { anchor, book });
         BookRecovery {
             snapshot,
             updates: BookUpdates {
@@ -113,6 +96,33 @@ struct State {
     active: HashMap<FeedId, FeedIdentity>,
     entries: HashMap<(FeedId, String), Entry>,
 }
+/// Shared snapshot projection used by recovery and async L2 coalescing.
+fn snapshot_locked(
+    state: &State,
+    identity: FeedIdentity,
+    symbol: &Symbol,
+) -> Option<(BookAnchor, L2BookSnapshot)> {
+    state
+        .entries
+        .get(&(identity.id, symbol.as_str().to_owned()))
+        .filter(|entry| entry.anchor.identity == identity)
+        .and_then(|entry| {
+            let levels = entry.state.as_ref()?;
+            let (exchange, exchange_ts, received_ts) = entry.meta?;
+            Some((
+                entry.anchor,
+                L2BookSnapshot {
+                    exchange,
+                    symbol: levels.symbol().clone(),
+                    bids: levels.bids(),
+                    asks: levels.asks(),
+                    exchange_ts,
+                    received_ts,
+                },
+            ))
+        })
+}
+
 pub(crate) struct BookStore {
     state: Mutex<State>,
     sender: broadcast::Sender<BookUpdate>,
@@ -129,6 +139,19 @@ impl BookStore {
             sender: broadcast::channel(capacity).0,
         }
     }
+    /// Latest applied full snapshot for `identity`/`symbol` without creating a
+    /// broadcast receiver. `None` means unavailable, unknown, retired or not
+    /// yet applied. Used by opt-in asynchronous L2 handler coalescing; it does
+    /// not alter recovery-ring cursor state.
+    pub(crate) fn snapshot(
+        &self,
+        identity: FeedIdentity,
+        symbol: &Symbol,
+    ) -> Option<L2BookSnapshot> {
+        let state = self.state.lock().expect("book recovery lock");
+        snapshot_locked(&state, identity, symbol).map(|(_, book)| book)
+    }
+
     pub fn activate(&self, identity: FeedIdentity) {
         self.state
             .lock()
@@ -326,6 +349,21 @@ pub(crate) mod tests {
         assert_eq!(latest.book.exchange_ts, 3.0);
         assert_eq!(latest.book.received_ts, 4.0);
     }
+    #[test]
+    fn snapshot_accessor_reads_applied_state_without_a_receiver() {
+        let (handle, id) = setup(16);
+        assert!(handle.0.snapshot(id, &symbol()).is_none());
+        handle.0.apply(id, 1, 1, &book(true, 7));
+        let snapshot = handle.0.snapshot(id, &symbol()).expect("applied snapshot");
+        assert_eq!(snapshot.exchange, ExchangeId::Okx);
+        assert_eq!(snapshot.bids[0].amount, Decimal::from(7));
+        assert_eq!(snapshot.received_ts, 2.0);
+        // Unknown identities and retired entries stay unavailable.
+        assert!(handle.0.snapshot(identity(2), &symbol()).is_none());
+        handle.0.invalidate(id, 1, 1, None);
+        assert!(handle.0.snapshot(id, &symbol()).is_none());
+    }
+
     #[tokio::test]
     async fn lag_recovery_replaces_queue_and_resumes_after_full_snapshot() {
         let (handle, id) = setup(2);

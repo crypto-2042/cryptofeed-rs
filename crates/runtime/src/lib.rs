@@ -57,10 +57,12 @@ pub use crate::feed::control::{
 
 pub use discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};
 
+pub use runtime::dispatch::{HandlerDispatchStats, HandlerDispatchStatsHandle};
+
 #[cfg(feature = "orderbook")]
 pub use books::{BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle};
 
-pub use options::{IdlePolicy, RuntimeOptions};
+pub use options::{HandlerDispatch, IdlePolicy, RuntimeOptions};
 
 pub use transport::TransportConfig;
 

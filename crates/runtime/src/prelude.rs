@@ -49,6 +49,7 @@ pub use crate::feed::control::{
     AnchoredEnvelope, BookSyncDiagnostic, ConnectionInfo, EventAnchor, FeedEnvelope, FeedId,
     FeedIdentity, FeedInfo, FeedSnapshot, FeedState, RuntimeControl,
 };
+pub use crate::runtime::dispatch::{HandlerDispatchStats, HandlerDispatchStatsHandle};
 
 pub use crate::discovery::{DiscoveryFeed, DiscoveryHandle, DiscoverySnapshot, DiscoveryState};
 
@@ -57,7 +58,7 @@ pub use crate::books::{
     BookAnchor, BookRecovery, BookSnapshot, BookUpdate, BookUpdates, L2BookHandle,
 };
 
-pub use crate::options::{IdlePolicy, RuntimeOptions};
+pub use crate::options::{HandlerDispatch, IdlePolicy, RuntimeOptions};
 
 pub use crate::transport::TransportConfig;
 
