@@ -26,12 +26,21 @@ use cryptofeed_ticker::Ticker;
 #[cfg(feature = "trade")]
 use cryptofeed_trade::Trade;
 
-pub fn parse_decimal(value: &Value) -> Option<Decimal> {
+pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
-        Value::String(text) => Decimal::from_str_exact(text).ok(),
-        Value::Number(number) => Decimal::from_str_exact(&number.to_string()).ok(),
+        Value::String(text) => decimal_from_text(text),
+        Value::Number(number) => decimal_from_text(&number.to_string()),
         _ => None,
     }
+}
+
+/// Accepts both plain decimals and the scientific notation that JSON numbers
+/// use for very small prices (e.g. `5.213462e-06`); `from_str_exact` alone
+/// rejects the exponent form.
+fn decimal_from_text(text: &str) -> Option<Decimal> {
+    Decimal::from_str_exact(text)
+        .or_else(|_| Decimal::from_scientific(text))
+        .ok()
 }
 
 /// Milliseconds-since-epoch number/string -> Unix seconds.
@@ -577,6 +586,45 @@ mod tests {
         );
         assert_eq!(liquidation.status, LiquidationStatus::Filled);
         assert_eq!(liquidation.id, None);
+    }
+
+    #[cfg(feature = "trade")]
+    #[test]
+    fn parses_scientific_notation_prices_from_live_json_numbers() {
+        // Live PEPE spot trade.detail rows serialize a tiny price as a JSON
+        // number in scientific notation; `Decimal::from_str_exact` rejects the
+        // exponent form, so the parser must accept it.
+        let spot_row = json!({
+            "id": 1793761200000000001_i64, "ts": 1793761200000_i64,
+            "tradeId": 1793761200000000002_i64,
+            "amount": 14659348.6, "price": 5.213462e-06, "direction": "sell"
+        });
+        let spot_trade = parse_spot_trade(&spot_row, 1.0, &spot()).expect("scientific spot trade");
+        assert_eq!(spot_trade.side, Side::Sell);
+        assert_eq!(
+            spot_trade.price,
+            Decimal::from_scientific("5.213462e-06").unwrap()
+        );
+        assert_eq!(
+            spot_trade.amount,
+            Decimal::from_str_exact("14659348.6").unwrap()
+        );
+
+        // USDT-M rows publish contracts in `amount` and base quantity in
+        // `quantity`; the exponent price must parse without publishing the
+        // contract count as coin.
+        let swap_row = json!({
+            "id": 1793761200000000003_i64, "ts": 1793761200000_i64,
+            "amount": 2, "quantity": 2000000,
+            "price": 5.1935e-06, "direction": "buy", "contract_code": "PEPE-USDT"
+        });
+        let swap_trade = parse_swap_trade(&swap_row, 1.0, &perp()).expect("scientific swap trade");
+        assert_eq!(swap_trade.side, Side::Buy);
+        assert_eq!(
+            swap_trade.price,
+            Decimal::from_scientific("5.1935e-06").unwrap()
+        );
+        assert_eq!(swap_trade.amount, Decimal::from(2_000_000));
     }
 
     #[test]

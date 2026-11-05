@@ -260,17 +260,34 @@ impl KucoinAdapter {
             if !seen.insert(key) {
                 continue;
             }
-            let mut frame = serde_json::json!({
-                "id": format!("cf-{}", frames.len()),
-                "action": "SUBSCRIBE",
-                "channel": wire_channel,
-                "tradeType": product.trade_type(),
-                "symbols": native_symbols,
-            });
-            if let Some((field, value)) = parameter {
-                frame[field] = Value::String(value.to_owned());
+            // The current UTA V2 push service rejects the batched `symbols`
+            // array for `trade` and `mark-price` (verified live 2026-11-04,
+            // `symbols are not supported for topic ...`), while `ticker`,
+            // `obu`, `kline` and `funding-fee` accept it. Singled-symbol
+            // channels therefore emit one frame per instrument.
+            let singular = matches!(wire_channel, "trade" | "mark-price");
+            let symbols: Vec<String> = if singular {
+                native_symbols.clone()
+            } else {
+                vec![String::new()]
+            };
+            for symbol in symbols {
+                let mut frame = serde_json::json!({
+                    "id": format!("cf-{}", frames.len()),
+                    "action": "SUBSCRIBE",
+                    "channel": wire_channel,
+                    "tradeType": product.trade_type(),
+                });
+                if singular {
+                    frame["symbol"] = Value::String(symbol);
+                } else {
+                    frame["symbols"] = serde_json::json!(native_symbols);
+                }
+                if let Some((field, value)) = parameter {
+                    frame[field] = Value::String(value.to_owned());
+                }
+                frames.push(frame);
             }
-            frames.push(frame);
         }
         Ok(frames.into_iter().map(|frame| frame.to_string()).collect())
     }
@@ -491,7 +508,9 @@ mod tests {
             .exchange_symbol("ETH-USDT")
             .build();
         let frames = KucoinAdapter::subscription_messages(&feed).expect("frames");
-        assert_eq!(frames.len(), 4);
+        // `trade` is one frame per instrument; ticker/obu/kline keep the
+        // documented `symbols` array.
+        assert_eq!(frames.len(), 5);
 
         let ticker = frame(&frames, "ticker");
         assert_eq!(ticker["action"], "SUBSCRIBE");
@@ -500,6 +519,15 @@ mod tests {
             ticker["symbols"],
             serde_json::json!(["BTC-USDT", "ETH-USDT"])
         );
+        let trades: Vec<serde_json::Value> = frames
+            .iter()
+            .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("json"))
+            .filter(|frame| frame["channel"] == "trade")
+            .collect();
+        assert_eq!(trades.len(), 2);
+        assert_eq!(trades[0]["symbol"], "BTC-USDT");
+        assert_eq!(trades[1]["symbol"], "ETH-USDT");
+        assert!(trades.iter().all(|frame| frame.get("symbols").is_none()));
         let obu = frame(&frames, "obu");
         assert_eq!(obu["depth"], "increment@10ms");
         let kline = frame(&frames, "kline");
@@ -520,7 +548,9 @@ mod tests {
         assert_eq!(frames.len(), 2, "{frames:?}");
         let mark = frame(&frames, "mark-price");
         assert_eq!(mark["tradeType"], "FUTURES");
-        assert_eq!(mark["symbols"], serde_json::json!(["XBTUSDTM"]));
+        // `mark-price` rejects the batched array on the live service.
+        assert_eq!(mark["symbol"], "XBTUSDTM");
+        assert!(mark.get("symbols").is_none());
         assert_eq!(frame(&frames, "funding-fee")["symbols"][0], "XBTUSDTM");
     }
 

@@ -2,6 +2,19 @@
 
 Last updated: 2026-11-04
 
+## Live venue frame fixes (2026-11-04)
+
+- Upbit/Bithumb market pushes are binary UTF-8 JSON; KuCoin acks and pushes are binary
+  too. The session now decodes them (HTX keeps GZIP), fixing Ready-with-zero-events
+  managed feeds (issue #20, #22).
+- KuCoin UTA V2 rejects batched `symbols` for `trade` and `mark-price`; those topics
+  now emit one singular-`symbol` frame per instrument (issue #22).
+- HTX JSON numbers in scientific notation (PEPE 5.213462e-06) parse via the
+  `from_scientific` fallback instead of looping on malformed data (issue #21).
+- Kraken `method: subscribe` acks are treated as control frames and confirmed by
+  (req_id, symbol); Deribit `public/set_heartbeat` no longer creates an unconfirmable
+  subscription entry (issue #23).
+
 ## Hyperliquid public perpetual and spot expansion (2026-11-04)
 
 - Selected Hyperliquid as a public DEX market-data venue with a documented

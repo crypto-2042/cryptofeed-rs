@@ -8121,6 +8121,7 @@ mod tests {
             .exchange_symbol("BTC-USDT")
             .build();
         let (mut client, mut server) = duplex_session(ExchangeId::Kucoin).await;
+        client.set_exchange_for_test(ExchangeId::Kucoin);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let session = tokio::spawn(async move {
@@ -8135,11 +8136,15 @@ mod tests {
         assert_eq!(subscribe["action"], "SUBSCRIBE");
         assert_eq!(subscribe["channel"], "trade");
         assert_eq!(subscribe["tradeType"], "SPOT");
-        assert_eq!(subscribe["symbols"], serde_json::json!(["BTC-USDT"]));
+        // The live UTA V2 push service rejects the batched array for `trade`.
+        assert_eq!(subscribe["symbol"], "BTC-USDT");
+        assert!(subscribe.get("symbols").is_none());
+        // Live acks and market pushes arrive as UTF-8 JSON in binary frames.
         server
-            .send(Message::Text(
+            .send(Message::Binary(
                 serde_json::json!({"id": subscribe["id"], "result": true})
                     .to_string()
+                    .into_bytes()
                     .into(),
             ))
             .await
@@ -8151,7 +8156,7 @@ mod tests {
                   "s": "BTC-USDT", "ti": "25082366677762048"}
         });
         server
-            .send(Message::Text(trade.to_string().into()))
+            .send(Message::Binary(trade.to_string().into_bytes().into()))
             .await
             .expect("send trade");
 
@@ -8186,6 +8191,7 @@ mod tests {
             .exchange_symbol("KRW-BTC")
             .build();
         let (mut client, mut server) = duplex_session(ExchangeId::Upbit).await;
+        client.set_exchange_for_test(ExchangeId::Upbit);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let observed = feed.clone();
 
@@ -8212,7 +8218,7 @@ mod tests {
             "timestamp": 1725929934483_u64, "stream_type": "REALTIME"
         });
         server
-            .send(Message::Text(trade.to_string().into()))
+            .send(Message::Binary(trade.to_string().into_bytes().into()))
             .await
             .expect("send trade");
         let book = serde_json::json!({
@@ -8225,7 +8231,7 @@ mod tests {
             "stream_type": "REALTIME"
         });
         server
-            .send(Message::Text(book.to_string().into()))
+            .send(Message::Binary(book.to_string().into_bytes().into()))
             .await
             .expect("send orderbook");
         // The documented liveness frames are filtered, not parsed as data.
@@ -8274,6 +8280,7 @@ mod tests {
             .exchange_symbol("KRW-BTC")
             .build();
         let (mut client, mut server) = duplex_session(ExchangeId::Bithumb).await;
+        client.set_exchange_for_test(ExchangeId::Bithumb);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let observed = feed.clone();
 
@@ -8299,7 +8306,7 @@ mod tests {
             "timestamp": 1725929934483_u64, "stream_type": "REALTIME"
         });
         server
-            .send(Message::Text(trade.to_string().into()))
+            .send(Message::Binary(trade.to_string().into_bytes().into()))
             .await
             .expect("send trade");
         let book = serde_json::json!({
@@ -8312,7 +8319,7 @@ mod tests {
             "timestamp": 1725929934483_u64, "stream_type": "REALTIME"
         });
         server
-            .send(Message::Text(book.to_string().into()))
+            .send(Message::Binary(book.to_string().into_bytes().into()))
             .await
             .expect("send orderbook");
 

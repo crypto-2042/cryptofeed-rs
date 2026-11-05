@@ -219,7 +219,11 @@ are sanitized wire-shape references, not retained captures.
 
 - Request: `{"id":"<client>","action":"SUBSCRIBE","channel":"<name>",
   "tradeType":"SPOT"|"FUTURES","symbols":["<native>", ...]}` plus the
-  channel-specific `depth`/`interval` parameter.
+  channel-specific `depth`/`interval` parameter. **Verified live 2026-11-04:**
+  `trade` and `mark-price` reject the batched `symbols` array
+  (`symbols are not supported for topic ...`) and require one frame per
+  instrument with a singular `symbol`; `ticker`, `obu`, `kline` and
+  `funding-fee` accept the array. The adapter follows that per-topic rule.
 - Success: `{"id":"<client>","result":true}`. Rejection:
   `{"id":"<client>","result":false,"message":"invalid request data"}`; a
   rejected subscription is a permanent configuration error and fails fast
