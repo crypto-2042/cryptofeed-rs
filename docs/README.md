@@ -95,6 +95,10 @@ and [PARITY.md](../PARITY.md) for the authoritative support and parity gates.
 
 ## Reference and contribution guides
 
+- [Instrument naming across venues](instrument-naming.md): native crypto
+  symbol formats per exchange and the tokenized-stock prefix/suffix families
+  (B/X/ON/G/r/3L), with collision warnings.
+
 - [Exchange protocol baseline](exchange-protocol-baseline.md): official wire
   contracts, dated observations, and normalization boundaries.
 - [Public parity harness](harness.md): sanitized fixtures, deterministic replay,
