@@ -1,39 +1,27 @@
 # cryptofeed-rs
 
-Public-first Rust workspace for normalized cryptocurrency exchange market data.
+Normalized, public-market-data feeds for cryptocurrency exchanges, written in
+Rust with current official venue protocols.
 
-This project is a ground-up Rust counterpart to the Python
-[`cryptofeed`](https://github.com/bmoscon/cryptofeed) project. It preserves the
-normalized-feed model while targeting current stable exchange APIs where legacy
-Python adapters no longer match the live protocol. The Python project is a
-semantic migration reference, not the protocol source of truth.
+`cryptofeed-rs` is the Rust counterpart to Python
+[`cryptofeed`](https://github.com/bmoscon/cryptofeed): the same normalized event
+model, but adapters target the current published exchange APIs. Python is a
+semantic reference, not a protocol source of truth.
 
-**0.1.0-rc.1** is an evaluation candidate for public market data, not a
-qualification for unattended production use. Verify registry availability and
-release evidence before selecting a registry dependency.
-Broadcast delivery remains bounded/lossy, and sustained-run qualification and
-the Bitget perpetual termination investigation remain open. See the
-[RC scope and known limitations](docs/release-candidate.md). Authenticated feeds
-and trading are out of scope.
+- **Scope:** public, unauthenticated market data. Private feeds, account data,
+  order entry and trading are out of scope.
+- **Products:** spot, perpetual/swap and dated futures across 13 venues.
+- **Delivery:** bounded broadcast rings, readiness/retry supervision, managed
+  runtime controls, recording/replay, L2 recovery and structured sinks.
+- **Status:** `0.1.0-rc.1` evaluation candidate. See
+  [RC scope and known limitations](docs/release-candidate.md) before relying on
+  it for unattended production use.
 
-## Crates
+## Quick start
 
-The workspace splits by data category; exchange protocol and transport live
-in the runtime crate:
-
-- `cryptofeed-core` — shared abstractions (`ExchangeId`, `Channel`, `Symbol`,
-  `Side`, error types)
-- `cryptofeed-ticker`, `cryptofeed-trade`, `cryptofeed-orderbook`,
-  `cryptofeed-candles`, `cryptofeed-funding`, `cryptofeed-liquidations`,
-  `cryptofeed-openinterest`, `cryptofeed-index`, `cryptofeed-markprice` —
-  normalized public models and handler traits per data category
-- `cryptofeed-rs` — the runtime: exchange adapters, websocket/HTTP transport,
-  routing, reconnect/shutdown, parsing, and orchestration
-
-## Using as a Library
-
-The workspace requires Rust 1.85 or newer. All public-data features are enabled
-by default. For a local checkout use a path dependency:
+Rust 1.85 or newer. All public-data features are enabled by default. Use a path
+dependency for a local checkout, or pin a Git revision until the RC is
+published:
 
 ```toml
 [dependencies]
@@ -42,716 +30,325 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-A Git dependency from
-[the project repository](https://github.com/crypto-2042/cryptofeed-rs) can use `cryptofeed-rs = { git = "https://github.com/crypto-2042/cryptofeed-rs" }`.
-After the RC is actually published, opt in explicitly with
-`cryptofeed-rs = "=0.1.0-rc.1"`; an ordinary `"0.1"` requirement does not select
-this prerelease. The release process publishes all eleven crates at the same
-version. Until publication, use the local checkout or a pinned Git commit.
-
-Subscribe to Binance USD-M perpetual funding, index, and mark price alongside
-the ticker/trade/L2 baseline:
-
 ```rust
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use cryptofeed_rs::prelude::*;
 
-struct PrintHandler;
+struct Print;
 
 #[async_trait]
-impl TickerHandler for PrintHandler {
-    async fn on_ticker(&self, ticker: Ticker) {
-        println!("ticker {}", ticker.symbol.as_str());
-    }
-}
-
-#[async_trait]
-impl TradeHandler for PrintHandler {
+impl TradeHandler for Print {
     async fn on_trade(&self, trade: Trade) {
-        println!("trade {} {}", trade.symbol.as_str(), trade.price);
-    }
-}
-
-#[async_trait]
-impl OrderBookHandler for PrintHandler {
-    async fn on_l2_book(&self, book: L2Book) {
-        println!("l2_book {} levels={}", book.symbol().as_str(), book.bids().len());
-    }
-    async fn on_l1_book(&self, book: L1Book) {
-        println!("l1_book {} bid={}", book.symbol.as_str(), book.bid.price);
-    }
-}
-
-#[async_trait]
-impl CandleHandler for PrintHandler {
-    async fn on_candle(&self, candle: Candle) {
-        println!("candle {} {}", candle.symbol.as_str(), candle.close);
-    }
-}
-
-#[async_trait]
-impl FundingHandler for PrintHandler {
-    async fn on_funding(&self, funding: Funding) {
-        println!("funding {} rate={:?}", funding.symbol.as_str(), funding.rate);
-    }
-}
-
-#[async_trait]
-impl IndexPriceHandler for PrintHandler {
-    async fn on_index_price(&self, index: IndexPrice) {
-        println!("index {} {}", index.symbol.as_str(), index.price);
-    }
-}
-
-#[async_trait]
-impl MarkPriceHandler for PrintHandler {
-    async fn on_mark_price(&self, mark: MarkPrice) {
-        println!("mark {} {}", mark.symbol.as_str(), mark.price);
+        println!("{} {} {}", trade.symbol.as_str(), trade.price, trade.amount);
     }
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut handler = FeedHandler::new();
-    let feed = Binance::new()
-        .ticker()
-        .trade()
-        .candles()
-        .l2_book()
-        .l1_book()
-        .funding()
-        .index()
-        .mark_price()
-        .symbol("BTC-USDT-PERP")
-        .exchange_symbol("BTCUSDT")
-        .ticker_handler(Arc::new(PrintHandler))
-        .trade_handler(Arc::new(PrintHandler))
-        .candle_handler(Arc::new(PrintHandler))
-        .orderbook_handler(Arc::new(PrintHandler))
-        .funding_handler(Arc::new(PrintHandler))
-        .index_price_handler(Arc::new(PrintHandler))
-        .mark_price_handler(Arc::new(PrintHandler))
-        .build();
-    handler.add_feed(feed);
-    handler.run().await.expect("run");
-}
-```
-
-Key API surface:
-
-- `FeedHandler::new()` + `add_feed(...)` + `run()` — the user-facing entrypoint
-  (Ctrl-C shuts down cleanly).
-- Event-stream mode: `FeedHandler::subscribe()` returns a bounded
-  `broadcast::Receiver<FeedEvent>` covering all normalized event types
-  (multiple consumers, non-blocking; a slow consumer loses the oldest events
-  by design). `FeedHandler::event_count(channel)` reports normalized events
-  produced, not per-consumer delivery. Obtain `handler.event_counters()`
-  before `run(self)` to retain a shared handle and read `counters.count(channel)`
-  while the runtime runs or after it shuts down.
-- `subscribe_anchored()` / `subscribe_anchored_with_diagnostics()` opt into
-  managed runtime and tag each event with its producer's configuration identity,
-  connection ID and reconnect epoch. Buffered/late events keep their old anchor;
-  consumers can reject them after resetting against authoritative Ready state.
-  See [the consumer contract](docs/readiness.md#connection-anchored-market-events).
-- Handler callbacks execute sequentially within the feed and should return
-  quickly. Use the bounded event stream for slower application processing;
-  lagged broadcast consumers must handle `RecvError::Lagged`. After losing L2
-  deltas, suspend use of the local book until a replacement snapshot/restarted
-  feed restores it; the event stream does not promise gap-free delivery.
-- Reconnect attempts emit `tracing` warnings with the error and retry delay;
-  install a tracing subscriber in your application to observe transient failures.
-- `FeedHandler::subscribe_status()` exposes terminal feed failures
-  programmatically while healthy feeds continue running independently.
-- Per-exchange builders: `Binance`, `Bitget`, `Bybit`, `Okx`, `Gateio`,
-  `Kucoin`, `Kraken`, `Upbit`, `Bithumb`, `Coinbase`, `Deribit`, `Htx`,
-  `Hyperliquid`.
-- `ExchangeFeedBuilder` methods: `symbol("BTC-USDT")` /
-  `symbol("BTC-USDT-PERP")` / `symbol("BTC-USDT-240628")` (normalized forms),
-  `instrument(Symbol)` (typed product identity; option/MARGIN variants are
-  retained for fixtures and future work but rejected in the 0.1 runtime),
-  `exchange_symbol(...)` (explicit native mapping), `candles_interval(...)`,
-  `l2_book_depth(...)`, `l2_book_interval(...)` (Binance only),
-  optional `l2_book_cross_check(true)` before publication ([policy](docs/book-cross-check.md)),
-  `l2_book_max_depth(N)` for a consistent delivered top-N view ([depth policy](docs/book-delivery-depth.md)), one
-  `*_handler(...)` per data category and `add_*_handler(...)` for additional
-  serial callbacks. Each callback defaults to a five-second timeout; catchable panic or
-  timeout continues to the next callback. See [handler semantics](docs/handlers.md).
-  `build()` warns when a subscribed
-  channel has no registered handler.
-- `OpenInterest` preserves exchange-native `open_interest`, optional Decimal
-  `coin_quantity` (OKX `oiCcy`), and optional `value_usd`. `oiCcy` is an amount,
-  not a currency code. Binance's `P` is an estimated settlement price and
-  never becomes `Funding.predicted_rate` or `MarkPrice.predicted_rate`.
-- `FeedEvent` is non-exhaustive: downstream matches need a wildcard arm.
-  Order-book synchronization state is runtime-owned; consume normalized book
-  events instead of mutating exchange sync state.
-- Normalized models: `Ticker`, `Trade`, `L2Book`, `L1Book`, `Candle`, `Funding`,
-  `Liquidation`, `OpenInterest`, `IndexPrice`, `MarkPrice`.
-- Unsupported product/channel combinations and malformed or mixed normalized
-  products fail preflight. Catalog discovery rejects unknown/ambiguous symbols.
-  Explicit native pairs are caller-supplied mappings; the exchange may reject
-  an incorrect native name during subscription.
-
-## Supported Exchanges and Instruments
-
-Capability matrix by instrument type (✓ = verified public channel; ✗ = an
-applicable channel not supported by this SDK). Each table lists only data types
-applicable to that market. The 0.1 release supports spot, perpetuals/swaps, and
-dated futures. Options and MARGIN remain implementation references and fail preflight.
-
-### 现货 (Spot)
-
-| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Index |
-| --- | --- | --- | --- | --- | --- | --- |
-| Binance | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Bitget v3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Bybit v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| OKX v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (explicit index symbol) |
-| Gate.io v4 | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| KuCoin UTA WS V2 | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
-| Kraken WS v2 | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ |
-| Upbit quotation WS | ✗ | ✓ | ✓ | ✗ | ✓ | ✗ |
-| Bithumb public WS | ✗ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| Coinbase Advanced Trade | ✓ | ✓ | ✓ | ✓ | ✓ (5m only) | ✗ |
-| HTX spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| Hyperliquid spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-
-The OKX Index entry is the SDK's explicit spot-index-symbol entrypoint. Spot
-feeds do not expose funding, liquidations, open interest, or derivative mark price.
-The Korean venues have no `Ticker` cell: their public `ticker` frames carry a
-last price and 24-hour statistics but no best bid/ask, so they cannot satisfy the
-normalized `Ticker` (BBO) contract. Bithumb also has no public WebSocket candle
-stream (REST history only), hence its `Candles` gap; Upbit candles support
-`1s`/`1m`/`3m`/`5m`/`10m`/`15m`/`30m`/`1h`/`4h`.
-
-### 永续合约 (Perpetual / Swap)
-
-| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Funding | Liquidations | Open Interest | Index | Mark price |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Binance USD-M / coin-M perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
-| Bitget v3 perpetual (USDT/USDC/coin) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Bybit v5 linear / inverse perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| OKX v5 SWAP | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Gate.io v4 (USDT/BTC perpetual) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| KuCoin UTA WS V2 perpetual (USDT/USDC/coin-margined) | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
-| Deribit JSON-RPC v2 perpetual | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
-| HTX USDT-M perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| Hyperliquid perpetual | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
-
-### 交割合约 (Dated Futures)
-
-| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Liquidations | Open Interest | Index | Mark price |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Binance USD-M / coin-M dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ |
-| Bitget v3 dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Bybit v5 linear / inverse dated futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| OKX v5 FUTURES | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Gate.io v4 (USDT delivery) | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ |
-| Deribit JSON-RPC v2 dated futures | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✓ | ✓ | ✓ |
-
-Funding applies only to perpetual/swap contracts, so it is omitted from the
-dated-futures table. A ✗ here indicates an SDK capability gap, not that the data
-type is inapplicable to dated futures.
-
-### 期权 (Options)
-
-| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Implied volatility |
-| --- | --- | --- | --- | --- | --- | --- |
-| Binance European options | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Bybit v5 options | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| OKX v5 options | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-
-### MARGIN (OKX leveraged spot)
-
-| Exchange | Ticker | Trades | L2 Book | L1 Book | Candles | Liquidations | Mark price |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| OKX v5 MARGIN | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-
-Notes:
-
-- Bitget derivative funding, open interest, index, and mark price share the
-  `ticker` subscription; Bybit and Gate.io use `tickers.{symbol}` and
-  `futures.tickers`. Funding is enabled only for perpetual/swap products;
-  all dated-futures Funding requests fail preflight, even when prices share
-  the same ticker/mark-price transport. Bybit derivative ticker deltas rebuild
-  the latest known model fields per connection; snapshots and reconnects reset
-  that state, and absent fields never receive fabricated initial values.
-- Bitget spot/contract L1 uses snapshot-only `books1`, independently of L2.
-  Its current v3 candle wire intervals use `1H/4H/6H/12H/1D`; normalized inputs
-  remain `1h/4h/6h/12h/1d`. `3d/1w/1M` are rejected because they are not in the
-  current official v3 interval table.
-- Binance contract Index uses `markPriceUpdate.i` and event time `E`. Index,
-  Funding, and MarkPrice share one `@markPrice@1s` subscription when Index is
-  requested; Funding/MarkPrice without Index retain the venue's default cadence.
-- OKX monthly/quarterly candle ends use calendar arithmetic at the documented
-  UTC+8 opening boundary; Gate.io's normalized `1M` maps to its fixed `30d` bar.
-- OKX contract Index derives the base/quote index ID from the native contract
-  ID (`BTC-USDT-SWAP` → `BTC-USDT`), deduplicates subscriptions, and dispatches
-  one IndexPrice per matching configured contract. The explicit spot index
-  symbol entrypoint remains available.
-- Gate.io perpetual public liquidations use `futures.public_liquidates`
-  without authentication; delivery liquidations remain rejected. This is a
-  sampled stream (at most one order per contract per second), not a complete
-  liquidation ledger.
-- KuCoin UTA WebSocket V2 routes spot to `wss://x-push-spot.kucoin.com` and
-  futures to `wss://x-push-futures.kucoin.com` without a token. `ticker` is
-  trade-driven and is not advertised as L1; the precise L1 source is
-  `obu depth=1`, which is exposed only as a snapshot-only L2 depth. One
-  `mark-price` payload is split into `MarkPrice`, `IndexPrice` and
-  `OpenInterest`; `funding-fee` is futures-only. `obu` defaults to
-  `increment@10ms` (snapshot then `O`/`C` deltas, bounded in-session
-  resnapshot on gaps) and accepts snapshot-only `l2_book_depth(1/5/50)`.
-  KuCoin `6hour` candles are rejected on futures preflight, dated futures
-  are catalogued but have no capability row yet, and there is no documented
-  public liquidation stream.
-- Kraken Spot WebSocket v2 is spot-only. `ticker` carries BBO sizes but is not
-  an L1 channel; funding/open interest/mark price/liquidations are on the
-  separate Derivatives platform and are rejected. `book` depth is
-  `10/25/100/500/1000` and every push is CRC32-verified over the top ten
-  levels; a mismatch enters the bounded unsubscribe/resubscribe resnapshot path
-  and a corrupt book is never published. Local books are truncated to the
-  subscribed depth (out-of-scope levels never receive `qty: 0`). `ohlc`
-  supports Kraken's minute set (1m/5m/15m/30m/1h/4h/1d/1w); 15-day bars are not
-  expressible in the normalized interval vocabulary. Catalog aliases
-  `XBT`->`BTC` and `XDG`->`DOGE` are live-verified wire-name requirements.
-- Upbit's Korean quotation WebSocket (`wss://api.upbit.com/websocket/v1`) and
-  Bithumb's public WebSocket v1 (`wss://ws-api.bithumb.com/websocket/v1`) share
-  a ticket/type/codes/format JSON-array request. Both are spot-only; their
-  `ticker` frames are last-price/24h-statistics snapshots with no bid/ask, so no
-  `Ticker` or `L1Book` cell is advertised. Order books are complete snapshots:
-  Upbit uses documented unit counts `1/5/15/30` (default 30 via a plain code,
-  otherwise `{code}.{count}`) and Bithumb at most 15 units with no depth
-  parameter. Neither stream documents a delta, sequence or checksum, so every
-  push replaces the book and any other shape fails closed. KRW is a fiat quote
-  and is preserved (`KRW-BTC` -> `BTC-KRW`), never guessed; alert flags are
-  catalog metadata and never a subscription gate. Both venues document no
-  subscription acknowledgement, so readiness confirms their subscription on send
-  while a documented error envelope still fails the session; liveness is text
-  `PING` with filtered `{"status":"UP"}` frames. Bithumb candles are REST-only
-  (minutes 1/3/5/10/15/30/60/240 plus days/weeks/months) and are not exposed as a
-  normalized live channel in this increment.
-- Coinbase Advanced Trade (public, no JWT) is spot-only. The documented ticker
-  payload carries best bid/ask **with sizes**, so both `Ticker` and `L1Book`
-  are advertised from one native channel; `level2` is a full-book snapshot plus
-  absolute-size updates and the documented reconnect is the recovery (no
-  per-product sequence or checksum). The public `candles` channel is
-  five-minute-only: pass `candles_interval("5m")`; the default `1m` and any
-  other interval fail preflight. REST candles exist but are not wired as a
-  hidden backfill.
-- Deribit JSON-RPC v2 (`wss://www.deribit.com/ws/api/v2`) is perpetual/dated
-  futures only; options are rejected. One public `ticker.<instrument>.100ms`
-  subscription is split into `Ticker`, `MarkPrice`, `IndexPrice`,
-  `OpenInterest` and `Funding` (funding only where the payload carries it);
-  `book` uses change-id chaining with a bounded in-session resnapshot on gaps;
-  `chart.trades` maps the documented resolution enum to normalized intervals.
-  Book/trade/open-interest amounts are the documented native USD unit for
-  inverse contracts and are preserved, not converted. No public liquidation
-  stream exists.
-- HTX spot uses `wss://api.huobi.pro/ws` (`sub`/`id`) and USDT-M uses
-  `wss://api.hbdm.com/linear-swap-ws` for market topics plus
-  `wss://api.hbdm.com/linear-swap-notification` for funding/liquidation
-  notifications (`op`/`topic`); every frame is GZIP-compressed (decoded by the
-  session layer with a pinned pure-Rust `flate2`). Spot depth is replacement
-  snapshot per documented `version`; USDT-M depth is snapshot + versioned
-  updates with a bounded in-session resubscribe on a gap. USDT-M trades use the
-  documented base-coin `quantity`; level sizes stay documented contract counts.
-  Mark price, index price and open interest have no current public WebSocket
-  topic and are rejected at preflight rather than polled.
-- Hyperliquid uses one public host (`wss://api.hyperliquid.xyz/ws`): per-coin
-  `subscribe`/`unsubscribe` requests, `subscriptionResponse` acknowledgements,
-  an `error` channel for request failures, and the documented client
-  `{"method":"ping"}` -> `{"channel":"pong"}` heartbeat. `l2Book` is a
-  whole-book **snapshot** push (20 levels by default, 5 with `fast`), so only
-  `l2_book_depth(20)`/`l2_book_depth(5)` are accepted and no sequence/checksum
-  is invented; reconnect is the recovery. `bbo` carries best bid/ask with sizes
-  (`Ticker` + `L1Book`; a null side emits no quote), and `trades` maps
-  `B`/`A` with the non-unique `tid` preserved verbatim. One `activeAssetCtx`
-  subscription is split into `Funding`/`OpenInterest`/`MarkPrice`/`IndexPrice`
-  for perpetuals; spot uses the live `activeSpotAssetCtx` channel for
-  `MarkPrice` only. Catalog: `POST /info {"type":"meta"}` (perps, `isDelisted`
-  skipped, USD quote) and `{"type":"spotMeta"}` (base/quote from token names,
-  subscription coin `PURR/USDC`/`@N`, arbitrary quotes preserved, case-sensitive
-  native coins such as `kPEPE`). There is no public liquidation channel, so the
-  cell stays unsupported.
-- The additions above have deterministic offline regression coverage.
-  [The 2026-10-08 smoke](docs/reports/live-smoke-2026-10-08.md) received Bitget
-  spot/perpetual L1, derivative ticker fields, and OKX SWAP index events.
-  Gate.io liquidation subscription was accepted, but no liquidation occurred
-  in the short observation window.
-- Gate.io delivery endpoints serve `futures.*` channel names (verified live
-  2026-08-07).
-- Options on every exchange and OKX MARGIN are rejected by preflight in the
-  0.1 release scope.
-- Binance contract OI is explicitly deferred (2026-10-08). No official native
-  perpetual/dated-futures OI WS path was found; current OI is available via
-  single-symbol REST requests (weight 1). Multi-symbol polling can exhaust
-  the shared request budget, so neither guessed WS topics nor REST polling
-  are enabled. Options OI WS is a separate product. See the
-  [decision, rationale, and official API references](docs/binance-open-interest-decision.md).
-- Liquidation `side` is normalized to the liquidation order/aggressor side.
-  Bitget v3 quote-denominated liquidation amounts are converted to base
-  quantity; Gate.io public liquidation sizes retain the native contract unit.
-  Other trade and book quantities preserve the exchange-native unit.
-- L3 order books have no public stream across the active exchanges and are
-  deferred (see [the protocol baseline](docs/exchange-protocol-baseline.md#l3-order-book-scope)).
-- OKX v5 uses default WebSocket TLS port 443 and the recommended
-  `openapi.okx.com` REST domain. Dated API verification and migration details
-  are recorded in the [protocol baseline](docs/exchange-protocol-baseline.md#api-currency-review--2026-10-09).
-- Authenticated data and trading are out of scope.
-
-## Per-channel symbol subscriptions
-
-Use `.subscription(channel, symbols)` when channels need different symbols:
-
-```rust
-use cryptofeed_rs::prelude::*;
-
-let feed = Binance::new()
-    .subscription(Channel::Trade, ["BTC-USDT", "ETH-USDT"])
-    .subscription(Channel::L2Book, ["BTC-USDT"])
-    .build();
-```
-
-Pass this feed to `FeedHandler::add_feed` as usual. Repeated entries for a
-channel merge and deduplicate symbols. `.subscription_instruments(channel,
-selected_symbols)` accepts typed instruments returned by a catalog.
-
-This mode cannot be mixed with `.trade()` / `.ticker()` / other channel
-shortcuts or shared `.symbol()` / `.symbols()` / `.instrument()` methods.
-Each channel needs at least one symbol, all symbols must share a product kind,
-and every requested channel must pass capability/feature preflight. Handler
-and interval/depth settings are unchanged. Explicit `.exchange_symbol(...)`
-entries correspond to the first-seen deduplicated union in `feed.symbols`.
-
-The runtime resolves this union once and preserves exact channel/symbol pairs
-while sharing native connections, then shards the first-seen union by actual
-subscription budgets. For example, Trade BTC/ETH plus L2 BTC shares one Spot
-connection without subscribing to ETH depth. Product and public/business routes
-still split when required. [Connection planning, state isolation and budgets](docs/connection-planning.md)
-documents packing, queued sends and shared admission/snapshot pacing. `feed_count()`
-counts logical feeds; managed snapshots identify physical connections and books.
-Low-level adapter callers must still plan each `feed.connection_feeds()?` shard
-and the adapter's endpoint plans; exact map support alone does not enforce capacity.
-
-## Managed runtime updates
-
-Enable `handler.control_handle()` before starting the handler to retain a
-cloneable runtime controller. It supports `add_feed`, `replace_feed`,
-`remove_feed`, `feeds` and `shutdown`. `add_feed_with_id` exposes IDs for initial
-feeds; existing `add_feed` and the default strict startup remain compatible.
-Control mode starts initial logical feeds independently.
-
-`subscribe_identified()` emits `FeedEnvelope { identity, event }`. Replacement
-keeps the feed ID and advances its configuration generation; stale queued events
-remain identifiable. Candidate validation failure leaves the old feed running.
-A successful command acknowledges validated task launch. Query
-`control.state(id).await?` for a retained `FeedSnapshot`; `.is_ready()` requires
-all connection subscriptions confirmed and requested L2 books initialized.
-State queries also work after lifecycle notifications lag.
-
-See [managed runtime control](docs/runtime-control.md) for cancellation, command
-queues, graceful/forced removal, lifecycle states, event lag and remaining scope.
-Run the public add/replace/remove example with:
-
-```bash
-cargo run -p cryptofeed-rs --example managed_public
-```
-
-[Readiness semantics](docs/readiness.md) distinguish confirmations, local book
-state, data observations, reconnect epochs and stopping. Run the five-exchange
-public Trade/L2 observation with `cargo run -p cryptofeed-rs --example readiness_public`.
-
-## Recoverable L2 consumption
-
-Retain `handler.l2_book_handle()` before startup to enable managed L2 recovery.
-`books.recover(identity, &symbol)` atomically returns a full local snapshot and
-subsequent bounded updates with identity/connection/epoch/revision anchors.
-After lag, replace the old receiver and local book with a fresh recovery result.
-Disconnect/resync/stop withdraws unusable books. See [L2 recovery](docs/l2-recovery.md)
-and `book_recovery_public` for the consumer loop and resource/lifecycle limits.
-
-## Candle completion
-
-Use `.candle_policy(CandlePolicy::ClosedOnly)` to deliver only explicitly final
-candles. The compatible default `All` delivers every update; `ClosedOrUnknown`
-omits known unfinished bars but preserves unknown completion as `None`.
-The filter applies to handlers, streams and counters. Bitget currently has
-unknown completion, so strict mode delivers no candles there. See
-[candle delivery](docs/candle-delivery.md) for policies and Python differences.
-
-## Public REST snapshots
-
-`PublicRestClient::load(exchange, product).await?` exposes feature-gated
-`ticker(&symbol)` and `l2_book(&symbol, depth)` on current public endpoints.
-Results reuse normalized models, with optional native timestamp/sequence metadata.
-Catalog identity, proxy routing and bounded HTTP admission are shared; queries
-create no WS subscription and do not change live recovery state. See
-[public REST](docs/public-rest.md) for native depth/time rules, HTTP backoff and
-examples. Feature-gated `funding_history(&symbol, query)` now provides bounded settlement
-pages and versioned continuation, with actual rates and explicit stop reasons.
-See [funding history](docs/funding-history.md). Five-venue
-[candle history](docs/candle-history.md) adds bounded time windows and JSON
-continuation. [Recent trades](docs/recent-trades.md) now provides bounded
-five-venue batches with exact IDs and native quantity units. [Native trade history](docs/trade-history.md) now adds scoped continuation
-for Binance aggregate and OKX/Gate individual executions; Gate delivery candles use the documented delivery endpoint.
-
-## Cross-exchange best bid/ask
-
-With `orderbook`, `Nbbo` selects fresh best bid/ask quotes for an exact public
-symbol, retaining per-leg source generations and native size units. Bounded
-sources, timer expiry and explicit lifecycle withdrawal prevent silent stale
-quotes. See [NBBO inputs, units and lifecycle](docs/nbbo.md).
-
-## Throttle and trade aggregation
-
-With `trade`, `Ohlcv` builds source-isolated arrival-time bars with OHLC, native
-amount volume and Decimal VWAP. Caller-clocked windows, timer closure, partial
-tails and bounded state support live consumption and repeatable offline replay.
-`RenkoFixed` adds source-isolated price-threshold bricks; `Throttle` provides
-caller-clocked leading-edge sampling with any feature set. `CustomAggregate`
-adds caller-defined window state/calculation with input caps and explicit failure.
-See [aggregation semantics and units](docs/aggregation.md).
-
-## Event sinks
-
-`EventSink` and `run_sink` consume identified events sequentially with explicit
-lag, write error, timeout and cancellation behavior. Applications implement their
-own storage adapters; opt-in `recording` provides a bounded JSONL adapter through
-`RecordingWriter`. See [sink delivery and shutdown](docs/sinks.md).
-
-## Event recording and offline replay
-
-Opt-in `recording` adds bounded, versioned JSONL capture of identified normalized
-public events and sequential offline replay callbacks, with exact Decimal data,
-original model clocks, immediate/recorded timing and explicit failure/stop behavior.
-Broadcast lag is an error; incomplete files are rejected. A separate
-[sanitized WS observation channel](docs/raw-capture.md) now captures text before
-control/market parsing. [Raw WS files](docs/raw-recording.md) now persist and validate those observations.
-[Independent capture replay](docs/raw-merge.md) now merges raw files/series on
-explicit elapsed offsets, with capture-scoped identity and isolated native state.
-[Raw series rotation](docs/raw-series.md) preserves one logical stream across
-ordered files, with bounded manifests and continuous native replay.
-[Native parser/state replay](docs/raw-replay.md) now supports five public families
-and WS-native L2 for Bybit/OKX/Bitget. [Consumed HTTP snapshots](docs/http-l2-replay.md) now enable Binance/Gate L2
-replay without online fallback. [Public HTTP result recording](docs/http-recording.md)
-now captures directory/REST/bootstrap attempts, safe outcomes and cancellation.
-[HTTP payload replay](docs/http-replay.md) now drives existing directory/REST APIs
-offline, with exact request matching and no network fallback. Original cache/timer
-scheduling is not simulated. [Replay contract audit](docs/replay-contract-audit.md)
-now records verified clock/cache/concurrency behavior; broader ecosystem work remains pending. See [recording](docs/recording.md) for limits, file schema and the
-end-to-end example.
-
-[Public WS control failures](docs/ws-control-errors.md) now distinguish verified
-frequency/service errors from permanent subscription rejection, with shutdown-aware
-retry floors and shared connection-start cooldowns.
-[Handshake and close failures](docs/ws-lifecycle-failures.md) preserve status/delay
-and numeric close codes, distinguishing retryable failures from known permanent ones.
-
-[Native REST quota responses](docs/native-rate-limits.md) now also feed shared
-per-exchange cooldowns while preserving original JSON and existing error semantics.
-
-Oversized multi-route feeds now [partition routes before capacity slicing](docs/connection-planning.md#route-first-capacity-planning--2026-10-12),
-keeping small unrelated endpoints together and avoiding extra connections.
-[Opt-in minimum packing](docs/minimum-connections.md) proves the fewest physical
-connections under existing route/instrument budgets, with bounded search and
-cancellable async worker admission.
-
-## Shared resource budgets
-
-`ResourceBudget` groups transports/feeds/REST clients under stricter HTTP capacity
-and start spacing, plus per-exchange WS capacity/spacing. Clones share limits;
-existing process and protocol safeguards remain active. See
-[resource admission and replacement](docs/resource-budgets.md).
-[Per-session WS send budgets](docs/ws-send-budgets.md) coordinate text/heartbeat
-spacing, Pong headroom and verified hourly control limits.
-[Binance HTTP weights](docs/http-weights.md) add verified endpoint costs and
-rolling process windows and conservative minute used-weight header feedback,
-with an optional stricter policy ceiling.
-[Other public HTTP limits](docs/public-http-frequency-audit.md) are verified
-against current process-wide pacing; cross-process quota coordination is deferred.
-
-## HTTP and WebSocket proxy
-
-Use `.transport(TransportConfig::http_proxy("http://127.0.0.1:8080")?)` to route
-catalog discovery, REST book bootstrap/resync and WebSockets consistently.
-Basic proxy authentication uses `.basic_auth(username, password)?`; credentials
-are excluded from URLs and debug output. Default routing is explicitly direct,
-including HTTP; system proxy environment inference is not used. See
-[transport configuration](docs/transport.md) for standalone catalogs, discovery,
-cache isolation, supported proxy types and migration details.
-
-## Symbol discovery and service shutdown
-
-Load a product-qualified catalog, then select explicit normalized symbols:
-
-```rust
-use cryptofeed_rs::prelude::*;
-
-async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    let catalog = MarketCatalog::load(ExchangeId::Binance, InstrumentKind::Spot).await?;
-    let selected = catalog.select(&["BTC-*", "ETH-USDT"])?;
-    let feed = Binance::new().trade().instruments(selected).build();
-    let mut handler = FeedHandler::new();
-    handler.add_feed(feed);
-    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let running = tokio::spawn(handler.run_with_shutdown(shutdown_rx));
-    // Keep shutdown_tx while the application runs; at service shutdown:
-    shutdown_tx.send(true)?;
-    running.await??;
+    handler.add_feed(
+        Binance::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTCUSDT")
+            .trade_handler(Arc::new(Print))
+            .build(),
+    );
+    handler.run().await?;
     Ok(())
 }
 ```
 
-`MarketCatalog::symbols()` lists normalized instruments. `select` supports `*`
-and `?`, ignores ASCII case, sorts and deduplicates matches, and rejects empty
-input or any unmatched pattern. It uses the [bounded 24-hour catalog cache](docs/catalog-cache.md);
-use `MarketCatalog::refresh(exchange, product).await` to bypass cached responses,
-including paginated catalogs. Concurrent requests for the same URL share
-in-flight work. Refresh does not change existing catalog snapshots or running
-subscriptions. Optional `DiscoveryFeed` periodically refreshes and reconciles a
-managed feed; see [automatic symbol reconciliation](docs/discovery.md). Patterns
-are expanded explicitly before building a feed, not by `.symbol("*-USDT")`.
-Broad matches are split by native subscription budgets; configurations exceeding
-100 planned physical connections per exchange are rejected before WS startup.
-Existing capability preflight still applies. These process-local limits do not
-account for other clients sharing your IP.
+`run()` installs a Ctrl-C handler. Embed `run_with_shutdown(handler, watch)` (or
+the managed control API below) when the process owns its own lifecycle.
 
-`catalog.market(&symbol)` and sorted `catalog.markets()` expose `MarketInfo`:
-reported ticks/lot steps, minimum quantity/notional, separate decimal-place counts,
-native status/type and contract value/currency/multiplier. Missing/inapplicable
-fields are None; steps and denominations are not guessed. `exchange()`, `product()`
-and `supported_channels()` expose catalog/build context. See
-[market metadata](docs/market-metadata.md) for current field mappings, deprecated
-constraints, refresh behavior and limits; this is not an order validator.
+### Event stream instead of callbacks
 
-For explicit lists, `.symbols(["BTC-USDT", "ETH-USDT"])` appends names like
-repeated `.symbol(...)` calls. `run()` still installs Ctrl-C shutdown;
-`run_with_shutdown` uses your watch signal and installs no signal handler.
-Managed add/remove/replace is available through a retained control handle.
-Readiness is available through the managed state API; remaining policy work is tracked in the
-[Python usage alignment plan](docs/python-usage-alignment.md).
-The [requirement audit](docs/python-alignment-audit.md) records implemented crossed-book and delivered-depth policies,
-with explicit native capability and delivery boundaries.
-
-## Development
-
-```bash
-cargo check --workspace
-cargo test --workspace
-cargo fmt --all --check
-cargo clippy --workspace --all-features --all-targets -- -D warnings
-cargo check --workspace --no-default-features
-make features
-```
-
-## Examples
-
-Run from the workspace root:
-
-```bash
-cargo run -p cryptofeed-rs --example binance_public
-cargo run -p cryptofeed-rs --example bitget_public
-cargo run -p cryptofeed-rs --example bybit_public
-cargo run -p cryptofeed-rs --example okx_public
-cargo run -p cryptofeed-rs --example gateio_public
-cargo run -p cryptofeed-rs --example derivatives_public
-cargo run -p cryptofeed-rs --example release_smoke
-cargo run -p cryptofeed-rs --example channel_completion_smoke
-```
-
-`derivatives_public` demonstrates the extended derivative channels (Binance
-USD-M funding / index / mark price / L1) and the
-event-stream consumer mode (`FeedHandler::subscribe()` instead of handler
-traits). `release_smoke` is the bounded-output multi-exchange counter used for
-dated manual release reports.
-
-Example imports use the runtime prelude:
+Handlers run inside the feed session and should return quickly. Applications
+that need slower processing can consume the bounded, lossy broadcast stream
+instead:
 
 ```rust
-use async_trait::async_trait;
-use cryptofeed_rs::prelude::*;
+let mut events = handler.subscribe();
+handler.add_feed(Binance::new().trade().symbol("BTC-USDT").build());
+
+tokio::spawn(async move {
+    loop {
+        match events.recv().await {
+            Ok(FeedEvent::Trade(trade)) => println!("{} {}", trade.symbol.as_str(), trade.price),
+            Ok(_) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                eprintln!("consumer lagged; {n} events overwritten");
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+        }
+    }
+});
+
+handler.run().await?;
 ```
 
-## Symbol Resolution
+A slow broadcast consumer loses the oldest events by design; it never blocks
+the feed. See [event delivery](docs/event-streams.md) for retention and
+diagnostics.
 
-- Runtime preloads product-specific exchange symbol catalogs over HTTP before
-  WebSocket subscription.
-- Subscription symbols are resolved bidirectionally from normalized forms such
-  as `BTC-USDT`, `BTC-USDT-PERP`, and `BTC-USD-240628`.
-- Spot, perpetual, and dated-futures identities remain distinct even when an
-  exchange reuses the same native symbol.
-- Catalog discovery rejects unknown/ambiguous symbols; mixed normalized
-  products and unsupported channel combinations fail before connecting.
-  The runtime does not guess quote currencies. Explicit mappings assert native
-  identity on the caller's behalf and bypass market-catalog existence checks.
-- Explicit exchange-native symbols remain available through
-  `ExchangeFeedBuilder::exchange_symbol(...)` and must map one-to-one to the
-  normalized symbols in the feed.
+### Managed runtime
 
-Runtime connections implement exchange application heartbeats, idle detection,
-indefinite transient reconnection with bounded backoff, bounded shutdown, feed
-failure isolation, batch event delivery, and product-aware L2 snapshot/gap
-recovery. [RuntimeOptions](docs/runtime-options.md) adds per-connection retry
-limits, startup delay, receipt idle policy and handshake/callback deadlines. Handler callbacks default to five
-seconds so a stuck callback
-cannot permanently stop socket reads; high-volume consumers should prefer the
-bounded event-stream API.
+Use `control_handle()` for add/replace/remove with authoritative readiness
+state and connection-anchored events:
 
-The offline evidence and parity workflow is documented in
-[the harness guide](docs/harness.md). See the [documentation index](docs/README.md)
-for protocol references, decisions, and dated live-validation reports.
+```rust
+let mut handler = FeedHandler::new();
+let control = handler.control_handle();
+let mut events = handler.subscribe_anchored_with_diagnostics();
+let (stop, shutdown) = tokio::sync::watch::channel(false);
+let running = tokio::spawn(handler.run_with_shutdown(shutdown));
 
-Managed connection state exposes `last_failure: Option<FailureDiagnostic>` with
-safe static error category/reason, permanent-policy flag and numeric HTTP/close
-codes. Structured WARN/ERROR events correlate failures with feed identity and
-connection epoch; see [readiness diagnostics](docs/readiness.md). Linux sustained
-acceptance remains incomplete; [issue audit](docs/reports/issue-audit-2026-10-16.md).
+let identity = control
+    .add_feed(Binance::new().trade().symbol("BTC-USDT").build())
+    .await?;
+let state = control.state(identity.id).await?; // Ready/Recovering/failed
+let _ = (stop, running);
+```
 
-## Exchange Policy
+See [readiness](docs/readiness.md) and
+[connection-anchored events](docs/readiness.md#connection-anchored-market-events).
 
-New CEX integrations must use the latest stable official exchange API rather than legacy versions.
+## Core model
 
-- Bitget integrations should target the current official v3 API surface.
-- When adding or updating an exchange adapter, verify the current official REST and WebSocket documentation before implementing.
-- If an older API version already exists in the Python codebase, treat it as migration reference only, not as the Rust source of truth.
+Ten normalized public event types, one crate each:
 
-Gateio L2 recovery requires a provable snapshot ID or complete full push, accepts
-v1 overlapping sequence coverage and bounds resnapshot loops. Managed
-`state(id).book_sync` exposes per-symbol recovery evidence; see
-[Gateio sequence recovery](docs/gateio-book-recovery.md).
+| Category | Type | Typical venues |
+| --- | --- | --- |
+| Ticker (BBO) | `Ticker` | Binance, Bitget, Bybit, OKX, Gate, KuCoin, Kraken, Coinbase, HTX, Hyperliquid |
+| Trades | `Trade` | all supported venues |
+| L2 book | `L2Book` (snapshot/delta) | all supported venues |
+| L1 book | `L1Book` | venues with a real BBO-with-size channel |
+| Candles | `Candle` | most venues (intervals vary) |
+| Funding | `Funding` | derivative venues |
+| Liquidations | `Liquidation` | venues with a public liquidation stream |
+| Open interest | `OpenInterest` | derivative venues |
+| Index price | `IndexPrice` | derivative venues (plus explicit OKX spot index) |
+| Mark price | `MarkPrice` | derivative venues; Hyperliquid spot ctx |
 
-Latest Linux evidence still includes subscriber loss. The acceptance app's
-reproduced stats-lock stall is repaired in soak0.1.4; SDK delivery semantics and
-retention are unchanged. See [consumer contention evidence](docs/reports/consumer-contention-2026-10-16.md).
+- `Symbol` is product-qualified (`BTC-USDT` spot vs `BTC-USDT-PERP`
+  perpetual) and carries no venue-specific separators.
+- Prices and quantities are `rust_decimal::Decimal`; exchange and receive
+  timestamps are separate. Native units are preserved unless the venue
+  documents a conversion (for example KuCoin contracts vs base quantity).
+- `FeedEvent` is non-exhaustive: downstream matches need a `_` arm.
+- Capability preflight rejects unsupported product/channel/interval/depth
+  combinations before any connection is opened.
 
-## Event delivery and overload
+## Supported venues
 
-Event broadcasts retain 1024 messages across all feeds by default and may lose
-old messages when a subscriber falls behind. `FeedHandler::with_event_capacity`
-configures retention; `subscribe_identified_with_diagnostics` adds receiver-local
-counts and sampled backlog without changing legacy subscriptions. Capacity is
-not a throughput or lossless guarantee. See [delivery and recovery](docs/event-streams.md)
-for executor/lock isolation, overflow handling and final drain semantics.
+Capability rows are the same data the runtime validates against
+(`markets::capability_matrix()`); a check means the public channel is
+implemented and covered by a deterministic full-session double.
 
-## Origin, License, and Maturity
+### Spot
 
-- **Origin**: `cryptofeed-rs` is a ground-up Rust workspace modeled on the
-  Python [`cryptofeed`](https://github.com/bmoscon/cryptofeed) project by
-  Bryant Moscon, preserving its normalized-feed model and `FeedHandler`
-  entrypoint.
-- **Rewrite rationale**: the Rust implementation targets the current stable
-  official exchange APIs where legacy Python adapters no longer match the live
-  protocol. The Python project is a semantic migration reference, not the
-  protocol source of truth.
-- **Repository**: https://github.com/crypto-2042/cryptofeed-rs.
-- **License**: MIT. Commercial use, modification, closed-source integration and
-  redistribution are permitted; retain the copyright and license notice. See
-  [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
-- **Maturity**: a public-market-data 0.1 release candidate. Publication and a
-  sustained-run qualification have not yet completed. Supported behavior and
-  patch-version compatibility commitments are defined in
-  [the compatibility policy](docs/compatibility.md); the
-  [release verification guide](docs/release-validation.md) defines the remaining
-  checks and the sustained-run plan.
+| Exchange | Ticker | Trades | L2 | L1 | Candles | Index |
+| --- | --- | --- | --- | --- | --- | --- |
+| Binance | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Bitget v3 | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Bybit v5 | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| OKX v5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ explicit index |
+| Gate.io v4 | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| KuCoin UTA WS V2 | ✓ | ✓ | ✓ | — | ✓ | — |
+| Kraken Spot WS v2 | ✓ | ✓ | ✓ | — | ✓ | — |
+| Upbit quotation WS | — | ✓ | ✓ | — | ✓ | — |
+| Bithumb public WS | — | ✓ | ✓ | — | — | — |
+| Coinbase Advanced Trade | ✓ | ✓ | ✓ | ✓ | ✓ 5m only | — |
+| HTX spot | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Hyperliquid spot | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+
+### Perpetual / swap
+
+| Exchange | Ticker | Trades | L2 | L1 | Candles | Funding | Liquidations | OI | Index | Mark |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Binance USD-M / coin-M | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| Bitget v3 (USDT/USDC/coin) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Bybit v5 linear / inverse | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| OKX v5 SWAP | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Gate.io v4 (USDT/BTC) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ sampled | ✓ | ✓ | ✓ |
+| KuCoin UTA V2 | ✓ | ✓ | ✓ | — | ✓ | ✓ | — | ✓ | ✓ | ✓ |
+| Deribit JSON-RPC v2 | ✓ | ✓ | ✓ | — | ✓ | ✓ | — | ✓ | ✓ | ✓ |
+| HTX USDT-M | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| Hyperliquid | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ |
+
+### Dated futures
+
+| Exchange | Ticker | Trades | L2 | L1 | Candles | Liquidations | OI | Index | Mark |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Binance USD-M / coin-M | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| Bitget v3 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Bybit v5 linear / inverse | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| OKX v5 FUTURES | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Gate.io v4 USDT delivery | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ |
+| Deribit JSON-RPC v2 | ✓ | ✓ | ✓ | — | ✓ | — | ✓ | ✓ | ✓ |
+
+Options, OKX MARGIN and L3 books are outside the 0.1 scope and fail preflight.
+Funding exists only on perpetual/swap rows. A dash means the venue has no
+applicable public channel or the SDK has no verified implementation.
+
+Venue-specific notes that change how a cell must be read:
+
+- **Korean venues:** Upbit/Bithumb public `ticker` frames have no best bid/ask,
+  so no normalized `Ticker`/`L1Book`. Bithumb has no public candle stream.
+- **KuCoin:** no standalone L1 channel; `obu depth=1` is snapshot-only L2.
+  Futures `mark-price` splits into mark/index/open interest; contract
+  quantities stay contracts unless converted with catalog metadata.
+- **Kraken:** spot-only; `book` is CRC32-verified over the top ten levels;
+  `ticker` is not an `L1Book` channel.
+- **Coinbase:** public candles are 5-minute only; `level2` recovery is
+  reconnect-based (no per-product sequence).
+- **Deribit:** options are rejected; `book` uses change-id chaining.
+- **HTX:** funding/liquidations ride a separate notification host; mark price,
+  index and open interest have no current public topic.
+- **Hyperliquid:** `l2Book` is a whole-book snapshot (20 levels, or 5 with
+  `fast`), never a synthetic delta stream; no public liquidations.
+- **Gate.io:** perpetual liquidations are a sampled public stream; delivery
+  liquidations are rejected.
+- **Binance:** contract open interest has no verified public WS path and is not
+  polled behind the scenes.
+
+Each venue has a protocol baseline in [docs/](docs/README.md) recording the
+official wire format, acknowledgements, liveness and known gaps.
+
+## Feature guide
+
+### Handlers
+
+Every category has a handler trait. Register one primary handler per category
+and any number of additional handlers; callbacks run serially with a
+five-second default timeout and catchable-panic isolation. See
+[handler semantics](docs/handlers.md).
+
+```rust
+let feed = Okx::new()
+    .trade()
+    .l2_book()
+    .symbol("BTC-USDT")
+    .trade_handler(Arc::new(Print))
+    .add_orderbook_handler(Arc::new(Print))
+    .build();
+```
+
+### Readiness, retries and shutdown
+
+Managed feeds expose `Preparing → Connecting → Subscribed → Ready`, failure and
+recovery states, per-connection subscription confirmation, epochs and
+book-recovery diagnostics. Transient errors reconnect with bounded backoff;
+terminal configuration/protocol errors are not retried indefinitely. See
+[readiness](docs/readiness.md) and [runtime options](docs/runtime-options.md).
+
+### Recording and replay
+
+Opt-in `recording` feature writes sanitized raw or normalized streams with
+replay support and HTTP catalog replay. See
+[recording](docs/raw-recording.md) ([HTTP captures](docs/http-recording.md))
+and [replay](docs/raw-replay.md) ([HTTP replay](docs/http-replay.md)).
+
+### L2 recovery and delivered depth
+
+Opt-in L2 handles provide an atomically copied snapshot plus a bounded update
+stream, with explicit invalidation when a gap cannot be bridged. Delivered
+top-N depth is consistent across snapshots/deltas. See
+[L2 recovery](docs/l2-recovery.md) and
+[delivered depth](docs/book-delivery-depth.md).
+
+### Sinks
+
+`run_sink` drives a sequential, fallible `EventSink` from the normalized event
+stream. A broadcast lag is terminal for a sink, never a silently shortened
+capture. See [sinks](docs/sinks.md).
+
+### Catalogs and REST
+
+Product-qualified catalog discovery, explicit/`*`/`?` symbol selection,
+`MarketInfo` constraints and a `PublicRestClient` for ticker/book snapshots are
+available without opening a WebSocket. See [discovery](docs/discovery.md),
+[market metadata](docs/market-metadata.md) and [public REST](docs/public-rest.md).
+
+### Transport and proxies
+
+`TransportConfig` applies explicit proxy routing consistently to catalogs, REST
+snapshots and WebSocket connections, with direct defaults. See
+[transport](docs/transport.md).
+
+## Instrument naming and tokenized stocks
+
+Native venue formats differ (`BTCUSDT`, `BTC-USDT`, `BTC_USDT`, `BTC/USD`,
+`KRW-BTC`, lowercase `btcusdt`, Hyperliquid `BTC` / `PURR/USDC`). The SDK
+normalizes base/quote and product kind, while the catalog keeps the exact
+native mapping. See [instrument naming](docs/instrument-naming.md) for the
+per-venue reference.
+
+Several venues also list **tokenized stocks / RWA equity products** as spot
+pairs, each with its own naming scheme:
+
+| Venue | Pattern | Example |
+| --- | --- | --- |
+| Binance | `<TICKER>B` | `NVDAB`, `AAPLB` |
+| OKX | `X<TICKER>` | `XAAPL` |
+| Bybit, KuCoin, Gate | `<TICKER>X` | `AAPLX`, `TSLAX` |
+| Bitget | `r<TICKER>` | `rAAPL` → `RAAPL-USDT` |
+| Gate (Ondo) | `<TICKER>ON` | `TSLAON` |
+| Gate (leveraged) | `<TICKER>3L` / `3S` | `AAPL3L` |
+| HTX | unmarked lowercase | `aapl`, `msft` (mostly offline) |
+
+**These products are not normalized together with crypto assets.** They are not
+US equity market data: there is no SIP/consolidated tape, no pre/post-market or
+auction feed, and no corporate-action stream. The same underlying can exist as
+multiple issuer tokens with different prices and liquidity (`TSLAX` vs
+`TSLAON`), and leveraged tokens (`3L`/`3S`) are rebalanced products, not share
+exposure. Mapping them to a single equity-style symbol would silently invent
+semantics the SDK cannot verify, so no such unification, underlying mapping or
+special filtering is implemented. If a catalog includes a tokenized-stock pair,
+it behaves as a venue-native spot symbol with that venue's hours, spreads and
+issuer risk.
+
+## Verification
+
+CI runs, and contributors can reproduce locally:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-features --all-targets -- -D warnings
+cargo test --workspace --all-features
+cargo +1.85.0 check --workspace --all-features --all-targets   # MSRV
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+```
+
+The `features` CI job additionally builds and tests isolated feature
+combinations. Deterministic coverage includes per-venue parser fixtures,
+catalog/native-mapping validation, capability preflight and full-session
+WebSocket doubles (subscribe, ack/control, data, recovery, clean shutdown).
+Fixture provenance and live verification notes live in
+[`sample_data/SOURCES.md`](sample_data/SOURCES.md) and the per-venue protocol
+documents. No live-network test runs in CI, and a checked capability row is not
+a sustained-run qualification.
+
+## Workspace
+
+| Crate | Purpose |
+| --- | --- |
+| `cryptofeed-core` | `ExchangeId`, `Channel`, `Symbol`, `Side`, errors |
+| `cryptofeed-ticker` … `cryptofeed-markprice` | normalized models + handler traits per category |
+| `cryptofeed-rs` | runtime: adapters, transport, routing, readiness, recording, sinks |
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Parity checklist](PARITY.md)
+- [Exchange protocol baseline](docs/exchange-protocol-baseline.md)
+- [Instrument naming](docs/instrument-naming.md)
+- [Readiness](docs/readiness.md) · [Event streams](docs/event-streams.md) ·
+  [Handlers](docs/handlers.md) · [Runtime options](docs/runtime-options.md)
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -109,8 +109,13 @@ tracked in [the usage alignment plan](docs/python-usage-alignment.md).
 | Deribit JSON-RPC v2 | dated futures | yes | yes | yes | no | yes | no | no | yes | yes | yes |
 | HTX spot | spot | yes | yes | yes | yes | yes | no | no | no | no | no |
 | HTX USDT-M | perpetual | yes | yes | yes | yes | yes | yes | yes | no | no | no |
-| Hyperliquid | spot | yes | yes | yes (20/5 snapshot) | yes | yes | no | no | no | yes | no |
-| Hyperliquid | perpetual | yes | yes | yes (20/5 snapshot) | yes | yes | yes | yes | yes | yes | no |
+| Hyperliquid | spot | yes | yes | yes (20/5 snapshot) | yes | yes | no | no | no | no | yes |
+| Hyperliquid | perpetual | yes | yes | yes (20/5 snapshot) | yes | yes | yes | no | yes | yes | yes |
+
+The runtime's `markets::capability_matrix()` is the authoritative capability
+table; the matrix above and the README tables mirror it. A check means the
+public channel is implemented and covered by a deterministic full-session
+double, not a sustained-run qualification.
 
 Bybit funding rides the derivative `tickers.{symbol}` stream (the standalone
 `funding.{symbol}` channel was removed by Bybit; verified live 2026-08-06).

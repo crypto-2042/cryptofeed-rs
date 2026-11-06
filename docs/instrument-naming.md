@@ -72,6 +72,37 @@ are not stock exposure.
   spot tokens with issuer/venue trading hours, premium/discount and
   corporate-action handling outside the SDK's model.
 
+## Why tokenized stocks are not unified with crypto symbols
+
+Tokenized-stock pairs stay venue-native spot products in this SDK. They are not
+mapped to an equity-style ticker (`AAPLX` → `AAPL`), merged across issuers, or
+given a special asset class in 0.1. The reasons are concrete:
+
+- **Different products, same underlying.** Gate lists xStocks (`TSLAX`), Ondo
+  (`TSLAON`) and leveraged tokens (`TSLA3L`/`TSLA3S`) side by side; they have
+  different issuers, prices, liquidity and payoff. A single `TSLA` symbol would
+  hide which product is being watched.
+- **No equity market data.** These are not NYSE/Nasdaq feeds: there is no
+  consolidated tape, pre/post-market, auction or corporate-action stream.
+  Treating them as equity quotes would overstate what the SDK verifies.
+- **Issuer and venue semantics.** Trading hours (24/7 or venue-defined),
+  premium/discount to the underlying, redemption mechanics and corporate
+  actions are issuer/venue concerns that the normalized crypto model does not
+  represent.
+- **Inconsistent markers.** `X` is a prefix on OKX and a suffix on
+  Bybit/KuCoin/Gate; Bitget uses `r<TICKER>`; HTX is unmarked and mostly
+  offline. Name parsing alone cannot classify a product, and the same ticker
+  can collide with a crypto asset (`META` is Metadium/MetaDAO on several
+  venues).
+- **Leveraged tokens are not stock exposure.** `3L`/`3S` rebalance daily and
+  have path-dependent returns; merging them with shares would be incorrect.
+
+Consequently, if a venue catalog includes a tokenized-stock pair, it behaves as
+that venue's spot symbol with the venue's own hours, spreads and issuer risk.
+Classifying these products, rejecting leveraged tokens, or adding an underlying
+mapping would be a separate cross-module design change with explicit product
+decisions, not a naming-document change.
+
 ## Method
 
 Catalogs queried on 2026-11-06: Binance `/api/v3/exchangeInfo`, Bybit
