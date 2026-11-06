@@ -48,6 +48,17 @@ Applications needing durable delivery own persistence, acknowledgements,
 deduplication and supported recovery. See [handlers](handlers.md) and
 [recording](recording.md) for their actual failure boundaries.
 
+## Ordering
+
+There is no global time ordering across sockets, frames or reconnects. Adapters
+emit market events in the order they parse a frame, except where a venue
+documents a batch whose own order is unusable: Coinbase `market_trades` batches
+are sorted inside one fully received frame by exact exchange time (numeric
+`trade_id` for ties), never across frames. Handler callbacks and the
+broadcast/anchored streams consume the same per-frame order; consumers that
+need cross-frame freshness must keep their own window. See
+[Coinbase ordering](coinbase-protocol.md#market_trades-intra-frame-ordering-contract).
+
 ## Receiver-local evidence
 
 `subscribe_identified_with_diagnostics()` returns `IdentifiedSubscription`, a

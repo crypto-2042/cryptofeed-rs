@@ -206,7 +206,9 @@ Venue-specific notes that change how a cell must be read:
 - **Kraken:** spot-only; `book` is CRC32-verified over the top ten levels;
   `ticker` is not an `L1Book` channel.
 - **Coinbase:** public candles are 5-minute only; `level2` recovery is
-  reconnect-based (no per-product sequence).
+  reconnect-based (no per-product sequence). `market_trades` batches are
+  emitted in exact exchange-time order within one frame (numeric `trade_id`
+  breaks equal timestamps); cross-frame ordering is not promised.
 - **Deribit:** options are rejected; `book` uses change-id chaining.
 - **HTX:** funding/liquidations ride a separate notification host; mark price,
   index and open interest have no current public topic.

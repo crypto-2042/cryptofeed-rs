@@ -104,6 +104,32 @@ Notes:
   bucket. There is no completion flag in the payload, so `Candle.closed` is
   `None` and the SDK never infers completion from wall-clock time.
 
+### `market_trades` intra-frame ordering contract
+
+Coinbase aggregates public trades into ~250 ms pushes but does not guarantee
+that a `market_trades` batch is ordered. Live frames on 2026-11-06 contained
+reversed adjacent trades, including the same-millisecond pair
+`1116181183 @ 07:08:17.218455Z` followed by
+`1116181182 @ 07:08:17.185577Z`.
+
+The adapter normalizes **only a fully received frame**:
+
+- every trade in the frame is kept, with its exact `time` (microseconds
+  preserved as `exchange_ts`), `trade_id`, price, size and side;
+- trades are emitted by exact exchange time ascending, then numeric
+  `trade_id` ascending for equal timestamps, then symbol;
+- sorting never crosses frames, sockets or channels. A genuinely late trade
+  arriving in a later frame is emitted in that frame's order; there is no
+  global time ordering, cross-frame buffer, deduplication or latest-only
+  collapse;
+- handler callbacks and the broadcast/anchored event streams receive the same
+  normalized order, because both consume the adapter's ordered `Vec`.
+
+Consumers that need to reject cross-frame stale prices must keep their own
+window; this contract only removes intra-frame reversals. An application that
+coarsens microsecond timestamps to milliseconds still owns equality/precision
+handling at that boundary.
+
 ### Candles: five-minute-only cell
 
 The public `candles` channel is **documented as five-minute buckets only**

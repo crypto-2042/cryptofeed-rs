@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Coinbase `market_trades` batches are now emitted in exact exchange-time
+  order within each fully received frame (numeric `trade_id` tie-break), while
+  preserving every trade and leaving cross-frame ordering/late arrivals
+  unchanged. See `docs/coinbase-protocol.md`.
+
 ### Added
 
 - Opt-in `HandlerDispatch::Async { capacity }` runtime policy decouples user
