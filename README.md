@@ -1,5 +1,7 @@
 # cryptofeed-rs
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 Normalized, public-market-data feeds for cryptocurrency exchanges, written in
 Rust with current official venue protocols.
 
