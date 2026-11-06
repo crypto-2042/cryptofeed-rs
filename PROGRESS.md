@@ -2,6 +2,17 @@
 
 Last updated: 2026-11-04
 
+## HTX close/recovery contract (2026-11-05)
+
+- Live probe: HTX spot closes with 1003 `ping check expired` when pongs stop
+  for ~15 s; documented `{"pong":<ping>}` replies keep the same 13-market
+  subscription healthy.
+- Pongs now bypass the paced subscription queue; HTX 1003 with a ping-expiry
+  reason is retryable within the bounded retry budget, all other 1003 keep
+  terminal protocol semantics.
+- Session-end diagnostics log frame kinds/counts/bytes, last-frame age and
+  ping/pong counters without payloads or raw close reasons (issue #28).
+
 ## Live venue frame fixes (2026-11-04)
 
 - Upbit/Bithumb market pushes are binary UTF-8 JSON; KuCoin acks and pushes are binary

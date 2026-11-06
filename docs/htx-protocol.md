@@ -276,6 +276,44 @@ Product identity is product-qualified: spot `BTC-USDT` and perpetual
   session answers `{"op":"pong","ts":"<same>"}`. Idle watchdog 60 s.
 - GZIP decoding must happen before heartbeat detection; every frame is binary.
 
+### Close codes, ping expiry and recovery contract
+
+Live probe 2026-11-05 on the spot market socket: when pings are not answered,
+the server closes with **1003 `ping check expired` after ~15 s** (pings every
+~1 s in that state, 5.5 s spaced normally). With the documented
+`{"pong":<ping>}` reply the same 13-market subscription ran for the probe
+window without a close. The SDK therefore:
+
+- sends pongs immediately, outside the paced subscription queue, so a pending
+  resubscription cannot delay the heartbeat reply;
+- classifies HTX `1003` as retryable **only** when the close reason contains
+  `ping` (case-insensitive). Any other `1003`, or a `1003` without a reason,
+  keeps the protocol-failure terminal semantics; retries remain bounded by the
+  configured retry limit and backoff, so a repeating protocol fault still ends
+  the connection plan;
+- keeps the close reason out of logs and status; only the code and the derived
+  retryable flag are retained.
+
+### Post-fix 90-minute observation (2026-11-05)
+
+The SDK soak example ran 13 spot trade markets for 90 minutes (past the original
+76-minute failure): 26,518 anchored trade events, zero receiver lag, no terminal
+failure, and one automatic reconnect at ~85 minutes that re-subscribed and
+returned to `Ready` while events kept flowing. The harness does not initialise
+tracing, so the specific close code of that reconnect is not recorded; this
+verifies the recovery path and that a reconnect no longer ends the plan, while
+the `1003` classification itself is covered by deterministic tests and by the
+missing-pong probe above.
+
+A production 76-minute HTX spot trade feed terminated on `1003` with no tape
+before the fault (issue #28). Because the read loop awaited handlers inline, a
+slow callback could delay pong handling past the 15 s window; the opt-in
+`HandlerDispatch::Async` policy plus the immediate-pong path remove that cause.
+Session-end diagnostics record bounded frame kinds/counts/bytes, the last-frame
+age and ping/pong/pong-failure counts; no payloads or raw reasons are logged.
+`crates/runtime/examples/htx_spot_soak.rs` runs the same 13-market subscription
+for 90 minutes through the SDK for post-fix observation.
+
 ## Rate limits
 
 - Spot market WebSocket: the official v1 page documents pull-style `req` as

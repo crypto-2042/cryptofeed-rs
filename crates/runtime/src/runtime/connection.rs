@@ -330,6 +330,19 @@ pub struct Session<S> {
     next_subscription: Instant,
     sends: super::send_budget::SendBudget,
     retry_progress: Option<std::sync::Arc<super::supervisor::RetryProgress>>,
+    frame_stats: FrameStats,
+}
+
+/// Bounded per-session frame counters for diagnostics. They record frame kinds,
+/// counts and byte totals only; no payloads or close reasons are retained.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FrameStats {
+    pub(crate) text_frames: u64,
+    pub(crate) binary_frames: u64,
+    pub(crate) text_bytes: u64,
+    pub(crate) binary_bytes: u64,
+    pub(crate) max_frame_bytes: u64,
+    pub(crate) last_frame_at: Option<Instant>,
 }
 
 impl<S> Session<S> {
@@ -337,6 +350,11 @@ impl<S> Session<S> {
     pub(crate) fn raw_link(&self) -> Option<crate::recording::raw::RawSessionLink> {
         self.raw.as_ref().map(|raw| raw.link())
     }
+    /// Bounded frame-kind/count/byte diagnostics for this session.
+    pub(crate) fn frame_stats(&self) -> FrameStats {
+        self.frame_stats
+    }
+
     pub(crate) fn processing(&self) {
         #[cfg(feature = "recording")]
         if let (Some(raw), Some(sequence)) = (&self.raw, self.last_raw_sequence) {
@@ -430,6 +448,7 @@ impl<S> Session<S> {
             next_subscription: now,
             sends: super::send_budget::SendBudget::new(heartbeat.exchange),
             retry_progress: None,
+            frame_stats: FrameStats::default(),
         }
     }
 }
@@ -632,11 +651,25 @@ where
                 message = self.stream.next() => {
                     match message {
                         Some(Ok(Message::Text(text))) => {
+                            self.frame_stats.text_frames += 1;
+                            self.frame_stats.text_bytes += text.len() as u64;
+                            self.frame_stats.max_frame_bytes = self
+                                .frame_stats
+                                .max_frame_bytes
+                                .max(text.len() as u64);
+                            self.frame_stats.last_frame_at = Some(Instant::now());
                             if let Some(read) = self.handle_text_frame(text.to_string()).await? {
                                 return Ok(read);
                             }
                         }
                         Some(Ok(Message::Binary(bytes))) => {
+                            self.frame_stats.binary_frames += 1;
+                            self.frame_stats.binary_bytes += bytes.len() as u64;
+                            self.frame_stats.max_frame_bytes = self
+                                .frame_stats
+                                .max_frame_bytes
+                                .max(bytes.len() as u64);
+                            self.frame_stats.last_frame_at = Some(Instant::now());
                             let decoded = match self.exchange {
                                 // Every HTX market and notification frame is a
                                 // GZIP-compressed binary message.
@@ -683,11 +716,17 @@ where
                         Some(Ok(Message::Close(frame))) => {
                             if *shutdown.borrow() { return Ok(SessionRead::Closed); }
                             let exchange = self.exchange.or_else(|| self.readiness.as_ref().map(|attempt| attempt.exchange()));
-                            return Err(super::quota::close_error(exchange, frame.map(|frame| u16::from(frame.code))));
+                            let code = frame.as_ref().map(|frame| u16::from(frame.code));
+                            let reason = frame.as_ref().map(|frame| frame.reason.to_string());
+                            return Err(super::quota::close_error(
+                                exchange,
+                                code,
+                                reason.as_deref(),
+                            ));
                         }
                         None => {
                             if *shutdown.borrow() { return Ok(SessionRead::Closed); }
-                            return Err(super::quota::close_error(self.exchange, None));
+                            return Err(super::quota::close_error(self.exchange, None, None));
                         }
                         Some(Err(error)) => return Err(Error::Transport(error.to_string())),
                     }
@@ -855,6 +894,66 @@ mod tests {
             );
         }
     }
+    #[tokio::test]
+    async fn session_frame_stats_count_kinds_and_bytes_without_payloads() {
+        let (client, mut server) = websocket_pair().await;
+        let mut session = Session::new(
+            client,
+            HeartbeatPolicy::for_test(None, Duration::from_secs(60), Duration::from_secs(90)),
+        );
+        session.set_exchange_for_test(ExchangeId::Htx);
+        server
+            .send(Message::Text(r#"{"op":"ping","ts":"1"}"#.into()))
+            .await
+            .unwrap();
+        server
+            .send(Message::Binary(vec![1, 2, 3].into()))
+            .await
+            .unwrap();
+        let (_tx, mut rx) = watch::channel(false);
+        let _ = session.next_text_or_shutdown(&mut rx).await.unwrap();
+        let _ = session.next_text_or_shutdown(&mut rx).await.unwrap_err();
+        let stats = session.frame_stats();
+        assert_eq!(stats.text_frames, 1);
+        assert_eq!(stats.binary_frames, 1);
+        assert!(stats.text_bytes > 0);
+        assert_eq!(stats.binary_bytes, 3);
+        assert_eq!(stats.max_frame_bytes, stats.text_bytes.max(3));
+    }
+
+    #[tokio::test]
+    async fn htx_ping_check_expiry_close_is_retryable_but_other_1003_is_terminal() {
+        use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+        let cases = [
+            (Some("ping check expired"), true, false),
+            (Some("PING CHECK EXPIRED"), true, false),
+            (Some("unsupported data"), false, true),
+            (None, false, true),
+        ];
+        for (reason, retryable, permanent) in cases {
+            let (client, mut server) = websocket_pair().await;
+            let mut session = Session::new(
+                client,
+                HeartbeatPolicy::for_test(None, Duration::from_secs(60), Duration::from_secs(90)),
+            );
+            session.set_exchange_for_test(ExchangeId::Htx);
+            server
+                .send(Message::Close(Some(CloseFrame {
+                    code: 1003.into(),
+                    reason: reason.unwrap_or_default().into(),
+                })))
+                .await
+                .unwrap();
+            let (_tx, mut rx) = watch::channel(false);
+            let error = session.next_text_or_shutdown(&mut rx).await.unwrap_err();
+            assert!(
+                matches!(error, Error::WebSocketClosed { code: Some(1003), retryable: found } if found == retryable),
+                "reason={reason:?} error={error:?}"
+            );
+            assert_eq!(crate::runtime::supervisor::is_permanent(&error), permanent);
+        }
+    }
+
     #[tokio::test]
     async fn ws_lifecycle_shutdown_wins_over_a_pending_terminal_close() {
         let (client, mut server) = websocket_pair().await;
