@@ -5114,6 +5114,19 @@ mod tests {
     }
 
     #[cfg(feature = "trade")]
+    struct StampedTradeHandler {
+        stamps: Arc<Mutex<Vec<f64>>>,
+    }
+
+    #[cfg(feature = "trade")]
+    #[async_trait]
+    impl TradeHandler for StampedTradeHandler {
+        async fn on_trade(&self, trade: Trade) {
+            self.stamps.lock().expect("lock").push(trade.exchange_ts);
+        }
+    }
+
+    #[cfg(feature = "trade")]
     struct OrderedTradeHandler {
         name: &'static str,
         seen: Arc<Mutex<Vec<&'static str>>>,
@@ -8849,6 +8862,64 @@ mod tests {
             server.next().await,
             Some(Ok(Message::Close(_))) | None
         ));
+    }
+
+    #[cfg(feature = "trade")]
+    #[tokio::test]
+    async fn coinbase_reversed_trade_batch_is_delivered_in_time_order() {
+        let stamps = Arc::new(Mutex::new(Vec::new()));
+        let mut handler = FeedHandler::new();
+        handler.add_feed(
+            Coinbase::new()
+                .trade()
+                .trade_handler(Arc::new(StampedTradeHandler {
+                    stamps: stamps.clone(),
+                }))
+                .symbol("BTC-USD")
+                .build(),
+        );
+        let feed = handler.into_feeds().pop().expect("feed");
+        let (mut client, mut server) = duplex_session(ExchangeId::Coinbase).await;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let session = tokio::spawn(async move {
+            super::consume_coinbase_session_with(feed, shutdown_rx, &mut client).await
+        });
+
+        let mut channels = Vec::new();
+        for _ in 0..2 {
+            let frame = match server.next().await {
+                Some(Ok(Message::Text(text))) => text,
+                other => panic!("expected subscribe frame, got {other:?}"),
+            };
+            let frame: serde_json::Value = serde_json::from_str(&frame).expect("json");
+            channels.push(frame["channel"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(channels, vec!["market_trades", "heartbeats"]);
+
+        server
+            .send(Message::Text(
+                r#"{"channel":"subscriptions","timestamp":"2026-11-06T07:08:17.247217733Z","sequence_num":1,"events":[{"subscriptions":{"market_trades":["BTC-USD"]}}]}"#
+                    .into(),
+            ))
+            .await
+            .expect("ack");
+        server
+            .send(Message::Text(
+                r#"{"channel":"market_trades","timestamp":"2026-11-06T07:08:17.247217733Z","sequence_num":2,"events":[{"type":"update","trades":[{"product_id":"BTC-USD","trade_id":"1116181183","price":"75353.38","size":"0.00094449","time":"2026-11-06T07:08:17.218455Z","side":"SELL"},{"product_id":"BTC-USD","trade_id":"1116181182","price":"75352.4","size":"0.00000007","time":"2026-11-06T07:08:17.185577Z","side":"BUY"}]}]}"#
+                    .into(),
+            ))
+            .await
+            .expect("reversed batch");
+
+        wait_for_seen(|| stamps.lock().expect("lock").len() == 2).await;
+        let delivered = stamps.lock().expect("lock").clone();
+        assert!(delivered[0] < delivered[1], "{delivered:?}");
+
+        shutdown_tx.send(true).expect("shutdown");
+        session
+            .await
+            .expect("session task")
+            .expect("clean session shutdown");
     }
 
     #[cfg(all(feature = "trade", feature = "orderbook"))]

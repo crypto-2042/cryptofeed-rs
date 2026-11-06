@@ -46,6 +46,27 @@ pub enum CoinbaseEvent {
     Trade(Trade),
 }
 
+/// Intra-frame `market_trades` order: exact exchange time ascending, then
+/// numeric trade id, then symbol. Only compares trades from one received frame.
+#[cfg(feature = "trade")]
+fn trade_order(left: &Trade, right: &Trade) -> std::cmp::Ordering {
+    left.exchange_ts
+        .total_cmp(&right.exchange_ts)
+        .then_with(|| trade_id_order(left.id.as_deref(), right.id.as_deref()))
+        .then_with(|| left.symbol.as_str().cmp(right.symbol.as_str()))
+}
+
+#[cfg(feature = "trade")]
+fn trade_id_order(left: Option<&str>, right: Option<&str>) -> std::cmp::Ordering {
+    match (
+        left.and_then(|id| id.parse::<u128>().ok()),
+        right.and_then(|id| id.parse::<u128>().ok()),
+    ) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        _ => left.unwrap_or("").cmp(right.unwrap_or("")),
+    }
+}
+
 impl CoinbaseAdapter {
     /// Public Advanced Trade market-data WebSocket (no JWT).
     pub fn websocket_url() -> &'static str {
@@ -180,6 +201,43 @@ impl CoinbaseAdapter {
         let Some(channel) = parser::channel(message) else {
             return Vec::new();
         };
+        // Coinbase documents ~250 ms aggregation but does not promise that a
+        // `market_trades` batch is time-ordered; live frames contain reversed
+        // pairs. Normalize only the fully received frame: emit every trade
+        // sorted by exact exchange time, with numeric trade id (then symbol)
+        // as the deterministic tie-break for equal timestamps. Nothing is
+        // sorted across frames, so genuinely late trades keep their arrival
+        // order and nothing is dropped.
+        if channel == "market_trades" {
+            #[cfg(feature = "trade")]
+            {
+                let mut trades = Vec::new();
+                for event in parser::event_rows(message) {
+                    for row in event
+                        .get("trades")
+                        .and_then(Value::as_array)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default()
+                    {
+                        let Some(native) = row.get("product_id").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        let Some(symbol) = Self::symbol_for_native(feed, native) else {
+                            continue;
+                        };
+                        if let Some(trade) =
+                            parser::parse_trade_for_symbol(row, received_ts, symbol)
+                        {
+                            trades.push(trade);
+                        }
+                    }
+                }
+                trades.sort_by(trade_order);
+                return trades.into_iter().map(CoinbaseEvent::Trade).collect();
+            }
+            #[cfg(not(feature = "trade"))]
+            return Vec::new();
+        }
         let mut events = Vec::new();
         for event in parser::event_rows(message) {
             match channel {
@@ -207,27 +265,6 @@ impl CoinbaseAdapter {
                             parser::parse_l1_book_for_symbol(row, exchange_ts, received_ts, symbol)
                         {
                             events.push(CoinbaseEvent::L1Book(book));
-                        }
-                    }
-                }
-                "market_trades" => {
-                    for row in event
-                        .get("trades")
-                        .and_then(Value::as_array)
-                        .map(Vec::as_slice)
-                        .unwrap_or_default()
-                    {
-                        let Some(native) = row.get("product_id").and_then(Value::as_str) else {
-                            continue;
-                        };
-                        let Some(symbol) = Self::symbol_for_native(feed, native) else {
-                            continue;
-                        };
-                        #[cfg(feature = "trade")]
-                        if let Some(trade) =
-                            parser::parse_trade_for_symbol(row, received_ts, symbol)
-                        {
-                            events.push(CoinbaseEvent::Trade(trade));
                         }
                     }
                 }
@@ -339,6 +376,165 @@ mod tests {
         assert_eq!(CoinbaseAdapter::candle_interval_wire("15m"), None);
         assert!(!CoinbaseAdapter::l2_book_depth_supported(10));
         assert!(!CoinbaseAdapter::l2_book_depth_supported(50));
+    }
+
+    #[cfg(feature = "trade")]
+    fn trade_frame(event_type: &str, trades: Value, sequence: u64) -> Value {
+        serde_json::json!({
+            "channel": "market_trades",
+            "timestamp": "2026-11-06T07:08:17.247217733Z",
+            "sequence_num": sequence,
+            "events": [{"type": event_type, "trades": trades}],
+        })
+    }
+
+    #[cfg(feature = "trade")]
+    fn trades(events: &[super::CoinbaseEvent]) -> Vec<(String, f64, Option<String>)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                super::CoinbaseEvent::Trade(trade) => Some((
+                    trade.symbol.as_str().to_owned(),
+                    trade.exchange_ts,
+                    trade.id.clone(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "trade")]
+    fn feed() -> crate::exchange::ExchangeFeed {
+        Coinbase::new()
+            .trade()
+            .symbol("BTC-USD")
+            .symbol("ETH-USD")
+            .build()
+    }
+
+    #[cfg(feature = "trade")]
+    #[test]
+    fn reversed_update_batch_is_emitted_in_time_order() {
+        let message = trade_frame(
+            "update",
+            serde_json::json!([
+                {"product_id":"BTC-USD","trade_id":"1116181183","price":"75353.38",
+                 "size":"0.00094449","time":"2026-11-06T07:08:17.218455Z","side":"SELL"},
+                {"product_id":"BTC-USD","trade_id":"1116181182","price":"75352.4",
+                 "size":"0.00000007","time":"2026-11-06T07:08:17.185577Z","side":"BUY"}
+            ]),
+            16,
+        );
+        let rows = CoinbaseAdapter::parse_messages_for_feed(&feed(), &message, 1.0);
+        let rows = trades(&rows);
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].1 < rows[1].1);
+        assert_eq!(rows[0].2.as_deref(), Some("1116181182"));
+        assert_eq!(rows[1].2.as_deref(), Some("1116181183"));
+    }
+
+    #[cfg(feature = "trade")]
+    #[test]
+    fn reversed_snapshot_batch_is_emitted_in_time_order() {
+        let message = trade_frame(
+            "snapshot",
+            serde_json::json!([
+                {"product_id":"BTC-USD","trade_id":"10","price":"2","size":"1",
+                 "time":"2026-11-06T07:08:18.000000Z","side":"SELL"},
+                {"product_id":"BTC-USD","trade_id":"9","price":"1","size":"1",
+                 "time":"2026-11-06T07:08:17.000000Z","side":"BUY"}
+            ]),
+            17,
+        );
+        let rows = CoinbaseAdapter::parse_messages_for_feed(&feed(), &message, 1.0);
+        assert_eq!(rows.len(), 2);
+        let rows = trades(&rows);
+        assert!(rows[0].1 < rows[1].1);
+        assert_eq!(rows[0].2.as_deref(), Some("9"));
+    }
+
+    #[cfg(feature = "trade")]
+    #[test]
+    fn same_microsecond_and_exact_time_ties_use_numeric_trade_id() {
+        // Different microseconds inside the same millisecond.
+        let message = trade_frame(
+            "update",
+            serde_json::json!([
+                {"product_id":"BTC-USD","trade_id":"1116181250","price":"75349.37","size":"1",
+                 "time":"2026-11-06T07:08:35.856382Z","side":"SELL"},
+                {"product_id":"BTC-USD","trade_id":"1116181249","price":"75347.48","size":"1",
+                 "time":"2026-11-06T07:08:35.856021Z","side":"BUY"}
+            ]),
+            117,
+        );
+        let rows = trades(&CoinbaseAdapter::parse_messages_for_feed(
+            &feed(),
+            &message,
+            1.0,
+        ));
+        assert!(rows[0].1 < rows[1].1);
+        assert_eq!(rows[0].2.as_deref(), Some("1116181249"));
+
+        // Exactly equal timestamps: numeric trade id, not lexical or input order.
+        let tied = trade_frame(
+            "update",
+            serde_json::json!([
+                {"product_id":"BTC-USD","trade_id":"99","price":"2","size":"1",
+                 "time":"2026-11-06T07:08:36.000000Z","side":"SELL"},
+                {"product_id":"BTC-USD","trade_id":"100","price":"1","size":"1",
+                 "time":"2026-11-06T07:08:36.000000Z","side":"BUY"}
+            ]),
+            118,
+        );
+        let rows = trades(&CoinbaseAdapter::parse_messages_for_feed(
+            &feed(),
+            &tied,
+            1.0,
+        ));
+        assert_eq!(rows[0].2.as_deref(), Some("99"));
+        assert_eq!(rows[1].2.as_deref(), Some("100"));
+    }
+
+    #[cfg(feature = "trade")]
+    #[test]
+    fn mixed_symbols_are_sorted_by_time_within_one_frame_only() {
+        let message = trade_frame(
+            "update",
+            serde_json::json!([
+                {"product_id":"BTC-USD","trade_id":"3","price":"3","size":"1",
+                 "time":"2026-11-06T07:08:19.000000Z","side":"SELL"},
+                {"product_id":"ETH-USD","trade_id":"1","price":"1","size":"1",
+                 "time":"2026-11-06T07:08:17.000000Z","side":"BUY"},
+                {"product_id":"BTC-USD","trade_id":"2","price":"2","size":"1",
+                 "time":"2026-11-06T07:08:18.000000Z","side":"BUY"}
+            ]),
+            20,
+        );
+        let rows = trades(&CoinbaseAdapter::parse_messages_for_feed(
+            &feed(),
+            &message,
+            1.0,
+        ));
+        let times: Vec<f64> = rows.iter().map(|row| row.1).collect();
+        assert!(times.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!(rows[0].0, "ETH-USD");
+
+        // A later frame carrying an older trade is not reordered across frames.
+        let older = trade_frame(
+            "update",
+            serde_json::json!([
+                {"product_id":"BTC-USD","trade_id":"4","price":"4","size":"1",
+                 "time":"2026-11-06T07:08:16.000000Z","side":"SELL"}
+            ]),
+            21,
+        );
+        let late = trades(&CoinbaseAdapter::parse_messages_for_feed(
+            &feed(),
+            &older,
+            1.0,
+        ));
+        assert_eq!(late.len(), 1);
+        assert!(late[0].1 < times[0]);
     }
 
     #[test]
