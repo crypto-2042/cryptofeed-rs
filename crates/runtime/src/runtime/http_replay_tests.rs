@@ -287,6 +287,39 @@ async fn snapshot_failure_replays_safe_status_without_online_request() {
     ));
 }
 
+#[cfg(feature = "trade")]
+#[tokio::test]
+async fn raw_replay_parses_new_venue_frames_in_normalized_order() {
+    use crate::exchange::coinbase::Coinbase;
+    let feed = Coinbase::new().trade().symbol("BTC-USD").build();
+    let info = RawFeedInfo::from_feed(&feed);
+    let mut replay = RawParserSession::new(&info, 16, true).unwrap();
+    let value = json!({
+        "channel": "market_trades",
+        "timestamp": "2026-11-06T07:08:17.247217733Z",
+        "sequence_num": 2,
+        "events": [{"type": "update", "trades": [
+            {"product_id":"BTC-USD","trade_id":"1116181183","price":"75353.38",
+             "size":"0.00094449","time":"2026-11-06T07:08:17.218455Z","side":"SELL"},
+            {"product_id":"BTC-USD","trade_id":"1116181182","price":"75352.4",
+             "size":"0.00000007","time":"2026-11-06T07:08:17.185577Z","side":"BUY"}
+        ]}]
+    });
+    let payload = crate::recording::raw::RawPayload::Json {
+        value,
+        redacted: false,
+    };
+    let events = replay.process(&payload, 1.0, 16).await.unwrap();
+    let mut stamps = Vec::new();
+    for event in events {
+        if let crate::feed::FeedEvent::Trade(trade) = event {
+            stamps.push(trade.exchange_ts);
+        }
+    }
+    assert_eq!(stamps.len(), 2);
+    assert!(stamps[0] < stamps[1], "{stamps:?}");
+}
+
 #[tokio::test]
 async fn snapshot_event_rejects_missing_bootstrap_and_gap_schedules_only_offline_placeholder() {
     let feed = ExchangeFeedBuilder::new(ExchangeId::Binance)

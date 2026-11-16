@@ -403,7 +403,6 @@ recovery are in place.
 - Private/authenticated support and order entry.
 - Options and MARGIN public runtime support; reopening either requires a new
   explicit product-model and live-validation plan.
-- Coinbase and Kraken live runtime paths.
 - Gate.io live bootstrap capture validation: the forensics logging is in
   place, but confirming the bounded resnapshot path against a captured real
   failure requires an intermittent live failure; tracked passively.

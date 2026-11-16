@@ -98,8 +98,14 @@ impl PublicRestClient {
     pub fn catalog(&self) -> &MarketCatalog {
         &self.catalog
     }
-    /// Implemented public REST methods for this build, distinct from WS channels.
+    /// Implemented public REST methods for this build, distinct from WS
+    /// channels. REST is implemented for Binance, Bitget, Bybit, OKX and
+    /// Gate.io only; the other venues return an empty list even though their
+    /// WebSocket catalog advertises the same channels.
     pub fn supported_channels(&self) -> Vec<Channel> {
+        if !rest_supported_exchange(self.catalog.exchange()) {
+            return Vec::new();
+        }
         [
             Channel::Ticker,
             Channel::L2Book,
@@ -198,6 +204,20 @@ impl PublicRestClient {
         adapter::book(info, &plan, &payload, depth, received_time())
     }
 }
+/// Venues with an implemented public REST snapshot/history path. Keep this in
+/// sync with `rest::adapter`, `rest::trades`, `rest::candles` and
+/// `rest::history` rather than with the WebSocket capability matrix.
+fn rest_supported_exchange(exchange: ExchangeId) -> bool {
+    matches!(
+        exchange,
+        ExchangeId::Binance
+            | ExchangeId::Bitget
+            | ExchangeId::Bybit
+            | ExchangeId::Okx
+            | ExchangeId::Gateio
+    )
+}
+
 #[cfg(any(
     feature = "ticker",
     feature = "orderbook",
@@ -242,6 +262,31 @@ mod tests {
             cfg!(feature = "candles")
         );
     }
+    #[test]
+    fn rest_capabilities_exclude_websocket_only_venues() {
+        for (exchange, product) in [
+            (ExchangeId::Kucoin, InstrumentKind::Spot),
+            (ExchangeId::Kraken, InstrumentKind::Spot),
+            (ExchangeId::Upbit, InstrumentKind::Spot),
+            (ExchangeId::Bithumb, InstrumentKind::Spot),
+            (ExchangeId::Coinbase, InstrumentKind::Spot),
+            (ExchangeId::Deribit, InstrumentKind::Perpetual),
+            (ExchangeId::Htx, InstrumentKind::Spot),
+            (ExchangeId::Hyperliquid, InstrumentKind::Perpetual),
+        ] {
+            let catalog = MarketCatalog::from_registry(
+                exchange,
+                product,
+                crate::markets::SymbolRegistry::default(),
+            );
+            let client = PublicRestClient::from_catalog(catalog, TransportConfig::direct());
+            assert!(
+                client.supported_channels().is_empty(),
+                "{exchange:?} must not advertise REST channels"
+            );
+        }
+    }
+
     #[test]
     fn candle_rest_capabilities_include_documented_gate_delivery() {
         for exchange in [
