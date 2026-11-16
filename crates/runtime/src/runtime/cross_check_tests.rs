@@ -272,16 +272,28 @@ async fn l2_cross_check_failure_keeps_other_symbols_and_independent_feeds_usable
         .await
         .unwrap();
     let symbol = Symbol::spot("BTC", "USDT");
-    strict.bybit_book_syncs.lock().unwrap().insert(
-        symbol.to_string(),
-        crate::exchange::bybit::book_sync::BybitBookSync::new(symbol),
-    );
+    strict
+        .bybit_book_syncs()
+        .expect("bybit book-sync state")
+        .lock()
+        .unwrap()
+        .insert(
+            symbol.to_string(),
+            crate::exchange::bybit::book_sync::BybitBookSync::new(symbol),
+        );
     assert!(
         dispatch_l2_book(&strict, crossed(ExchangeId::Bybit))
             .await
             .is_err()
     );
-    assert!(strict.bybit_book_syncs.lock().unwrap().is_empty());
+    assert!(
+        strict
+            .bybit_book_syncs()
+            .expect("bybit book-sync state")
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(strict.orderbook_states.lock().unwrap().len(), 1);
     assert!(!strict.orderbook_states.lock().unwrap()["ETH-USDT"].is_crossed());
     assert!(!other.orderbook_states.lock().unwrap()["BTC-USDT"].is_crossed());

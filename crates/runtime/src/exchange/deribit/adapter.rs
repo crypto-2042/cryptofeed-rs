@@ -285,6 +285,20 @@ impl DeribitAdapter {
             return Vec::new();
         };
         let mut events = Vec::new();
+        // Every arm below is feature-gated; only some data features emit events.
+        #[cfg(not(any(
+            feature = "ticker",
+            feature = "trade",
+            feature = "candles",
+            feature = "funding",
+            feature = "index",
+            feature = "markprice",
+            feature = "openinterest"
+        )))]
+        {
+            let _ = (data, received_ts, symbol);
+            let _ = &mut events;
+        }
         match parser::channel_family(channel) {
             "ticker" => {
                 #[cfg(feature = "ticker")]

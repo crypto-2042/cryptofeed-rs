@@ -598,6 +598,14 @@ impl GateioAdapter {
                         .map(GateioEvent::MarkPrice),
                     );
                 }
+                // Only the feature-gated derivative-ticker arms push here.
+                #[cfg(not(any(
+                    feature = "funding",
+                    feature = "openinterest",
+                    feature = "index",
+                    feature = "markprice"
+                )))]
+                let _ = &mut events;
                 events
             }
             _ => Vec::new(),

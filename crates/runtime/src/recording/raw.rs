@@ -394,11 +394,15 @@ impl RawSession {
         }
     }
 }
+// The link fields are only read by the orderbook HTTP snapshot-capture path;
+// other feature sets still construct the link so sessions attach uniformly.
+#[cfg_attr(not(feature = "orderbook"), allow(dead_code))]
 #[derive(Clone)]
 pub(crate) struct RawSessionLink {
     capture: RawCaptureHandle,
     info: Arc<RawSessionInfo>,
 }
+#[cfg_attr(not(feature = "orderbook"), allow(dead_code))]
 impl RawSessionLink {
     pub(crate) fn snapshot_error(&self, symbol: Symbol, depth: Option<u16>, error: &Error) {
         self.capture.emit(

@@ -164,6 +164,8 @@ impl BithumbAdapter {
         let Some(data_type) = parser::message_type(message) else {
             return Vec::new();
         };
+        #[cfg(not(feature = "trade"))]
+        let _ = (received_ts, symbol);
         match data_type {
             #[cfg(feature = "trade")]
             "trade" => parser::parse_trade_for_symbol(message, received_ts, symbol)

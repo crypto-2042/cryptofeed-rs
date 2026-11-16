@@ -139,7 +139,11 @@ async fn gateio_bootstrap_success_then_immediate_gap_cannot_refund_request_budge
             assert!(d.synchronized);
             assert_eq!(d.snapshot_requests, 1);
         }
-        let current = feed.gateio_book_syncs.lock().unwrap()["BTC-USDT-PERP"]
+        let current = feed
+            .gateio_book_syncs()
+            .expect("gateio book-sync state")
+            .lock()
+            .unwrap()["BTC-USDT-PERP"]
             .last_update_id()
             .unwrap();
         let result = process_gateio_orderbook_message_for_plan(
@@ -227,7 +231,13 @@ async fn gateio_idless_snapshot_is_not_published_and_retry_is_bounded() {
             assert!(result.is_err());
         }
         assert!(feed.orderbook_states.lock().unwrap().is_empty());
-        assert!(feed.gateio_book_syncs.lock().unwrap().is_empty());
+        assert!(
+            feed.gateio_book_syncs()
+                .expect("gateio book-sync state")
+                .lock()
+                .unwrap()
+                .is_empty()
+        );
     }
 }
 

@@ -10,7 +10,28 @@
 //! standalone `parse_*` helpers derive a best-effort symbol from the native
 //! form for fixtures and single-frame tests.
 
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "markprice",
+    feature = "index",
+    feature = "openinterest"
+))]
+use cryptofeed_core::exchange::ExchangeId;
+use cryptofeed_core::symbol::Symbol;
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "markprice",
+    feature = "index",
+    feature = "openinterest"
+))]
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -54,6 +75,12 @@ pub enum TradeType {
 }
 
 impl TradeType {
+    #[cfg(any(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles"
+    ))]
     fn from_message(message: &Value) -> Option<Self> {
         let topic = message.get("T").and_then(Value::as_str)?;
         if topic.ends_with(".FUTURES") {
@@ -107,6 +134,16 @@ fn alias_base(base: &str) -> &str {
     }
 }
 
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "markprice",
+    feature = "index",
+    feature = "openinterest"
+))]
 pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
         Value::String(text) => Decimal::from_str_exact(text).ok(),
@@ -116,6 +153,12 @@ pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
 }
 
 /// Milliseconds since the epoch from an integer or numeric string.
+#[cfg(any(
+    feature = "funding",
+    feature = "markprice",
+    feature = "index",
+    feature = "openinterest"
+))]
 fn parse_millis(value: &Value) -> Option<f64> {
     match value {
         Value::String(text) => text.parse::<f64>().ok().map(|v| v / 1_000.0),
@@ -125,6 +168,14 @@ fn parse_millis(value: &Value) -> Option<f64> {
 }
 
 /// Nanoseconds since the epoch (the `M`/`P` publish clocks) to seconds.
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "markprice",
+    feature = "index",
+    feature = "openinterest"
+))]
 fn parse_nanos(value: &Value) -> Option<f64> {
     match value {
         Value::String(text) => text.parse::<f64>().ok().map(|v| v / 1_000_000_000.0),
@@ -147,15 +198,23 @@ pub fn is_market_frame(message: &Value) -> bool {
     message.get("T").and_then(Value::as_str).is_some()
 }
 
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles"
+))]
 fn raw_symbol(data: &Value) -> Option<&str> {
     data.get("s").and_then(Value::as_str)
 }
 
+#[cfg(any(feature = "ticker", feature = "trade", feature = "candles"))]
 fn message_symbol(message: &Value) -> Option<Symbol> {
     let trade_type = TradeType::from_message(message)?;
     Some(normalize_symbol(raw_symbol(payload(message)?)?, trade_type))
 }
 
+#[cfg(any(feature = "ticker", feature = "trade", feature = "orderbook"))]
 fn exchange_ts(message: &Value, data: &Value, received_ts: f64) -> f64 {
     parse_nanos(data.get("M").unwrap_or(&Value::Null))
         .or_else(|| message.get("P").and_then(parse_nanos))
@@ -274,6 +333,7 @@ pub fn parse_candle(message: &Value, received_ts: f64) -> Option<Candle> {
 }
 
 /// `mark-price` payload timestamp (`ts`, milliseconds); falls back to `P`.
+#[cfg(any(feature = "markprice", feature = "index", feature = "openinterest"))]
 fn mark_ts(message: &Value, data: &Value, received_ts: f64) -> f64 {
     parse_millis(data.get("ts").unwrap_or(&Value::Null))
         .or_else(|| message.get("P").and_then(parse_nanos))

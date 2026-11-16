@@ -525,6 +525,7 @@ fn parse_symbol(raw: &str) -> Symbol {
     }
 }
 
+#[cfg(feature = "orderbook")]
 fn is_snapshot_message(message: &Value) -> bool {
     message.get("action").and_then(Value::as_str) == Some("snapshot")
         || matches!(
@@ -564,6 +565,7 @@ fn parse_millis(value: &Value) -> Option<f64> {
         .map(|v| v / 1000.0)
 }
 
+#[cfg(feature = "orderbook")]
 fn parse_i64(value: &Value) -> Option<i64> {
     value
         .as_i64()
