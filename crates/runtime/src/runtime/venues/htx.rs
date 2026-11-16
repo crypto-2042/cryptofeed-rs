@@ -203,6 +203,14 @@ async fn dispatch_htx_event(feed: &ExchangeFeed, event: HtxEvent) -> Result<()> 
         #[cfg(feature = "trade")]
         HtxEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    #[cfg(any(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles",
+        feature = "funding",
+        feature = "liquidations",
+    ))]
     Ok(())
 }
 

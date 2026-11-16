@@ -95,6 +95,7 @@ async fn dispatch_bithumb_event(feed: &ExchangeFeed, event: BithumbEvent) -> Res
         #[cfg(feature = "trade")]
         BithumbEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    #[cfg(feature = "trade")]
     Ok(())
 }
 

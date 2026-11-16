@@ -255,6 +255,7 @@ impl FeedMonitor {
             update(entry);
         }
     }
+    #[cfg(any(feature = "orderbook", test))]
     pub fn book_synced(&self, id: u64, epoch: u64, symbol: &str) {
         self.update(|state| {
             if state.connections.get(&id).is_some_and(|record| {
@@ -269,6 +270,7 @@ impl FeedMonitor {
             }
         });
     }
+    #[cfg(any(feature = "orderbook", test))]
     pub fn invalidate_book(&self, id: u64, epoch: u64, symbol: &str) {
         self.update(|state| {
             #[cfg(feature = "orderbook")]

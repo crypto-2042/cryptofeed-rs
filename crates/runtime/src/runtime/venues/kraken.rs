@@ -106,6 +106,7 @@ async fn dispatch_kraken_event(feed: &ExchangeFeed, event: KrakenEvent) -> Resul
         #[cfg(feature = "trade")]
         KrakenEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    #[cfg(any(feature = "ticker", feature = "trade", feature = "candles",))]
     Ok(())
 }
 

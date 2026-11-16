@@ -115,6 +115,16 @@ async fn dispatch_hyperliquid_event(feed: &ExchangeFeed, event: HyperliquidEvent
         #[cfg(feature = "trade")]
         HyperliquidEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    #[cfg(any(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles",
+        feature = "funding",
+        feature = "index",
+        feature = "markprice",
+        feature = "openinterest",
+    ))]
     Ok(())
 }
 
