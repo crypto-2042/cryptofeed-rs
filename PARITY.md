@@ -25,8 +25,8 @@ but a new Bitget perpetual terminal failure interrupted baseline after about
 available; the actual trigger and full acceptance remain unverified. See the
 [open-issue audit](docs/reports/issue-audit-2026-10-16.md).
 
-Latest local materials additionally report5513831/soak0.1.3 subscriber loss432
-at39m31s. Soak0.1.4 repairs a reproduced stats-lock consumer stall; Linux
+Latest local materials additionally report 5513831 / soak 0.1.3: subscriber loss 432
+at 39m31s. Soak0.1.4 repairs a reproduced stats-lock consumer stall; Linux
 requalification and actual-trigger attribution remain pending. Protocol/API
 support is unchanged. See [consumer repair](docs/reports/consumer-contention-2026-10-16.md).
 
@@ -200,14 +200,6 @@ advertised; no REST polling is invented.
 
 Candles are parameterized: the normalized interval (default `1m`) is
 validated per exchange during preflight (`1m`..`1M` subsets; Gate.io maps to
-`10s`/`24h`/`7d`/`30d`). L2 depth levels are parameterized where the exchange
-exposes partial books: Binance `@depth5/10/20@100ms`, Bybit
-`orderbook.{50,200,1000}` for spot/linear/inverse,
-OKX `books5` (the 50/400 tick-by-tick channels are VIP4+-gated and stay
-unsupported), Bitget `books1/5/50`; Gate.io WebSocket depth stays full-depth.
-Binance L2 update intervals are parameterized via `l2_book_interval(...)`:
-spot `100ms`/`1000ms`, USD-M/COIN-M `100ms`/`250ms`/`500ms` (default `100ms`).
- (`1m`..`1M` subsets; Gate.io maps to
 `10s`/`24h`/`7d`/`30d`). L2 depth levels are parameterized where the exchange
 exposes partial books: Binance `@depth5/10/20@100ms`, Bybit
 `orderbook.{50,200,1000}` for spot/linear/inverse,

@@ -14,7 +14,7 @@ PR #8, plus the base64 0.23 update from PR #5. See the
 Retention defaults, SDK feature defaults, market-data protocol checks and
 recovery deadlines are unchanged.
 The admitted API scope remains public spot, perpetual/swap and dated futures on
-the five implemented exchanges, as specified in [PARITY](../PARITY.md).
+the 13 implemented venues, as specified in [PARITY](../PARITY.md).
 Implementation support is not the same as long-running live qualification.
 Authenticated feeds, trading, options and MARGIN are outside this RC scope.
 
