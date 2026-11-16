@@ -64,7 +64,11 @@ fn io(error: std::io::Error) -> Error {
 }
 fn validate_payload(payload: &RawPayload) -> Result<()> {
     match payload {
-        RawPayload::Heartbeat(text) if matches!(text.as_str(), "ping" | "pong") => Ok(()),
+        RawPayload::Heartbeat(text)
+            if text.eq_ignore_ascii_case("ping") || text.eq_ignore_ascii_case("pong") =>
+        {
+            Ok(())
+        }
         RawPayload::Json { value, redacted } => {
             let mut changed = false;
             let clean = sanitize(value, 0, &mut changed).map_err(|_| invalid())?;
@@ -88,6 +92,14 @@ fn validate_context(info: &RawSessionInfo) -> Result<()> {
                 | ExchangeId::Bybit
                 | ExchangeId::Okx
                 | ExchangeId::Gateio
+                | ExchangeId::Kucoin
+                | ExchangeId::Kraken
+                | ExchangeId::Upbit
+                | ExchangeId::Bithumb
+                | ExchangeId::Coinbase
+                | ExchangeId::Deribit
+                | ExchangeId::Htx
+                | ExchangeId::Hyperliquid
         )
         || feed
             .identity

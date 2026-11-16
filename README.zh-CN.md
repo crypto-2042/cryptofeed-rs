@@ -181,7 +181,7 @@ let _ = (stop, running);
 - **韩国交易所：** Upbit/Bithumb 的公开 `ticker` 帧没有买一卖一，因此没有归一化 `Ticker`/`L1Book`；Bithumb 没有公开 K 线流。
 - **KuCoin：** 没有独立 L1 频道；`obu depth=1` 只是快照型 L2。期货 `mark-price` 拆分为标记/指数/持仓量；合约数量若要换算为基础币，需使用目录元数据。
 - **Kraken：** 仅现货；`book` 对前 10 档做 CRC32 校验；`ticker` 不是 `L1Book` 频道。
-- **Coinbase：** 公开 K 线只有 5 分钟；`level2` 依赖重连恢复（无逐产品序列）。
+- **Coinbase：** 公开 K 线只有 5 分钟；`level2` 依赖重连恢复（无逐产品序列）。`market_trades` 在单个已完整接收的帧内按精确交易所时间升序输出（同一时间按数值 `trade_id` 决胜）；不承诺跨帧顺序。
 - **Deribit：** 拒绝期权；`book` 使用 change-id 链式校验。
 - **HTX：** 资金费率/强平走独立 notification 主机；标记价格、指数与持仓量当前没有公开 topic。
 - **Hyperliquid：** `l2Book` 是整簿快照（默认 20 档，`fast` 为 5 档），不是合成增量流；无公开强平。

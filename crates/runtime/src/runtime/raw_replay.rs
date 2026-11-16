@@ -245,6 +245,38 @@ impl RawParserSession {
                         .await?;
                 }
             }
+            ExchangeId::Kucoin => {
+                let mut outbound = Vec::new();
+                super::process_kucoin_text_message(&self.feed, &text, received_ts, &mut outbound)
+                    .await?
+            }
+            ExchangeId::Kraken => {
+                let mut outbound = Vec::new();
+                super::process_kraken_text_message(&self.feed, &text, received_ts, &mut outbound)
+                    .await?
+            }
+            ExchangeId::Upbit => {
+                super::process_upbit_text_message(&self.feed, &text, received_ts).await?
+            }
+            ExchangeId::Bithumb => {
+                super::process_bithumb_text_message(&self.feed, &text, received_ts).await?
+            }
+            ExchangeId::Coinbase => {
+                super::process_coinbase_text_message(&self.feed, &text, received_ts).await?
+            }
+            ExchangeId::Deribit => {
+                let mut outbound = Vec::new();
+                super::process_deribit_text_message(&self.feed, &text, received_ts, &mut outbound)
+                    .await?
+            }
+            ExchangeId::Htx => {
+                let mut outbound = super::HtxOutbound::default();
+                super::process_htx_text_message(&self.feed, &text, received_ts, &mut outbound)
+                    .await?
+            }
+            ExchangeId::Hyperliquid => {
+                super::process_hyperliquid_text_message(&self.feed, &text, received_ts).await?
+            }
             _ => return Err(Error::UnsupportedExchange("raw replay exchange".into())),
         }
         self.drain(maximum_batch)

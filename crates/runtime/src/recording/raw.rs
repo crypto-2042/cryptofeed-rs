@@ -369,7 +369,7 @@ impl RawSession {
                     return None;
                 }
             }
-        } else if matches!(text, "ping" | "pong") {
+        } else if text.eq_ignore_ascii_case("ping") || text.eq_ignore_ascii_case("pong") {
             RawPayload::Heartbeat(text.into())
         } else {
             self.capture.fail(Failure::Malformed);
@@ -615,6 +615,22 @@ mod tests {
         ));
         assert!(rx.recv().await.unwrap().is_none());
     }
+    #[tokio::test]
+    async fn uppercase_ping_heartbeats_are_accepted_for_korean_venues() {
+        let (handle, mut rx) = raw_capture_channel(8, 256).unwrap();
+        let session = handle.session(info()).unwrap();
+        session.text("PING", None, false, 1.0);
+        assert!(matches!(
+            rx.recv().await.unwrap().unwrap().kind,
+            RawObservationKind::Connected
+        ));
+        let frame = rx.recv().await.unwrap().unwrap();
+        assert!(matches!(
+            frame.kind,
+            RawObservationKind::Sent(RawPayload::Heartbeat(ref text)) if text == "PING"
+        ));
+    }
+
     #[tokio::test]
     async fn private_operations_unknown_text_and_limits_fail_without_payload_echo() {
         for text in [

@@ -235,8 +235,50 @@ fn only_current_public_sdk_routes_and_safe_query_keys_are_accepted() {
             ExchangeId::Gateio,
             "https://api.gateio.ws/api/v4/futures/usdt/trades?contract=BTC_USDT&offset=100&from=1&to=2",
         ),
+        (
+            ExchangeId::Kucoin,
+            "https://api.kucoin.com/api/ua/v2/market/instrument?tradeType=SPOT",
+        ),
+        (
+            ExchangeId::Kraken,
+            "https://api.kraken.com/0/public/AssetPairs",
+        ),
+        (
+            ExchangeId::Upbit,
+            "https://api.upbit.com/v1/market/all?is_details=true",
+        ),
+        (
+            ExchangeId::Bithumb,
+            "https://api.bithumb.com/v1/market/all?isDetails=true",
+        ),
+        (
+            ExchangeId::Coinbase,
+            "https://api.coinbase.com/api/v3/brokerage/market/products?product_type=SPOT&limit=250&cursor=opaque",
+        ),
+        (
+            ExchangeId::Deribit,
+            "https://www.deribit.com/api/v2/public/get_instruments?currency=any&kind=future&expired=false",
+        ),
+        (ExchangeId::Htx, "https://api.huobi.pro/v1/common/symbols"),
+        (
+            ExchangeId::Htx,
+            "https://api.hbdm.com/linear-swap-api/v1/swap_contract_info",
+        ),
     ] {
         public_url(exchange, url).unwrap();
+    }
+    for (exchange, url) in [
+        (
+            ExchangeId::Kucoin,
+            "https://api.kucoin.com/api/ua/v2/market/instrument?api_key=secret",
+        ),
+        (
+            ExchangeId::Coinbase,
+            "https://api.coinbase.com/api/v3/brokerage/orders",
+        ),
+        (ExchangeId::Htx, "https://api.huobi.pro/v1/account/accounts"),
+    ] {
+        assert!(public_url(exchange, url).is_err(), "{exchange:?} {url}");
     }
     for url in [
         "http://openapi.okx.com/api/v5/public/instruments",

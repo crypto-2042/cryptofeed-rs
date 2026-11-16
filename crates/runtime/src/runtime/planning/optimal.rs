@@ -124,6 +124,34 @@ fn pressure(feed: &ExchangeFeed) -> Result<(usize, usize)> {
                 .sum(),
             GATE_MESSAGES,
         )),
+        ExchangeId::Kucoin => Ok((
+            KucoinAdapter::subscription_messages(feed)?
+                .iter()
+                .map(String::len)
+                .sum(),
+            KUCOIN_BYTES,
+        )),
+        ExchangeId::Kraken => Ok((
+            KrakenAdapter::subscription_messages(feed)?
+                .iter()
+                .map(String::len)
+                .sum(),
+            KRAKEN_BYTES,
+        )),
+        ExchangeId::Upbit => Ok((
+            UpbitAdapter::subscription_messages(feed)?
+                .iter()
+                .map(String::len)
+                .sum(),
+            KOREAN_BYTES,
+        )),
+        ExchangeId::Bithumb => Ok((
+            BithumbAdapter::subscription_messages(feed)?
+                .iter()
+                .map(String::len)
+                .sum(),
+            KOREAN_BYTES,
+        )),
         // A lower-bound model for the single-connection monitoring venues: the
         // byte demand is the complete subscription-message union and the
         // capacity is the conservative local message budget.

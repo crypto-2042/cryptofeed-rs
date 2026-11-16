@@ -7,9 +7,13 @@ callback or recovery anchor. Ticker means the SDK's best bid/ask model, not all
 native 24-hour statistics. Bounded [funding history](funding-history.md) and
 [five-venue candle history](candle-history.md) are also implemented. [Recent trades](recent-trades.md) adds bounded five-venue batches. [Native trade history](trade-history.md) adds scoped continuation
 for Binance aggregate and OKX/Gate individual executions; Gate delivery candles use the documented delivery endpoint.
-`supported_channels()` reports
-implemented REST methods in the current Cargo build, separately from
-MarketCatalog's WS capabilities.
+`supported_channels()` reports implemented REST methods in the current Cargo
+build, separately from MarketCatalog's WS capabilities. REST is implemented for
+Binance, Bitget, Bybit, OKX and Gate.io only: `supported_channels()` returns an
+empty list for KuCoin, Kraken, Upbit, Bithumb, Coinbase, Deribit, HTX and
+Hyperliquid even though their WebSocket catalogs advertise the same channels,
+and the query methods return `UnsupportedExchange`/`UnsupportedCapability`
+rather than pretending to support them.
 
 ```rust,no_run
 use cryptofeed_rs::prelude::*;
