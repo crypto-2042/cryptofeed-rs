@@ -102,6 +102,12 @@ async fn dispatch_coinbase_event(feed: &ExchangeFeed, event: CoinbaseEvent) -> R
         #[cfg(feature = "trade")]
         CoinbaseEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    #[cfg(any(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles",
+    ))]
     Ok(())
 }
 

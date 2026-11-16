@@ -99,6 +99,7 @@ async fn dispatch_upbit_event(feed: &ExchangeFeed, event: UpbitEvent) -> Result<
         #[cfg(feature = "trade")]
         UpbitEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    #[cfg(any(feature = "candles", feature = "trade",))]
     Ok(())
 }
 

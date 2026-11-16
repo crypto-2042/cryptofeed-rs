@@ -180,6 +180,8 @@ impl ExchangeFeed {
     }
 
     pub(crate) fn clear_connection_books(&self, symbols: &[Symbol]) {
+        #[cfg(not(feature = "orderbook"))]
+        let _ = symbols;
         #[cfg(feature = "orderbook")]
         for symbol in symbols {
             let key = symbol.as_str();
@@ -194,6 +196,7 @@ impl ExchangeFeed {
         }
     }
 
+    #[cfg(feature = "orderbook")]
     pub(crate) fn invalidate_book_readiness(&self, symbol: &str) {
         #[cfg(feature = "orderbook")]
         self.book_projections
@@ -224,6 +227,7 @@ impl ExchangeFeed {
         }
     }
 
+    #[cfg(feature = "orderbook")]
     pub(crate) fn book_synchronized(&self, symbol: &str) {
         if let (Some(monitor), Some(tracker), Some(epoch)) = (
             &self.monitor,

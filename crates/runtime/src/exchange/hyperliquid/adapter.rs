@@ -307,6 +307,12 @@ impl HyperliquidAdapter {
             .as_array()
             .ok_or_else(|| Error::Parse("Hyperliquid trades payload is not an array".to_owned()))?;
         let mut events = Vec::new();
+        // The parser call below is the only consumer of `received_ts`.
+        #[cfg(not(feature = "trade"))]
+        {
+            let _ = received_ts;
+            let _ = &mut events;
+        }
         for row in rows {
             let Some(symbol) = Self::symbol_for_payload(feed, row)? else {
                 continue;
@@ -374,7 +380,10 @@ impl HyperliquidAdapter {
             }
         }
         #[cfg(not(any(feature = "ticker", feature = "orderbook")))]
-        let _ = symbol;
+        {
+            let _ = (symbol, received_ts);
+            let _ = &mut events;
+        }
         Ok(events)
     }
 
@@ -418,7 +427,8 @@ impl HyperliquidAdapter {
         }
         #[cfg(not(feature = "candles"))]
         {
-            let _ = data;
+            let _ = (data, feed, received_ts);
+            let _ = &mut events;
         }
         Ok(events)
     }
@@ -530,7 +540,8 @@ impl HyperliquidAdapter {
             feature = "index"
         )))]
         {
-            let _ = (channel, symbol);
+            let _ = (channel, symbol, received_ts);
+            let _ = &mut events;
         }
         Ok(events)
     }

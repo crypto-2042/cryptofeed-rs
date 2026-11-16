@@ -6,7 +6,10 @@
 //! complete order-book snapshots with at most 15 units; no candle stream is
 //! documented, so no candle parser exists.
 
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(any(feature = "trade", feature = "orderbook"))]
+use cryptofeed_core::exchange::ExchangeId;
+use cryptofeed_core::symbol::Symbol;
+#[cfg(any(feature = "trade", feature = "orderbook"))]
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -33,6 +36,7 @@ pub fn normalize_symbol(raw: &str) -> Option<Symbol> {
     Some(Symbol::spot(base, quote))
 }
 
+#[cfg(any(feature = "trade", feature = "orderbook"))]
 pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
         Value::String(text) => decimal_from_text(text),
@@ -44,6 +48,7 @@ pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
 /// Accepts both plain decimals and the scientific notation that JSON numbers
 /// use for very small prices (e.g. `5.213462e-06`); `from_str_exact` alone
 /// rejects the exponent form.
+#[cfg(any(feature = "trade", feature = "orderbook"))]
 fn decimal_from_text(text: &str) -> Option<Decimal> {
     Decimal::from_str_exact(text)
         .or_else(|_| Decimal::from_scientific(text))
@@ -51,6 +56,7 @@ fn decimal_from_text(text: &str) -> Option<Decimal> {
 }
 
 /// Milliseconds since the epoch (integer or numeric string) to seconds.
+#[cfg(any(feature = "trade", feature = "orderbook"))]
 fn parse_millis(value: &Value) -> Option<f64> {
     match value {
         Value::String(text) => text.parse::<f64>().ok().map(|value| value / 1_000.0),

@@ -851,7 +851,7 @@ mod tests {
         let liquidation = parse_liquidation(&message, 1568014461.0).expect("liquidation");
 
         assert_eq!(liquidation.symbol.as_str(), "BTC-USDT");
-        assert_eq!(liquidation.side, cryptofeed_trade::model::Side::Sell);
+        assert_eq!(liquidation.side, cryptofeed_core::model::Side::Sell);
         assert_eq!(
             liquidation.quantity,
             Decimal::from_str_exact("0.014").unwrap()

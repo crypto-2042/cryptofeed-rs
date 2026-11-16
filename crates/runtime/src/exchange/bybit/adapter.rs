@@ -339,6 +339,9 @@ impl BybitAdapter {
         let Some(topic) = message.get("topic").and_then(Value::as_str) else {
             return Vec::new();
         };
+        // `feed` is only consulted by the feature-gated option-trade rows.
+        #[cfg(not(feature = "trade"))]
+        let _ = feed;
 
         if topic.starts_with("tickers.") {
             let mut events = Vec::new();
@@ -407,6 +410,15 @@ impl BybitAdapter {
                     .map(BybitEvent::Funding),
                 );
             }
+            // Only the feature-gated arms above push into `events`.
+            #[cfg(not(any(
+                feature = "ticker",
+                feature = "openinterest",
+                feature = "index",
+                feature = "markprice",
+                feature = "funding"
+            )))]
+            let _ = &mut events;
             return events;
         }
         if topic.starts_with("orderbook.1.") {
@@ -435,6 +447,9 @@ impl BybitAdapter {
                     .map(BybitEvent::L1Book),
                 );
             }
+            // Only the feature-gated arms above push into `events`.
+            #[cfg(not(any(feature = "ticker", feature = "orderbook")))]
+            let _ = &mut events;
             return events;
         }
         if topic.starts_with("publicTrade.") {

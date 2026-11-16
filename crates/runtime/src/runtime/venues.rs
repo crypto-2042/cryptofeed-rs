@@ -75,17 +75,21 @@ pub(crate) mod prelude {
     };
     // The wire-frame helpers used by the always-built text-message entry points;
     // the book-sync types stay orderbook-gated.
+    #[cfg(feature = "orderbook")]
+    pub(crate) use crate::exchange::hyperliquid::parser as hyperliquid_parser;
     pub(crate) use crate::exchange::{
         bithumb::parser as bithumb_parser, coinbase::parser as coinbase_parser,
         deribit::parser as deribit_parser, htx::parser as htx_parser,
-        hyperliquid::parser as hyperliquid_parser, upbit::parser as upbit_parser,
+        upbit::parser as upbit_parser,
     };
     pub(crate) use crate::runtime::connection;
     pub(crate) use crate::runtime::connection::Session;
+    #[cfg(feature = "orderbook")]
     pub(crate) use crate::runtime::current_timestamp;
     pub(crate) use crate::runtime::planned_url;
     pub(crate) use crate::runtime::quota;
     pub(crate) use crate::runtime::readiness;
+    #[cfg(feature = "orderbook")]
     pub(crate) use crate::runtime::snapshot;
     pub(crate) use crate::runtime::supervisor;
     pub(crate) use cryptofeed_core::{

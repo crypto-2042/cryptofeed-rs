@@ -10,7 +10,10 @@
 //! standalone `parse_*` helpers derive a best-effort symbol from the documented
 //! `{QUOTE}-{BASE}` code for fixtures and single-frame tests.
 
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(any(feature = "trade", feature = "orderbook", feature = "candles"))]
+use cryptofeed_core::exchange::ExchangeId;
+use cryptofeed_core::symbol::Symbol;
+#[cfg(any(feature = "trade", feature = "orderbook", feature = "candles"))]
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -54,6 +57,7 @@ pub fn market_code(raw: &str) -> &str {
     }
 }
 
+#[cfg(any(feature = "trade", feature = "orderbook", feature = "candles"))]
 pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
         Value::String(text) => decimal_from_text(text),
@@ -65,6 +69,7 @@ pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
 /// Accepts both plain decimals and the scientific notation that JSON numbers
 /// use for very small prices (e.g. `5.213462e-06`); `from_str_exact` alone
 /// rejects the exponent form.
+#[cfg(any(feature = "trade", feature = "orderbook", feature = "candles"))]
 fn decimal_from_text(text: &str) -> Option<Decimal> {
     Decimal::from_str_exact(text)
         .or_else(|_| Decimal::from_scientific(text))
@@ -72,6 +77,7 @@ fn decimal_from_text(text: &str) -> Option<Decimal> {
 }
 
 /// Milliseconds since the epoch (integer or numeric string) to seconds.
+#[cfg(any(feature = "trade", feature = "orderbook", feature = "candles"))]
 fn parse_millis(value: &Value) -> Option<f64> {
     match value {
         Value::String(text) => text.parse::<f64>().ok().map(|value| value / 1_000.0),
