@@ -9,6 +9,20 @@ use cryptofeed_core::{
 };
 use serde_json::Value;
 
+mod binance;
+mod bitget;
+mod bithumb;
+mod bybit;
+mod coinbase;
+mod deribit;
+mod gateio;
+mod htx;
+mod hyperliquid;
+mod kraken;
+mod kucoin;
+mod okx;
+mod upbit;
+
 const BITGET_SPOT_CHANNELS: &[Channel] = &[
     Channel::L1Book,
     Channel::Ticker,
@@ -16,6 +30,7 @@ const BITGET_SPOT_CHANNELS: &[Channel] = &[
     Channel::L2Book,
     Channel::Candles,
 ];
+
 /// Gate.io spot additionally exposes the L1 top-of-book via the
 /// `book_ticker` stream (best bid/ask with sizes).
 const GATEIO_SPOT_CHANNELS: &[Channel] = &[
@@ -25,6 +40,7 @@ const GATEIO_SPOT_CHANNELS: &[Channel] = &[
     Channel::L1Book,
     Channel::Candles,
 ];
+
 const BINANCE_SPOT_CHANNELS: &[Channel] = &[
     Channel::Ticker,
     Channel::Trade,
@@ -32,6 +48,7 @@ const BINANCE_SPOT_CHANNELS: &[Channel] = &[
     Channel::L1Book,
     Channel::Candles,
 ];
+
 const BYBIT_SPOT_CHANNELS: &[Channel] = &[
     Channel::Ticker,
     Channel::Trade,
@@ -39,6 +56,7 @@ const BYBIT_SPOT_CHANNELS: &[Channel] = &[
     Channel::Candles,
     Channel::L1Book,
 ];
+
 const OKX_SPOT_CHANNELS: &[Channel] = &[
     Channel::Ticker,
     Channel::Trade,
@@ -47,6 +65,7 @@ const OKX_SPOT_CHANNELS: &[Channel] = &[
     Channel::Candles,
     Channel::Index,
 ];
+
 /// Gate.io derivative products expose funding, open interest, index price,
 /// and mark price inside the `futures.tickers` stream. Perpetuals additionally
 /// expose `futures.public_liquidates`; delivery liquidation support is not
@@ -61,6 +80,7 @@ const GATEIO_DERIVATIVE_CHANNELS: &[Channel] = &[
     Channel::Index,
     Channel::MarkPrice,
 ];
+
 const GATEIO_PERPETUAL_CHANNELS: &[Channel] = &[
     Channel::Ticker,
     Channel::Trade,
@@ -73,6 +93,7 @@ const GATEIO_PERPETUAL_CHANNELS: &[Channel] = &[
     Channel::MarkPrice,
     Channel::Liquidations,
 ];
+
 const BINANCE_DERIVATIVE_CHANNELS: &[Channel] = &[
     Channel::Ticker,
     Channel::Trade,
@@ -84,6 +105,7 @@ const BINANCE_DERIVATIVE_CHANNELS: &[Channel] = &[
     Channel::MarkPrice,
     Channel::Index,
 ];
+
 const BINANCE_FUTURES_CHANNELS: &[Channel] = &[
     Channel::Ticker,
     Channel::Trade,
@@ -94,6 +116,7 @@ const BINANCE_FUTURES_CHANNELS: &[Channel] = &[
     Channel::MarkPrice,
     Channel::Index,
 ];
+
 const BYBIT_DERIVATIVE_CHANNELS: &[Channel] = &[
     Channel::Ticker,
     Channel::Trade,
@@ -106,6 +129,7 @@ const BYBIT_DERIVATIVE_CHANNELS: &[Channel] = &[
     Channel::OpenInterest,
     Channel::Index,
 ];
+
 const BYBIT_FUTURES_CHANNELS: &[Channel] = &[
     Channel::Ticker,
     Channel::Trade,
@@ -117,6 +141,7 @@ const BYBIT_FUTURES_CHANNELS: &[Channel] = &[
     Channel::OpenInterest,
     Channel::Index,
 ];
+
 const OKX_SWAP_CHANNELS: &[Channel] = &[
     Channel::Index,
     Channel::Ticker,
@@ -129,6 +154,7 @@ const OKX_SWAP_CHANNELS: &[Channel] = &[
     Channel::MarkPrice,
     Channel::OpenInterest,
 ];
+
 const OKX_FUTURES_CHANNELS: &[Channel] = &[
     Channel::Index,
     Channel::Ticker,
@@ -140,6 +166,7 @@ const OKX_FUTURES_CHANNELS: &[Channel] = &[
     Channel::MarkPrice,
     Channel::OpenInterest,
 ];
+
 const BITGET_DERIVATIVE_CHANNELS: &[Channel] = &[
     Channel::L1Book,
     Channel::Funding,
@@ -152,6 +179,7 @@ const BITGET_DERIVATIVE_CHANNELS: &[Channel] = &[
     Channel::Candles,
     Channel::Liquidations,
 ];
+
 const BITGET_FUTURES_CHANNELS: &[Channel] = &[
     Channel::L1Book,
     Channel::OpenInterest,
@@ -163,6 +191,7 @@ const BITGET_FUTURES_CHANNELS: &[Channel] = &[
     Channel::Candles,
     Channel::Liquidations,
 ];
+
 /// KuCoin spot exposes `ticker`, `trade`, `obu` and `kline`. `obu depth=1`
 /// is the precise L1 source but the SDK does not advertise a standalone
 /// `L1Book` subscription: the documented `ticker` is trade-driven, and an L1
@@ -173,6 +202,7 @@ const KUCOIN_SPOT_CHANNELS: &[Channel] = &[
     Channel::L2Book,
     Channel::Candles,
 ];
+
 /// Kraken Spot WebSocket v2 exposes `ticker`, `trade`, `book` and `ohlc`.
 /// `ticker` carries BBO sizes but is not an `L1Book` channel; funding, open
 /// interest, mark price and liquidations live on the separate Derivatives
@@ -183,6 +213,7 @@ const KRAKEN_SPOT_CHANNELS: &[Channel] = &[
     Channel::L2Book,
     Channel::Candles,
 ];
+
 /// KuCoin futures add `funding-fee` and the shared `mark-price` channel, which
 /// publishes mark price, index price and open interest in one payload. There
 /// is no documented public liquidation stream.
@@ -203,6 +234,7 @@ const KUCOIN_PERPETUAL_CHANNELS: &[Channel] = &[
 /// ask, so it is not a normalized `Ticker` (BBO) capability; there is no native
 /// top-of-book channel and no public derivative stream.
 const UPBIT_SPOT_CHANNELS: &[Channel] = &[Channel::Trade, Channel::L2Book, Channel::Candles];
+
 /// Bithumb public WebSocket v1 exposes `trade` and a snapshot `orderbook` of at
 /// most 15 units with no depth parameter. Its `ticker` frame also has no
 /// best bid/ask (no `Ticker` capability), and no public WebSocket candle stream
@@ -221,6 +253,7 @@ const COINBASE_SPOT_CHANNELS: &[Channel] = &[
     Channel::L1Book,
     Channel::Candles,
 ];
+
 /// Deribit JSON-RPC public channels for perpetuals. One `ticker` payload is
 /// split into Ticker, MarkPrice, IndexPrice, OpenInterest and Funding. There is
 /// no public liquidation stream and no standalone L1 channel.
@@ -234,6 +267,7 @@ const DERIBIT_PERPETUAL_CHANNELS: &[Channel] = &[
     Channel::Index,
     Channel::OpenInterest,
 ];
+
 /// Deribit dated futures: same public channels as perpetuals except funding
 /// (a dated contract has no perpetual funding stream).
 const DERIBIT_FUTURES_CHANNELS: &[Channel] = &[
@@ -245,6 +279,7 @@ const DERIBIT_FUTURES_CHANNELS: &[Channel] = &[
     Channel::Index,
     Channel::OpenInterest,
 ];
+
 /// HTX spot public channels: `ticker`, `trade.detail`, snapshot `depth.step0`,
 /// tick-by-tick `bbo` (L1 with sizes) and `kline`. No derivative topics exist
 /// on the spot product.
@@ -255,6 +290,7 @@ const HTX_SPOT_CHANNELS: &[Channel] = &[
     Channel::L1Book,
     Channel::Candles,
 ];
+
 /// HTX USDT-M perpetual public channels: `detail` (ticker), `trade.detail`,
 /// incremental `depth.size_20.high_freq`, `bbo`, `kline`, plus the documented
 /// funding-rate and liquidation notification topics on the separate
@@ -283,6 +319,7 @@ const HYPERLIQUID_SPOT_CHANNELS: &[Channel] = &[
     Channel::Candles,
     Channel::MarkPrice,
 ];
+
 /// Hyperliquid perpetual public channels. `activeAssetCtx` is split into
 /// Funding (`funding`), OpenInterest (`openInterest`), MarkPrice (`markPx`) and
 /// IndexPrice (`oraclePx`). There is no public liquidation stream.
@@ -870,273 +907,44 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
     let mut registry = SymbolRegistry::default();
     match exchange {
         ExchangeId::Binance => {
-            if product == InstrumentKind::Spot {
-                let payload = fetch_json(
-                    "https://api.binance.com/api/v3/exchangeInfo",
-                    refresh,
-                    transport,
-                    exchange,
-                )
-                .await?;
-                add_spot_catalog(&mut registry, &payload, ExchangeId::Binance)?;
-            } else if product == InstrumentKind::Option {
-                let payload = fetch_json(
-                    "https://eapi.binance.com/eapi/v1/exchangeInfo",
-                    refresh,
-                    transport,
-                    exchange,
-                )
-                .await?;
-                for item in array_at(&payload, &["optionSymbols"])? {
-                    add_binance_option_market(&mut registry, item)?;
-                }
-            } else {
-                for url in [
-                    "https://fapi.binance.com/fapi/v1/exchangeInfo",
-                    "https://dapi.binance.com/dapi/v1/exchangeInfo",
-                ] {
-                    let payload = fetch_json(url, refresh, transport, exchange).await?;
-                    add_binance_markets(&mut registry, &payload, product)?;
-                }
-            }
+            binance::fetch_registry(&mut registry, product, refresh, transport).await?;
         }
         ExchangeId::Bitget => {
-            let categories: &[&str] = if product == InstrumentKind::Spot {
-                &["SPOT"]
-            } else {
-                &["USDT-FUTURES", "USDC-FUTURES", "COIN-FUTURES"]
-            };
-            for category in categories {
-                let url =
-                    format!("https://api.bitget.com/api/v3/market/instruments?category={category}");
-                let payload = fetch_json(&url, refresh, transport, exchange).await?;
-                if product == InstrumentKind::Spot {
-                    add_spot_catalog(&mut registry, &payload, ExchangeId::Bitget)?;
-                } else {
-                    add_bitget_markets(&mut registry, &payload, product)?;
-                }
-            }
-        }
-        ExchangeId::Bybit => {
-            if product == InstrumentKind::Spot {
-                let payload = fetch_json(
-                    "https://api.bybit.com/v5/market/instruments-info?category=spot&status=Trading",
-                    refresh,
-                    transport,
-                    exchange,
-                )
-                .await?;
-                add_spot_catalog(&mut registry, &payload, ExchangeId::Bybit)?;
-            } else if product == InstrumentKind::Option {
-                // Verified live 2026-08-07: `tickers?category=option`
-                // requires a `baseCoin` parameter (PARAMS_ERROR otherwise);
-                // the full option catalog pages from
-                // `instruments-info?category=option` without a base coin.
-                fetch_bybit_option_category(&mut registry, refresh, transport).await?;
-            } else {
-                for category in ["linear", "inverse"] {
-                    fetch_bybit_category(&mut registry, category, product, refresh, transport)
-                        .await?;
-                }
-            }
-        }
-        ExchangeId::Gateio => match product {
-            InstrumentKind::Spot => {
-                let payload = fetch_json(
-                    "https://api.gateio.ws/api/v4/spot/currency_pairs",
-                    refresh,
-                    transport,
-                    exchange,
-                )
-                .await?;
-                add_spot_catalog(&mut registry, &payload, ExchangeId::Gateio)?;
-            }
-            InstrumentKind::Perpetual => {
-                for settle in ["usdt", "btc"] {
-                    let url = format!("https://api.gateio.ws/api/v4/futures/{settle}/contracts");
-                    let payload = fetch_json(&url, refresh, transport, exchange).await?;
-                    add_gateio_perpetual_markets(&mut registry, &payload, settle)?;
-                }
-            }
-            InstrumentKind::Futures => {
-                let payload = fetch_json(
-                    "https://api.gateio.ws/api/v4/delivery/usdt/contracts",
-                    refresh,
-                    transport,
-                    exchange,
-                )
-                .await?;
-                add_gateio_delivery_markets(&mut registry, &payload)?;
-            }
-            InstrumentKind::Unknown | InstrumentKind::Option | InstrumentKind::Margin => {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery",
-                    exchange, product
-                )));
-            }
-            _ => {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery",
-                    exchange, product
-                )));
-            }
-        },
-        ExchangeId::Okx => {
-            let inst_type = match product {
-                InstrumentKind::Spot => "SPOT",
-                InstrumentKind::Perpetual => "SWAP",
-                InstrumentKind::Futures => "FUTURES",
-                InstrumentKind::Option => "OPTION",
-                InstrumentKind::Margin | InstrumentKind::Unknown => {
-                    return Err(Error::UnsupportedCapability(format!(
-                        "{:?}/{:?} symbol discovery; margin instruments share the spot instId form and require explicit exchange_symbol pairs",
-                        exchange, product
-                    )));
-                }
-                _ => {
-                    return Err(Error::UnsupportedCapability(format!(
-                        "{:?}/{:?} symbol discovery",
-                        exchange, product
-                    )));
-                }
-            };
-            let url =
-                format!("https://openapi.okx.com/api/v5/public/instruments?instType={inst_type}");
-            let payload = fetch_json(&url, refresh, transport, exchange).await?;
-            if product == InstrumentKind::Spot {
-                add_okx_spot_markets(&mut registry, &payload)?;
-            } else {
-                add_okx_markets(&mut registry, &payload, product)?;
-            }
-        }
-        ExchangeId::Kucoin => match product {
-            InstrumentKind::Spot => {
-                let payload = fetch_json(
-                    "https://api.kucoin.com/api/ua/v2/market/instrument?tradeType=SPOT",
-                    refresh,
-                    transport,
-                    exchange,
-                )
-                .await?;
-                add_kucoin_spot_catalog(&mut registry, &payload)?;
-            }
-            InstrumentKind::Perpetual | InstrumentKind::Futures => {
-                let payload = fetch_json(
-                    "https://api.kucoin.com/api/ua/v2/market/instrument?tradeType=FUTURES",
-                    refresh,
-                    transport,
-                    exchange,
-                )
-                .await?;
-                add_kucoin_futures_markets(&mut registry, &payload, product)?;
-            }
-            InstrumentKind::Unknown | InstrumentKind::Option | InstrumentKind::Margin => {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery",
-                    exchange, product
-                )));
-            }
-            _ => {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery",
-                    exchange, product
-                )));
-            }
-        },
-        ExchangeId::Upbit => {
-            if product != InstrumentKind::Spot {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery; Upbit exposes Korean spot quotation data only",
-                    exchange, product
-                )));
-            }
-            let payload = fetch_json(
-                "https://api.upbit.com/v1/market/all?is_details=true",
-                refresh,
-                transport,
-                exchange,
-            )
-            .await?;
-            add_korean_spot_catalog(&mut registry, &payload, ExchangeId::Upbit, "market")?;
+            bitget::fetch_registry(&mut registry, product, refresh, transport).await?;
         }
         ExchangeId::Bithumb => {
-            if product != InstrumentKind::Spot {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery; Bithumb exposes public spot data only",
-                    exchange, product
-                )));
-            }
-            let payload = fetch_json(
-                "https://api.bithumb.com/v1/market/all?isDetails=true",
-                refresh,
-                transport,
-                exchange,
-            )
-            .await?;
-            add_korean_spot_catalog(&mut registry, &payload, ExchangeId::Bithumb, "market")?;
+            bithumb::fetch_registry(&mut registry, product, refresh, transport).await?;
         }
-        ExchangeId::Kraken => {
-            if product != InstrumentKind::Spot {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery; Kraken derivatives live on a separate platform",
-                    exchange, product
-                )));
-            }
-            let payload = fetch_json(
-                "https://api.kraken.com/0/public/AssetPairs",
-                refresh,
-                transport,
-                exchange,
-            )
-            .await?;
-            add_kraken_spot_catalog(&mut registry, &payload)?;
+        ExchangeId::Bybit => {
+            bybit::fetch_registry(&mut registry, product, refresh, transport).await?;
         }
         ExchangeId::Coinbase => {
-            if product != InstrumentKind::Spot {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery; the public Advanced Trade feed is spot-only",
-                    exchange, product
-                )));
-            }
-            fetch_coinbase_spot_catalog(&mut registry, refresh, transport).await?;
+            coinbase::fetch_registry(&mut registry, product, refresh, transport).await?;
         }
         ExchangeId::Deribit => {
-            if !matches!(product, InstrumentKind::Perpetual | InstrumentKind::Futures) {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery; Deribit derivatives are perpetual/dates futures only",
-                    exchange, product
-                )));
-            }
-            fetch_deribit_catalog(&mut registry, product, refresh, transport).await?;
+            deribit::fetch_registry(&mut registry, product, refresh, transport).await?;
         }
-        ExchangeId::Htx => match product {
-            InstrumentKind::Spot => {
-                fetch_htx_spot_catalog(&mut registry, refresh, transport).await?;
-            }
-            InstrumentKind::Perpetual => {
-                fetch_htx_swap_catalog(&mut registry, refresh, transport).await?;
-            }
-            _ => {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery; HTX USDT-M delivery contracts are out of scope",
-                    exchange, product
-                )));
-            }
-        },
-        ExchangeId::Hyperliquid => match product {
-            InstrumentKind::Spot => {
-                fetch_hyperliquid_spot_catalog(&mut registry, refresh, transport).await?;
-            }
-            InstrumentKind::Perpetual => {
-                fetch_hyperliquid_perpetual_catalog(&mut registry, refresh, transport).await?;
-            }
-            _ => {
-                return Err(Error::UnsupportedCapability(format!(
-                    "{:?}/{:?} symbol discovery; Hyperliquid exposes public perpetuals and spot only",
-                    exchange, product
-                )));
-            }
-        },
+        ExchangeId::Gateio => {
+            gateio::fetch_registry(&mut registry, product, refresh, transport).await?;
+        }
+        ExchangeId::Htx => {
+            htx::fetch_registry(&mut registry, product, refresh, transport).await?;
+        }
+        ExchangeId::Hyperliquid => {
+            hyperliquid::fetch_registry(&mut registry, product, refresh, transport).await?;
+        }
+        ExchangeId::Kraken => {
+            kraken::fetch_registry(&mut registry, product, refresh, transport).await?;
+        }
+        ExchangeId::Kucoin => {
+            kucoin::fetch_registry(&mut registry, product, refresh, transport).await?;
+        }
+        ExchangeId::Okx => {
+            okx::fetch_registry(&mut registry, product, refresh, transport).await?;
+        }
+        ExchangeId::Upbit => {
+            upbit::fetch_registry(&mut registry, product, refresh, transport).await?;
+        }
         _ => {
             return Err(Error::UnsupportedCapability(format!(
                 "{:?}/{:?} symbol discovery",
@@ -1147,513 +955,10 @@ pub(crate) async fn fetch_symbol_registry_with_refresh(
     Ok(registry)
 }
 
-fn add_binance_option_market(registry: &mut SymbolRegistry, item: &Value) -> Result<()> {
-    // Native form: {BASE}-{YYMMDD}-{STRIKE}-{C|P}. The current eapi
-    // `optionSymbols` response carries `underlying` (e.g. `BTCUSDT`) and
-    // `quoteAsset` instead of a separate `baseAsset` (verified 2026-08-06);
-    // the base is derived by stripping the quote suffix from the underlying.
-    let exchange_symbol = required_str(item, "symbol")?;
-    let parts: Vec<_> = exchange_symbol.split('-').collect();
-    let [base_part, expiry, strike, option_type] = parts.as_slice() else {
-        return Err(Error::MalformedData(format!(
-            "invalid Binance option symbol {exchange_symbol}"
-        )));
-    };
-    if !matches!(*option_type, "C" | "P") {
-        return Err(Error::MalformedData(format!(
-            "invalid Binance option type in {exchange_symbol}"
-        )));
-    }
-    let Some(quote) = str_at(item, &["quoteAsset"]) else {
-        // Rows without a quote currency cannot be normalized faithfully;
-        // skip them instead of failing the whole catalog.
-        return Ok(());
-    };
-    let underlying = str_at(item, &["underlying"]).unwrap_or(base_part);
-    let base = underlying
-        .strip_suffix(quote)
-        .filter(|base| !base.is_empty())
-        .unwrap_or(underlying);
-    if *base_part != base {
-        return Err(Error::MalformedData(format!(
-            "Binance option {exchange_symbol} disagrees with underlying {underlying}"
-        )));
-    }
-    registry.insert(
-        Symbol::option(base, quote, expiry, strike, option_type),
-        exchange_symbol,
-    )
-}
-
-fn add_binance_markets(
-    registry: &mut SymbolRegistry,
-    payload: &Value,
-    product: InstrumentKind,
-) -> Result<()> {
-    for item in array_at(payload, &["symbols"])? {
-        let status = if item.get("contractStatus").is_some() {
-            "contractStatus"
-        } else {
-            "status"
-        };
-        if !catalog_status(item, status, &["TRADING"])? {
-            continue;
-        }
-        let contract_type = required_str(item, "contractType")?;
-        let item_product = if contract_type == "PERPETUAL" {
-            InstrumentKind::Perpetual
-        } else {
-            InstrumentKind::Futures
-        };
-        if item_product != product {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "symbol")?;
-        let base = required_str(item, "baseAsset")?;
-        let quote = required_str(item, "quoteAsset")?;
-        let symbol = match product {
-            InstrumentKind::Perpetual => Symbol::perpetual(base, quote),
-            InstrumentKind::Futures => dated_symbol(
-                base,
-                quote,
-                exchange_symbol,
-                str_at(item, &["deliveryDate"]),
-                "Binance",
-            )?,
-            _ => continue,
-        };
-        registry.insert_market(symbol, exchange_symbol, ExchangeId::Binance, item, None)?;
-    }
-    Ok(())
-}
-
-fn add_bitget_markets(
-    registry: &mut SymbolRegistry,
-    payload: &Value,
-    product: InstrumentKind,
-) -> Result<()> {
-    for item in array_at(payload, &["data"])? {
-        if !catalog_status(item, "status", &["online", "limit_open", "limit_close"])? {
-            continue;
-        }
-        let contract_type = required_str(item, "type")?;
-        let item_product = match contract_type {
-            "perpetual" => InstrumentKind::Perpetual,
-            "delivery" => InstrumentKind::Futures,
-            other => {
-                return Err(Error::MalformedData(format!(
-                    "unknown Bitget futures type {other}"
-                )));
-            }
-        };
-        if item_product != product {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "symbol")?;
-        let base = required_str(item, "baseCoin")?;
-        let quote = required_str(item, "quoteCoin")?;
-        let symbol = match product {
-            InstrumentKind::Perpetual => Symbol::perpetual(base, quote),
-            InstrumentKind::Futures => {
-                let expiry = expiry_from_millis(required_str(item, "deliveryTime")?)?;
-                Symbol::futures(base, quote, &expiry)
-            }
-            _ => continue,
-        };
-        registry.insert_market(symbol, exchange_symbol, ExchangeId::Bitget, item, None)?;
-    }
-    Ok(())
-}
-
-async fn fetch_bybit_category(
-    registry: &mut SymbolRegistry,
-    category: &str,
-    product: InstrumentKind,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<()> {
-    let mut cursor: Option<String> = None;
-    let mut seen = HashSet::new();
-    loop {
-        let mut url = url::Url::parse("https://api.bybit.com/v5/market/instruments-info")
-            .map_err(|error| Error::Transport(error.to_string()))?;
-        {
-            let mut query = url.query_pairs_mut();
-            query.append_pair("category", category);
-            query.append_pair("status", "Trading");
-            query.append_pair("limit", "1000");
-            if let Some(cursor) = &cursor {
-                query.append_pair("cursor", cursor);
-            }
-        }
-        let payload = fetch_json(url.as_str(), refresh, transport, ExchangeId::Bybit).await?;
-        cursor = add_bybit_page(registry, &payload, product)?;
-        let Some(next) = cursor.as_deref() else {
-            return Ok(());
-        };
-        record_bybit_cursor(&mut seen, next)?;
-    }
-}
-
-async fn fetch_bybit_option_category(
-    registry: &mut SymbolRegistry,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<()> {
-    let mut cursor: Option<String> = None;
-    let mut seen = HashSet::new();
-    loop {
-        let mut url = url::Url::parse("https://api.bybit.com/v5/market/instruments-info")
-            .map_err(|error| Error::Transport(error.to_string()))?;
-        {
-            let mut query = url.query_pairs_mut();
-            query.append_pair("category", "option");
-            query.append_pair("limit", "1000");
-            if let Some(cursor) = &cursor {
-                query.append_pair("cursor", cursor);
-            }
-        }
-        let payload = fetch_json(url.as_str(), refresh, transport, ExchangeId::Bybit).await?;
-        cursor = add_bybit_option_page(registry, &payload)?;
-        let Some(next) = cursor.as_deref() else {
-            return Ok(());
-        };
-        record_bybit_cursor(&mut seen, next)?;
-    }
-}
-
-fn add_bybit_option_page(registry: &mut SymbolRegistry, payload: &Value) -> Result<Option<String>> {
-    for item in array_at(payload, &["result", "list"])? {
-        let exchange_symbol = required_str(item, "symbol")?;
-        // The instruments-info contract carries `optionsType`
-        // (`Call`/`Put`); cross-check it against the documented
-        // `{C|P}` suffix so a catalog contradiction is explicit.
-        if let Some(options_type) = str_at(item, &["optionsType"]) {
-            let suffix = exchange_symbol
-                .strip_suffix("-USDT")
-                .or_else(|| exchange_symbol.strip_suffix("-USDC"))
-                .and_then(|stripped| stripped.rsplit('-').next())
-                .ok_or_else(|| {
-                    Error::MalformedData(format!("invalid Bybit option symbol {exchange_symbol}"))
-                })?;
-            let expected = if matches!(suffix, "C" | "P") {
-                suffix
-            } else {
-                ""
-            };
-            let expected = match expected {
-                "C" => "Call",
-                "P" => "Put",
-                _ => {
-                    return Err(Error::MalformedData(format!(
-                        "invalid Bybit option type in {exchange_symbol}"
-                    )));
-                }
-            };
-            if options_type != expected {
-                return Err(Error::MalformedData(format!(
-                    "Bybit option {exchange_symbol} disagrees with optionsType {options_type}"
-                )));
-            }
-        }
-        add_bybit_option_market(registry, exchange_symbol)?;
-    }
-
-    let cursor = str_at(payload, &["result", "nextPageCursor"])
-        .ok_or_else(|| {
-            Error::MalformedData("Bybit options page is missing nextPageCursor".to_owned())
-        })?
-        .trim();
-    Ok((!cursor.is_empty()).then(|| cursor.to_owned()))
-}
-
-fn add_bybit_option_market(registry: &mut SymbolRegistry, exchange_symbol: &str) -> Result<()> {
-    // Native form: {BASE}-{EXPIRY}-{STRIKE}-{C|P}, with a documented -USDT
-    // suffix for USDT-settled options; otherwise USDC settlement.
-    let settle = if exchange_symbol.ends_with("-USDT") {
-        "USDT"
-    } else {
-        "USDC"
-    };
-    let stripped = exchange_symbol
-        .strip_suffix("-USDT")
-        .unwrap_or(exchange_symbol);
-    let parts: Vec<_> = stripped.split('-').collect();
-    let [base, expiry, strike, option_type] = parts.as_slice() else {
-        return Err(Error::MalformedData(format!(
-            "invalid Bybit option symbol {exchange_symbol}"
-        )));
-    };
-    if !matches!(*option_type, "C" | "P") {
-        return Err(Error::MalformedData(format!(
-            "invalid Bybit option type in {exchange_symbol}"
-        )));
-    }
-    registry.insert(
-        Symbol::option(base, settle, expiry, strike, option_type),
-        exchange_symbol,
-    )
-}
-
-fn add_bybit_page(
-    registry: &mut SymbolRegistry,
-    payload: &Value,
-    product: InstrumentKind,
-) -> Result<Option<String>> {
-    for item in array_at(payload, &["result", "list"])? {
-        if !catalog_status(item, "status", &["Trading"])? {
-            continue;
-        }
-        let contract_type = required_str(item, "contractType")?;
-        let item_product = if contract_type.ends_with("Perpetual") {
-            InstrumentKind::Perpetual
-        } else if contract_type.ends_with("Futures") {
-            InstrumentKind::Futures
-        } else {
-            return Err(Error::MalformedData(format!(
-                "unknown Bybit contract type {contract_type}"
-            )));
-        };
-        if item_product != product {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "symbol")?;
-        let base = required_str(item, "baseCoin")?;
-        let quote = required_str(item, "quoteCoin")?;
-        let symbol = match product {
-            InstrumentKind::Perpetual => Symbol::perpetual(base, quote),
-            InstrumentKind::Futures => {
-                let expiry = expiry_from_millis(required_str(item, "deliveryTime")?)?;
-                Symbol::futures(base, quote, &expiry)
-            }
-            _ => continue,
-        };
-        registry.insert_market(symbol, exchange_symbol, ExchangeId::Bybit, item, None)?;
-    }
-
-    let cursor = str_at(payload, &["result", "nextPageCursor"])
-        .ok_or_else(|| {
-            Error::MalformedData("Bybit instruments page is missing nextPageCursor".to_owned())
-        })?
-        .trim();
-    Ok((!cursor.is_empty()).then(|| cursor.to_owned()))
-}
-
-fn record_bybit_cursor(seen: &mut HashSet<String>, cursor: &str) -> Result<()> {
-    if !seen.insert(cursor.to_owned()) {
-        return Err(Error::Protocol(format!(
-            "Bybit repeated instruments cursor {cursor}"
-        )));
-    }
-    Ok(())
-}
-
-fn add_okx_spot_markets(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    for item in array_at(payload, &["data"])? {
-        if str_at(item, &["state"]).is_some_and(|state| state != "live") {
-            continue;
-        }
-        add_spot_market(
-            registry,
-            ExchangeId::Okx,
-            item,
-            str_at(item, &["instId"]),
-            str_at(item, &["baseCcy"]),
-            str_at(item, &["quoteCcy"]),
-        )?;
-    }
-    Ok(())
-}
-
-fn add_okx_markets(
-    registry: &mut SymbolRegistry,
-    payload: &Value,
-    product: InstrumentKind,
-) -> Result<()> {
-    for item in array_at(payload, &["data"])? {
-        if str_at(item, &["state"]).is_some_and(|state| state != "live") {
-            continue;
-        }
-        let inst_type = required_str(item, "instType")?;
-        let expected_type = match product {
-            InstrumentKind::Perpetual => "SWAP",
-            InstrumentKind::Futures => "FUTURES",
-            InstrumentKind::Option => "OPTION",
-            _ => continue,
-        };
-        if inst_type != expected_type {
-            continue;
-        }
-        if product == InstrumentKind::Futures
-            && str_at(item, &["ruleType"]).is_some_and(|rule| rule != "normal")
-        {
-            continue;
-        }
-
-        let exchange_symbol = required_str(item, "instId")?;
-        let mut parts = exchange_symbol.split('-');
-        let base = parts
-            .next()
-            .filter(|part| !part.is_empty())
-            .ok_or_else(|| {
-                Error::MalformedData(format!("invalid OKX instrument {exchange_symbol}"))
-            })?;
-        let quote = parts
-            .next()
-            .filter(|part| !part.is_empty())
-            .ok_or_else(|| {
-                Error::MalformedData(format!("invalid OKX instrument {exchange_symbol}"))
-            })?;
-        let symbol = match product {
-            InstrumentKind::Perpetual => Symbol::perpetual(base, quote),
-            InstrumentKind::Futures => dated_symbol(
-                base,
-                quote,
-                exchange_symbol,
-                str_at(item, &["expTime"]),
-                "OKX",
-            )?,
-            InstrumentKind::Option => {
-                // OKX option instIds are {BASE}-{QUOTE}-{EXPIRY}-{STRIKE}-{C|P}.
-                let parts: Vec<_> = exchange_symbol.split('-').collect();
-                let [base, quote, expiry, strike, option_type] = parts.as_slice() else {
-                    return Err(Error::MalformedData(format!(
-                        "invalid OKX option instrument {exchange_symbol}"
-                    )));
-                };
-                if !matches!(*option_type, "C" | "P") {
-                    return Err(Error::MalformedData(format!(
-                        "invalid OKX option type in {exchange_symbol}"
-                    )));
-                }
-                Symbol::option(base, quote, expiry, strike, option_type)
-            }
-            _ => continue,
-        };
-        registry.insert_market(symbol, exchange_symbol, ExchangeId::Okx, item, None)?;
-    }
-    Ok(())
-}
-
-fn add_gateio_perpetual_markets(
-    registry: &mut SymbolRegistry,
-    payload: &Value,
-    settle: &str,
-) -> Result<()> {
-    let (expected_type, expected_quote) = match settle {
-        "usdt" => ("direct", "USDT"),
-        "btc" => ("inverse", "USD"),
-        other => {
-            return Err(Error::InvalidConfiguration(format!(
-                "unsupported Gateio futures settlement {other}"
-            )));
-        }
-    };
-
-    for item in gateio_contracts(payload)? {
-        if item
-            .get("in_delisting")
-            .and_then(Value::as_bool)
-            .is_some_and(|value| value)
-        {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "name")?;
-        let contract_type = required_str(item, "type")?;
-        let (base, quote) = gateio_pair(exchange_symbol)?;
-        if contract_type != expected_type || quote != expected_quote {
-            return Err(Error::MalformedData(format!(
-                "Gateio {settle} contract {exchange_symbol} has type {contract_type} and quote {quote}"
-            )));
-        }
-        registry.insert_market(
-            Symbol::perpetual(base, quote),
-            exchange_symbol,
-            ExchangeId::Gateio,
-            item,
-            Some(settle),
-        )?;
-    }
-    Ok(())
-}
-
-fn add_gateio_delivery_markets(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    for item in gateio_contracts(payload)? {
-        if item
-            .get("in_delisting")
-            .and_then(Value::as_bool)
-            .is_some_and(|value| value)
-        {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "name")?;
-        let underlying = required_str(item, "underlying")?;
-        if required_str(item, "type")? != "direct" {
-            return Err(Error::MalformedData(format!(
-                "Gateio USDT delivery contract {exchange_symbol} is not direct"
-            )));
-        }
-
-        let (base, quote) = gateio_pair(underlying)?;
-        if quote != "USDT" {
-            return Err(Error::MalformedData(format!(
-                "Gateio USDT delivery contract {exchange_symbol} has quote {quote}"
-            )));
-        }
-        let prefix = exchange_symbol
-            .strip_suffix(expiry_from_native(exchange_symbol)?)
-            .and_then(|value| value.strip_suffix('_'));
-        if prefix != Some(underlying) {
-            return Err(Error::MalformedData(format!(
-                "Gateio delivery contract {exchange_symbol} does not match underlying {underlying}"
-            )));
-        }
-        let expiry = expiry_from_native(exchange_symbol)?;
-        let expire_time = required_i64(item, "expire_time")?;
-        let timestamp_expiry = expiry_from_seconds(expire_time)?;
-        if !expiry.ends_with(&timestamp_expiry) {
-            return Err(Error::MalformedData(format!(
-                "Gateio delivery contract {exchange_symbol} disagrees with expire_time {expire_time}"
-            )));
-        }
-        registry.insert_market(
-            Symbol::futures(base, quote, expiry),
-            exchange_symbol,
-            ExchangeId::Gateio,
-            item,
-            Some("USDT"),
-        )?;
-    }
-    Ok(())
-}
-
 fn gateio_contracts(payload: &Value) -> Result<&[Value]> {
     payload.as_array().map(Vec::as_slice).ok_or_else(|| {
         Error::MalformedData("Gateio instrument response is not an array".to_owned())
     })
-}
-
-fn gateio_pair(value: &str) -> Result<(&str, &str)> {
-    let mut parts = value.split('_');
-    let base = parts.next().filter(|part| !part.is_empty());
-    let quote = parts.next().filter(|part| !part.is_empty());
-    if let (Some(base), Some(quote), None) = (base, quote, parts.next()) {
-        return Ok((base, quote));
-    }
-    Err(Error::MalformedData(format!(
-        "invalid Gateio contract pair {value}"
-    )))
-}
-
-fn required_i64(value: &Value, field: &str) -> Result<i64> {
-    let field_value = value
-        .get(field)
-        .ok_or_else(|| Error::MalformedData(format!("instrument is missing {field}")))?;
-    field_value
-        .as_i64()
-        .or_else(|| field_value.as_str()?.parse().ok())
-        .filter(|value| *value > 0)
-        .ok_or_else(|| Error::MalformedData(format!("instrument has invalid {field}")))
 }
 
 fn expiry_from_native(exchange_symbol: &str) -> Result<&str> {
@@ -1709,13 +1014,6 @@ fn expiry_from_millis(value: &str) -> Result<String> {
     Ok(format!("{:02}{month:02}{day:02}", year.rem_euclid(100)))
 }
 
-fn expiry_from_seconds(seconds: i64) -> Result<String> {
-    let millis = seconds
-        .checked_mul(1_000)
-        .ok_or_else(|| Error::MalformedData(format!("invalid delivery timestamp {seconds}")))?;
-    expiry_from_millis(&millis.to_string())
-}
-
 fn required_str<'a>(value: &'a Value, field: &str) -> Result<&'a str> {
     str_at(value, &[field])
         .filter(|value| !value.is_empty())
@@ -1755,594 +1053,6 @@ fn add_korean_spot_catalog(
                 Error::MalformedData(format!("{exchange:?} market {market} is not QUOTE-BASE"))
             })?;
         registry.insert_market(Symbol::spot(base, quote), market, exchange, item, None)?;
-    }
-    Ok(())
-}
-
-/// Legacy Kraken asset codes that the WebSocket v2 symbol namespace spells
-/// differently from the REST `AssetPairs` `wsname`. Verified live on
-/// 2026-11-03: `XBT/USD` and `XDG/USD` are rejected as unsupported while
-/// `BTC/USD` and `DOGE/USD` subscribe. The alias is applied to both sides of
-/// the pair, so an `AAVE/XBT` pair subscribes as `AAVE/BTC`.
-fn kraken_wire_asset(asset: &str) -> &str {
-    match asset {
-        "XBT" => "BTC",
-        "XDG" => "DOGE",
-        other => other,
-    }
-}
-
-/// Kraken `AssetPairs` spot catalog. `wsname` is the canonical pair form used
-/// by WebSocket v2 after the legacy `XBT`/`XDG` aliases; `altname` is the
-/// slash-less legacy form and is cross-checked so a catalog contradiction is
-/// explicit instead of being guessed around. Only `status: online` pairs are
-/// eligible; `cancel_only`/`post_only` are not tradable market-data
-/// subscriptions and are skipped.
-fn add_kraken_spot_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    let rows = payload
-        .get("result")
-        .and_then(Value::as_object)
-        .ok_or_else(|| Error::MalformedData("Kraken AssetPairs is missing result".to_owned()))?;
-    for (native_key, item) in rows {
-        if required_str(item, "status")? != "online" {
-            continue;
-        }
-        let wsname = required_str(item, "wsname")?;
-        let altname = required_str(item, "altname")?;
-        if altname != wsname.replace('/', "") {
-            return Err(Error::MalformedData(format!(
-                "Kraken pair {native_key} altname {altname} disagrees with wsname {wsname}"
-            )));
-        }
-        let (base, quote) = wsname.split_once('/').ok_or_else(|| {
-            Error::MalformedData(format!(
-                "Kraken pair {native_key} has invalid wsname {wsname}"
-            ))
-        })?;
-        if base.is_empty() || quote.is_empty() || quote.contains('/') {
-            return Err(Error::MalformedData(format!(
-                "Kraken pair {native_key} has invalid wsname {wsname}"
-            )));
-        }
-        let base = kraken_wire_asset(base);
-        let quote = kraken_wire_asset(quote);
-        registry.insert_market(
-            Symbol::spot(base, quote),
-            &format!("{base}/{quote}"),
-            ExchangeId::Kraken,
-            item,
-            None,
-        )?;
-    }
-    Ok(())
-}
-
-async fn fetch_coinbase_spot_catalog(
-    registry: &mut SymbolRegistry,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<()> {
-    // Public Advanced Trade catalog; SPOT only. Cursor pagination is documented
-    // as a base64 cursor with `pagination.has_next` / `next_cursor`.
-    let mut cursor: Option<String> = None;
-    let mut seen = HashSet::new();
-    loop {
-        let mut url = url::Url::parse("https://api.coinbase.com/api/v3/brokerage/market/products")
-            .map_err(|error| Error::Transport(error.to_string()))?;
-        {
-            let mut query = url.query_pairs_mut();
-            query.append_pair("product_type", "SPOT");
-            query.append_pair("limit", "250");
-            if let Some(cursor) = &cursor {
-                query.append_pair("cursor", cursor);
-            }
-        }
-        let payload = fetch_json(url.as_str(), refresh, transport, ExchangeId::Coinbase).await?;
-        add_coinbase_spot_page(registry, &payload)?;
-        let has_next = payload
-            .pointer("/pagination/has_next")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if !has_next {
-            return Ok(());
-        }
-        let next = str_at(&payload, &["pagination", "next_cursor"])
-            .filter(|next| !next.is_empty())
-            .ok_or_else(|| {
-                Error::MalformedData("Coinbase catalog page is missing next_cursor".to_owned())
-            })?;
-        if !seen.insert(next.to_owned()) {
-            return Err(Error::MalformedData(
-                "Coinbase catalog cursor loop".to_owned(),
-            ));
-        }
-        cursor = Some(next.to_owned());
-    }
-}
-
-fn add_coinbase_spot_page(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    for item in array_at(payload, &["products"])? {
-        // The request already filters SPOT; keep the explicit check so a
-        // derivative row can never be registered as a spot symbol.
-        if str_at(item, &["product_type"]) != Some("SPOT") {
-            continue;
-        }
-        if !catalog_status(item, "status", &["online"])? {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "product_id")?;
-        let base = required_str(item, "base_currency_id")?;
-        let quote = required_str(item, "quote_currency_id")?;
-        let expected = format!(
-            "{}-{}",
-            base.to_ascii_uppercase(),
-            quote.to_ascii_uppercase()
-        );
-        if !exchange_symbol.eq_ignore_ascii_case(&expected) {
-            return Err(Error::MalformedData(format!(
-                "Coinbase product {exchange_symbol} disagrees with {expected}"
-            )));
-        }
-        registry.insert_market(
-            Symbol::spot(base, quote),
-            exchange_symbol,
-            ExchangeId::Coinbase,
-            item,
-            None,
-        )?;
-    }
-    Ok(())
-}
-
-async fn fetch_deribit_catalog(
-    registry: &mut SymbolRegistry,
-    product: InstrumentKind,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<()> {
-    // Public JSON-RPC method over the documented REST gateway; `kind=future`
-    // covers both perpetuals and dated futures, options are filtered out.
-    let payload = fetch_json(
-        "https://www.deribit.com/api/v2/public/get_instruments?currency=any&kind=future&expired=false",
-        refresh,
-        transport,
-        ExchangeId::Deribit,
-    )
-    .await?;
-    add_deribit_markets(registry, &payload, product)
-}
-
-fn add_deribit_markets(
-    registry: &mut SymbolRegistry,
-    payload: &Value,
-    product: InstrumentKind,
-) -> Result<()> {
-    for item in array_at(payload, &["result"])? {
-        // Options/combos are never registered.
-        if required_str(item, "kind")? != "future" {
-            continue;
-        }
-        if !catalog_status(item, "state", &["open"])? {
-            continue;
-        }
-        if item.get("is_active").and_then(Value::as_bool) == Some(false) {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "instrument_name")?;
-        let base = required_str(item, "base_currency")?;
-        let quote = required_str(item, "quote_currency")?;
-        let stem = exchange_symbol
-            .split_once('-')
-            .map_or(exchange_symbol, |(stem, _)| stem);
-        let native_base = stem.split_once('_').map_or(stem, |(base, _)| base);
-        if !native_base.eq_ignore_ascii_case(base) {
-            return Err(Error::MalformedData(format!(
-                "Deribit instrument {exchange_symbol} disagrees with base {base}"
-            )));
-        }
-        let perpetual = str_at(item, &["settlement_period"]) == Some("perpetual");
-        let symbol = match product {
-            InstrumentKind::Perpetual => {
-                if !perpetual {
-                    continue;
-                }
-                Symbol::perpetual(base, quote)
-            }
-            InstrumentKind::Futures => {
-                if perpetual {
-                    continue;
-                }
-                let expires = item
-                    .get("expiration_timestamp")
-                    .and_then(Value::as_i64)
-                    .filter(|expires| *expires > 0)
-                    .ok_or_else(|| {
-                        Error::MalformedData(format!(
-                            "Deribit dated instrument {exchange_symbol} has no expiration"
-                        ))
-                    })?;
-                Symbol::futures(base, quote, &expiry_from_millis(&expires.to_string())?)
-            }
-            _ => continue,
-        };
-        registry.insert_market(symbol, exchange_symbol, ExchangeId::Deribit, item, None)?;
-    }
-    Ok(())
-}
-
-async fn fetch_htx_spot_catalog(
-    registry: &mut SymbolRegistry,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<()> {
-    let payload = fetch_json(
-        "https://api.huobi.pro/v1/common/symbols",
-        refresh,
-        transport,
-        ExchangeId::Htx,
-    )
-    .await?;
-    add_htx_spot_catalog(registry, &payload)
-}
-
-fn add_htx_spot_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    for item in array_at(payload, &["data"])? {
-        if !catalog_status(item, "state", &["online"])? {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "symbol")?;
-        let base = required_str(item, "base-currency")?;
-        let quote = required_str(item, "quote-currency")?;
-        let expected = format!(
-            "{}{}",
-            base.to_ascii_lowercase(),
-            quote.to_ascii_lowercase()
-        );
-        if !exchange_symbol.eq_ignore_ascii_case(&expected) {
-            return Err(Error::MalformedData(format!(
-                "HTX spot symbol {exchange_symbol} disagrees with {expected}"
-            )));
-        }
-        registry.insert_market(
-            Symbol::spot(base, quote),
-            exchange_symbol,
-            ExchangeId::Htx,
-            item,
-            None,
-        )?;
-    }
-    Ok(())
-}
-
-async fn fetch_htx_swap_catalog(
-    registry: &mut SymbolRegistry,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<()> {
-    let payload = fetch_json(
-        "https://api.hbdm.com/linear-swap-api/v1/swap_contract_info",
-        refresh,
-        transport,
-        ExchangeId::Htx,
-    )
-    .await?;
-    add_htx_swap_markets(registry, &payload)
-}
-
-fn add_htx_swap_markets(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    for item in array_at(payload, &["data"])? {
-        // The swap endpoint also serves delivery contracts; the feed is
-        // perpetual-only and must not mix them.
-        if str_at(item, &["business_type"]) != Some("swap")
-            || str_at(item, &["contract_type"]) != Some("swap")
-        {
-            continue;
-        }
-        // contract_status 1 means settlement finished / trading resumed; the
-        // documented settlement period codes (5..8) are not subscribable.
-        let status = item.get("contract_status").and_then(Value::as_i64);
-        if status != Some(1) {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "contract_code")?;
-        let pair = required_str(item, "pair")?;
-        let (base, quote) = pair
-            .split_once('-')
-            .filter(|(base, quote)| !base.is_empty() && !quote.is_empty() && !quote.contains('-'))
-            .ok_or_else(|| {
-                Error::MalformedData(format!("HTX swap pair {pair} is not BASE-QUOTE"))
-            })?;
-        let expected = format!("{base}-{quote}");
-        if !exchange_symbol.eq_ignore_ascii_case(&expected) {
-            return Err(Error::MalformedData(format!(
-                "HTX swap contract {exchange_symbol} disagrees with {expected}"
-            )));
-        }
-        registry.insert_market(
-            Symbol::perpetual(base, quote),
-            exchange_symbol,
-            ExchangeId::Htx,
-            item,
-            None,
-        )?;
-    }
-    Ok(())
-}
-
-/// Documented public info endpoint. Both catalogs are POST requests to the
-/// same URL with different JSON bodies.
-const HYPERLIQUID_INFO_URL: &str = "https://api.hyperliquid.xyz/info";
-
-async fn fetch_hyperliquid_perpetual_catalog(
-    registry: &mut SymbolRegistry,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<()> {
-    let payload = fetch_hyperliquid_info("meta", refresh, transport).await?;
-    add_hyperliquid_perpetual_catalog(registry, &payload)
-}
-
-async fn fetch_hyperliquid_spot_catalog(
-    registry: &mut SymbolRegistry,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<()> {
-    let payload = fetch_hyperliquid_info("spotMeta", refresh, transport).await?;
-    add_hyperliquid_spot_catalog(registry, &payload)
-}
-
-/// `POST /info` with `{"type": <kind>}`. The synthetic `?type=` query is only
-/// the cache/recording/replay key that distinguishes the two POST bodies; the
-/// request itself goes to the documented base URL.
-async fn fetch_hyperliquid_info(
-    kind: &str,
-    refresh: bool,
-    transport: &TransportConfig,
-) -> Result<Value> {
-    let key_url = format!("{HYPERLIQUID_INFO_URL}?type={kind}");
-    let key = transport.cache_key(&key_url);
-    fetch_catalog_with(&key, refresh, || async {
-        #[cfg(feature = "recording")]
-        transport.check_replay_catalog_fetch(&key_url, ExchangeId::Hyperliquid, refresh)?;
-        let body = serde_json::json!({ "type": kind });
-        let result = fetch_catalog_json_post(
-            HYPERLIQUID_INFO_URL,
-            &key_url,
-            &body,
-            transport,
-            ExchangeId::Hyperliquid,
-        )
-        .await;
-        #[cfg(feature = "recording")]
-        if result.is_ok() {
-            transport.replay_catalog_loaded(&key_url, ExchangeId::Hyperliquid);
-        }
-        result
-    })
-    .await
-}
-
-/// `isDelisted` is the documented perpetual/spot removal flag; absent means
-/// listed. A non-boolean value fails the catalog closed.
-fn hyperliquid_delisted(item: &Value) -> Result<bool> {
-    match item.get("isDelisted") {
-        None | Some(Value::Null) => Ok(false),
-        Some(Value::Bool(value)) => Ok(*value),
-        Some(_) => Err(Error::MalformedData(
-            "Hyperliquid isDelisted must be a boolean".to_owned(),
-        )),
-    }
-}
-
-/// `{"type":"meta"}`: `universe[]` perpetual rows. The WS `coin` is
-/// `universe[].name`; perpetuals are quoted in USD. Delisted rows are skipped.
-fn add_hyperliquid_perpetual_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    for item in array_at(payload, &["universe"])? {
-        if hyperliquid_delisted(item)? {
-            continue;
-        }
-        let coin = required_str(item, "name")?;
-        if coin.contains(['-', '/']) {
-            return Err(Error::MalformedData(format!(
-                "Hyperliquid perpetual name {coin} is not a plain base symbol"
-            )));
-        }
-        registry.insert_market(
-            Symbol::perpetual(coin, "USD"),
-            coin,
-            ExchangeId::Hyperliquid,
-            item,
-            None,
-        )?;
-    }
-    Ok(())
-}
-
-/// `{"type":"spotMeta"}`: `tokens[]` carries token names and `universe[]`
-/// carries `tokens:[base,quote]` plus the WS `coin` (`PURR/USDC` for the
-/// canonical pair or `@{index}` otherwise). The normalized symbol is built from
-/// the token names, never from the UI name; arbitrary quote tokens (`USDT0`,
-/// `USDH`, `USDE`) are preserved exactly. Removed pairs are absent from
-/// `universe`; `isDelisted` is honored when present.
-fn add_hyperliquid_spot_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    let mut token_names = HashMap::new();
-    for token in array_at(payload, &["tokens"])? {
-        let index = token
-            .get("index")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| Error::MalformedData("Hyperliquid token is missing index".to_owned()))?;
-        let name = required_str(token, "name")?;
-        if token_names.insert(index, name.to_owned()).is_some() {
-            return Err(Error::MalformedData(format!(
-                "Hyperliquid token index {index} is duplicated"
-            )));
-        }
-    }
-    for item in array_at(payload, &["universe"])? {
-        if hyperliquid_delisted(item)? {
-            continue;
-        }
-        let coin = required_str(item, "name")?;
-        let pair = item
-            .get("tokens")
-            .and_then(Value::as_array)
-            .filter(|pair| pair.len() == 2)
-            .ok_or_else(|| {
-                Error::MalformedData(format!(
-                    "Hyperliquid spot pair {coin} has no [base, quote] token indices"
-                ))
-            })?;
-        let base_index = pair[0].as_u64().ok_or_else(|| {
-            Error::MalformedData(format!(
-                "Hyperliquid spot pair {coin} has an invalid base index"
-            ))
-        })?;
-        let quote_index = pair[1].as_u64().ok_or_else(|| {
-            Error::MalformedData(format!(
-                "Hyperliquid spot pair {coin} has an invalid quote index"
-            ))
-        })?;
-        let base = token_names.get(&base_index).ok_or_else(|| {
-            Error::MalformedData(format!(
-                "Hyperliquid spot pair {coin} references an unknown base"
-            ))
-        })?;
-        let quote = token_names.get(&quote_index).ok_or_else(|| {
-            Error::MalformedData(format!(
-                "Hyperliquid spot pair {coin} references an unknown quote"
-            ))
-        })?;
-        if base.contains(['-', '/']) || quote.contains(['-', '/']) {
-            return Err(Error::MalformedData(format!(
-                "Hyperliquid spot token names {base}/{quote} are not plain asset symbols"
-            )));
-        }
-        match coin.strip_prefix('@') {
-            Some(embedded) => {
-                let index = item.get("index").and_then(Value::as_u64).ok_or_else(|| {
-                    Error::MalformedData(format!(
-                        "Hyperliquid spot pair {coin} is missing its pair index"
-                    ))
-                })?;
-                if embedded.parse::<u64>().ok() != Some(index) {
-                    return Err(Error::MalformedData(format!(
-                        "Hyperliquid spot pair {coin} disagrees with index {index}"
-                    )));
-                }
-            }
-            None => {
-                let expected = format!("{base}/{quote}");
-                if coin != expected {
-                    return Err(Error::MalformedData(format!(
-                        "Hyperliquid spot pair {coin} disagrees with token pair {expected}"
-                    )));
-                }
-            }
-        }
-        registry.insert_market(
-            Symbol::spot(base, quote),
-            coin,
-            ExchangeId::Hyperliquid,
-            item,
-            None,
-        )?;
-    }
-    Ok(())
-}
-
-/// KuCoin base aliases used before product qualification (`XBT` -> `BTC`).
-fn kucoin_alias_asset(asset: &str) -> &str {
-    if asset.eq_ignore_ascii_case("XBT") {
-        "BTC"
-    } else {
-        asset
-    }
-}
-
-fn add_kucoin_spot_catalog(registry: &mut SymbolRegistry, payload: &Value) -> Result<()> {
-    for item in array_at(payload, &["data", "list"])? {
-        if required_str(item, "tradingStatus")? != "TradingEnabled" {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "symbol")?;
-        let base = required_str(item, "baseCurrency")?;
-        let quote = required_str(item, "quoteCurrency")?;
-        let expected = format!("{base}-{quote}");
-        if !exchange_symbol.eq_ignore_ascii_case(&expected) {
-            return Err(Error::MalformedData(format!(
-                "KuCoin spot instrument {exchange_symbol} disagrees with {expected}"
-            )));
-        }
-        registry.insert_market(
-            Symbol::spot(kucoin_alias_asset(base), quote),
-            exchange_symbol,
-            ExchangeId::Kucoin,
-            item,
-            None,
-        )?;
-    }
-    Ok(())
-}
-
-/// KuCoin `tradeType=FUTURES` catalog. `contractType: "0"` with a null
-/// `expiryTime` is a perpetual; `contractType: "1"` with an expiry is a dated
-/// contract. `marketStage` other than `NORMAL` (pre-market) is skipped: the
-/// protocol baseline only covers the normal market.
-fn add_kucoin_futures_markets(
-    registry: &mut SymbolRegistry,
-    payload: &Value,
-    product: InstrumentKind,
-) -> Result<()> {
-    for item in array_at(payload, &["data", "list"])? {
-        if required_str(item, "tradingStatus")? != "Open" {
-            continue;
-        }
-        if required_str(item, "marketStage")? != "NORMAL" {
-            continue;
-        }
-        let contract_type = required_str(item, "contractType")?;
-        let expiry = str_at(item, &["expiryTime"]).filter(|value| !value.is_empty());
-        let item_product = match contract_type {
-            "0" if expiry.is_none() => InstrumentKind::Perpetual,
-            "1" if expiry.is_some() => InstrumentKind::Futures,
-            _ => {
-                return Err(Error::MalformedData(format!(
-                    "KuCoin futures contract {} has contractType {contract_type} with expiry {expiry:?}",
-                    required_str(item, "symbol")?
-                )));
-            }
-        };
-        if item_product != product {
-            continue;
-        }
-        let exchange_symbol = required_str(item, "symbol")?;
-        let base = required_str(item, "baseCurrency")?;
-        let quote = required_str(item, "quoteCurrency")?;
-        let symbol = match item_product {
-            InstrumentKind::Perpetual => {
-                let expected = format!("{base}{quote}M");
-                if !exchange_symbol.eq_ignore_ascii_case(&expected) {
-                    return Err(Error::MalformedData(format!(
-                        "KuCoin perpetual {exchange_symbol} disagrees with {expected}"
-                    )));
-                }
-                Symbol::perpetual(kucoin_alias_asset(base), quote)
-            }
-            InstrumentKind::Futures => {
-                let expiry = expiry.ok_or_else(|| {
-                    Error::MalformedData(format!(
-                        "KuCoin dated contract {exchange_symbol} has no expiryTime"
-                    ))
-                })?;
-                Symbol::futures(
-                    kucoin_alias_asset(base),
-                    quote,
-                    &expiry_from_millis(expiry)?,
-                )
-            }
-            _ => continue,
-        };
-        registry.insert_market(symbol, exchange_symbol, ExchangeId::Kucoin, item, None)?;
     }
     Ok(())
 }
@@ -2446,11 +1156,12 @@ async fn fetch_json(
     .await
 }
 
-// Each waiter retains the gate; weak entries avoid retaining completed requests.
 type CatalogRequest = tokio::sync::Mutex<Option<(u64, std::result::Result<Value, Error>)>>;
+
 type CatalogRequests = std::sync::Mutex<HashMap<String, std::sync::Weak<CatalogRequest>>>;
+
 static CATALOG_REQUESTS: std::sync::OnceLock<CatalogRequests> = std::sync::OnceLock::new();
-// Starts and completions have distinct epochs even within one clock tick.
+
 fn catalog_epoch() -> u64 {
     static EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -2584,6 +1295,7 @@ async fn fetch_catalog_json_request(
 }
 
 const MAX_CATALOG_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
+
 mod cache;
 use cache::{read_catalog_cache, write_catalog_cache};
 
@@ -2646,13 +1358,28 @@ fn str_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        SymbolRegistry, add_binance_markets, add_binance_option_market, add_bitget_markets,
-        add_bybit_option_market, add_bybit_option_page, add_bybit_page, add_coinbase_spot_page,
-        add_deribit_markets, add_gateio_delivery_markets, add_gateio_perpetual_markets,
-        add_htx_spot_catalog, add_htx_swap_markets, add_hyperliquid_perpetual_catalog,
-        add_hyperliquid_spot_catalog, add_korean_spot_catalog, add_kraken_spot_catalog,
-        add_kucoin_futures_markets, add_kucoin_spot_catalog, add_okx_markets, capability_matrix,
-        record_bybit_cursor, resolve_feed_symbols, validate_catalog_envelope, validate_feed,
+        SymbolRegistry, add_korean_spot_catalog,
+        binance::add_binance_markets,
+        binance::add_binance_option_market,
+        bitget::add_bitget_markets,
+        bybit::add_bybit_option_market,
+        bybit::add_bybit_option_page,
+        bybit::add_bybit_page,
+        bybit::record_bybit_cursor,
+        capability_matrix,
+        coinbase::add_coinbase_spot_page,
+        deribit::add_deribit_markets,
+        gateio::add_gateio_delivery_markets,
+        gateio::add_gateio_perpetual_markets,
+        htx::add_htx_spot_catalog,
+        htx::add_htx_swap_markets,
+        hyperliquid::add_hyperliquid_perpetual_catalog,
+        hyperliquid::add_hyperliquid_spot_catalog,
+        kraken::add_kraken_spot_catalog,
+        kucoin::add_kucoin_futures_markets,
+        kucoin::add_kucoin_spot_catalog,
+        okx::{add_okx_markets, add_okx_spot_markets},
+        resolve_feed_symbols, validate_catalog_envelope, validate_feed,
     };
     use crate::exchange::binance::Binance;
     use crate::exchange::{
@@ -2914,25 +1641,23 @@ mod tests {
             let mut registry = SymbolRegistry::default();
             match (exchange, product) {
                 (ExchangeId::Okx, InstrumentKind::Spot) => {
-                    super::add_okx_spot_markets(&mut registry, &payload).unwrap()
+                    add_okx_spot_markets(&mut registry, &payload).unwrap()
                 }
                 (_, InstrumentKind::Spot) => {
                     super::add_spot_catalog(&mut registry, &payload, exchange).unwrap()
                 }
                 (ExchangeId::Binance, _) => {
-                    super::add_binance_markets(&mut registry, &payload, product).unwrap()
+                    add_binance_markets(&mut registry, &payload, product).unwrap()
                 }
                 (ExchangeId::Bitget, _) => {
-                    super::add_bitget_markets(&mut registry, &payload, product).unwrap()
+                    add_bitget_markets(&mut registry, &payload, product).unwrap()
                 }
                 (ExchangeId::Bybit, _) => {
-                    super::add_bybit_page(&mut registry, &payload, product).unwrap();
+                    add_bybit_page(&mut registry, &payload, product).unwrap();
                 }
-                (ExchangeId::Okx, _) => {
-                    super::add_okx_markets(&mut registry, &payload, product).unwrap()
-                }
+                (ExchangeId::Okx, _) => add_okx_markets(&mut registry, &payload, product).unwrap(),
                 (ExchangeId::Gateio, _) => {
-                    super::add_gateio_perpetual_markets(&mut registry, &payload, "usdt").unwrap()
+                    add_gateio_perpetual_markets(&mut registry, &payload, "usdt").unwrap()
                 }
                 _ => unreachable!(),
             }
@@ -3029,7 +1754,7 @@ mod tests {
     #[test]
     fn okx_spot_catalog_skips_preopen_identity_without_guessing() {
         let mut registry = super::SymbolRegistry::default();
-        super::add_okx_spot_markets(&mut registry, &json!({"data": [
+        add_okx_spot_markets(&mut registry, &json!({"data": [
             {"instId":"XBB-USDT","instType":"SPOT","state":"preopen","baseCcy":"","quoteCcy":""},
             {"instId":"BTC-USDT","instType":"SPOT","state":"live","baseCcy":"BTC","quoteCcy":"USDT"}
         ]})).unwrap();
@@ -3042,7 +1767,7 @@ mod tests {
             [Symbol::spot("BTC", "USDT")]
         );
         assert!(
-            super::add_okx_spot_markets(
+            add_okx_spot_markets(
                 &mut super::SymbolRegistry::default(),
                 &json!({"data":[
                     {"instId":"BTC-USDT","state":"live","baseCcy":"","quoteCcy":"USDT"}
