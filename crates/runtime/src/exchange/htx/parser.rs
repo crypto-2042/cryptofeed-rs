@@ -7,7 +7,33 @@
 //! GZIP-compressed binary, decompressed by the connection layer before this
 //! parser sees the JSON text.
 
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "liquidations"
+))]
+use cryptofeed_core::exchange::ExchangeId;
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "liquidations",
+    test
+))]
+use cryptofeed_core::symbol::Symbol;
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "liquidations"
+))]
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -26,6 +52,14 @@ use cryptofeed_ticker::Ticker;
 #[cfg(feature = "trade")]
 use cryptofeed_trade::Trade;
 
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "liquidations"
+))]
 pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
         Value::String(text) => decimal_from_text(text),
@@ -37,6 +71,14 @@ pub(crate) fn parse_decimal(value: &Value) -> Option<Decimal> {
 /// Accepts both plain decimals and the scientific notation that JSON numbers
 /// use for very small prices (e.g. `5.213462e-06`); `from_str_exact` alone
 /// rejects the exponent form.
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "liquidations"
+))]
 fn decimal_from_text(text: &str) -> Option<Decimal> {
     Decimal::from_str_exact(text)
         .or_else(|_| Decimal::from_scientific(text))
@@ -200,6 +242,7 @@ pub fn parse_swap_bbo(data: &Value, received_ts: f64, symbol: &Symbol) -> Option
     })
 }
 
+#[cfg(feature = "trade")]
 fn trade_id(row: &Value) -> Option<String> {
     match row.get("tradeId").or_else(|| row.get("trade-id")) {
         Some(Value::String(text)) => Some(text.clone()),

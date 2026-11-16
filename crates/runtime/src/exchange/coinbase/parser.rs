@@ -7,7 +7,20 @@
 //! RFC 3339 and are converted to Unix seconds; the receive timestamp is kept
 //! separate.
 
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles"
+))]
+use cryptofeed_core::exchange::ExchangeId;
+use cryptofeed_core::symbol::Symbol;
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles"
+))]
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -48,6 +61,12 @@ pub fn event_product(row: &Value) -> Option<&str> {
     row.get("product_id").and_then(Value::as_str)
 }
 
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles"
+))]
 fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
         Value::String(text) => Decimal::from_str_exact(text).ok(),

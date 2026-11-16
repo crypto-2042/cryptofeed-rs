@@ -14,7 +14,10 @@
 //! There is no sequence number, checksum or delta form, so the parser never
 //! invents one.
 
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(any(feature = "trade", feature = "candles"))]
+use cryptofeed_core::exchange::ExchangeId;
+#[cfg(any(feature = "trade", feature = "orderbook", feature = "candles", test))]
+use cryptofeed_core::symbol::Symbol;
 use rust_decimal::Decimal;
 use serde_json::Value;
 

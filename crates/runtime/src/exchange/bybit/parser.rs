@@ -4,10 +4,9 @@ use super::book_sync::{BybitBookAction, BybitDepthUpdate};
 use cryptofeed_candles::Candle;
 #[cfg(any(feature = "trade", feature = "liquidations"))]
 use cryptofeed_core::model::Side;
-use cryptofeed_core::{
-    exchange::ExchangeId,
-    symbol::{InstrumentKind, Symbol},
-};
+#[cfg(feature = "ticker")]
+use cryptofeed_core::symbol::InstrumentKind;
+use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
 #[cfg(feature = "funding")]
 use cryptofeed_funding::Funding;
 #[cfg(feature = "index")]
@@ -672,6 +671,14 @@ fn parse_liquidation_row(
     })
 }
 
+#[cfg(any(
+    feature = "ticker",
+    feature = "funding",
+    feature = "index",
+    feature = "liquidations",
+    feature = "markprice",
+    feature = "openinterest"
+))]
 fn data_rows(message: &Value) -> Vec<&Value> {
     match message.get("data") {
         Some(Value::Array(rows)) => rows.iter().collect(),
