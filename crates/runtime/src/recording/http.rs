@@ -143,6 +143,20 @@ fn public_url(exchange: ExchangeId, input: &str) -> Result<()> {
         // Both Hyperliquid catalogs are `POST /info`; the synthetic `type`
         // query distinguishes the two bodies for cache/recording/replay keys.
         ExchangeId::Hyperliquid => host == "api.hyperliquid.xyz" && path == "/info",
+        ExchangeId::Kucoin => host == "api.kucoin.com" && path == "/api/ua/v2/market/instrument",
+        ExchangeId::Kraken => host == "api.kraken.com" && path == "/0/public/AssetPairs",
+        ExchangeId::Upbit => host == "api.upbit.com" && path == "/v1/market/all",
+        ExchangeId::Bithumb => host == "api.bithumb.com" && path == "/v1/market/all",
+        ExchangeId::Coinbase => {
+            host == "api.coinbase.com" && path == "/api/v3/brokerage/market/products"
+        }
+        ExchangeId::Deribit => {
+            host == "www.deribit.com" && path == "/api/v2/public/get_instruments"
+        }
+        ExchangeId::Htx => {
+            (host == "api.huobi.pro" && path == "/v1/common/symbols")
+                || (host == "api.hbdm.com" && path == "/linear-swap-api/v1/swap_contract_info")
+        }
         ExchangeId::Gateio => {
             host == "api.gateio.ws"
                 && [
@@ -205,6 +219,13 @@ fn public_url(exchange: ExchangeId, input: &str) -> Result<()> {
                     | "bar"
                     | "page"
                     | "offset"
+                    | "tradeType"
+                    | "is_details"
+                    | "isDetails"
+                    | "product_type"
+                    | "kind"
+                    | "expired"
+                    | "currency"
             )
         {
             return Err(invalid());
