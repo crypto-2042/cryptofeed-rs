@@ -173,6 +173,36 @@ fn exact_pairs(original: &ExchangeFeed, groups: &[ExchangeFeed]) {
     assert_eq!(actual.len(), total);
 }
 #[test]
+fn pressure_covers_korean_and_single_route_venues() {
+    for feed in [
+        Kucoin::new()
+            .trade()
+            .symbol("BTC-USDT")
+            .exchange_symbol("BTC-USDT")
+            .build(),
+        Kraken::new()
+            .trade()
+            .symbol("BTC-USD")
+            .exchange_symbol("BTC/USD")
+            .build(),
+        Upbit::new()
+            .trade()
+            .symbol("BTC-KRW")
+            .exchange_symbol("KRW-BTC")
+            .build(),
+        Bithumb::new()
+            .trade()
+            .symbol("BTC-KRW")
+            .exchange_symbol("KRW-BTC")
+            .build(),
+    ] {
+        let (used, capacity) = pressure(&feed).unwrap();
+        assert!(used > 0, "{:?}", feed.exchange);
+        assert!(capacity > 0, "{:?}", feed.exchange);
+    }
+}
+
+#[test]
 fn minimum_packing_bitget_reorders_noncontiguous_instruments_and_proves_two_sockets() {
     let mut feed = bitget();
     assert_eq!(feed.connection_feeds().unwrap().len(), 3);
