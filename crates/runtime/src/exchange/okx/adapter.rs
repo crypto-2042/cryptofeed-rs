@@ -293,7 +293,9 @@ impl OkxAdapter {
         Self::parse_messages(message, received_ts)
             .into_iter()
             .flat_map(|event| {
+                // With only `index` enabled this is the enum's sole variant.
                 #[cfg(feature = "index")]
+                #[allow(irrefutable_let_patterns)]
                 if let OkxEvent::IndexPrice(index) = &event {
                     return feed
                         .symbols

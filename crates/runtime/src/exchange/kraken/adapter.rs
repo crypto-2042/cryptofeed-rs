@@ -273,6 +273,12 @@ impl KrakenAdapter {
             return Vec::new();
         };
         let mut events = Vec::new();
+        // Only the feature-gated ticker/trade/candles arms consume these.
+        #[cfg(not(any(feature = "ticker", feature = "trade", feature = "candles")))]
+        {
+            let _ = received_ts;
+            let _ = &mut events;
+        }
         for row in parser::data_rows(message) {
             let Some(native) = parser::row_symbol(row) else {
                 continue;
@@ -280,6 +286,8 @@ impl KrakenAdapter {
             let Some(symbol) = resolve(native) else {
                 continue;
             };
+            #[cfg(not(any(feature = "ticker", feature = "trade", feature = "candles")))]
+            let _ = &symbol;
             match channel {
                 #[cfg(feature = "ticker")]
                 "ticker" => {

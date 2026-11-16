@@ -372,6 +372,17 @@ impl KucoinAdapter {
             return Vec::new();
         };
         let base = topic.split('.').next().unwrap_or(topic);
+        #[cfg(not(any(
+            feature = "ticker",
+            feature = "trade",
+            feature = "orderbook",
+            feature = "candles",
+            feature = "funding",
+            feature = "markprice",
+            feature = "index",
+            feature = "openinterest"
+        )))]
+        let _ = (received_ts, symbol);
         match base {
             #[cfg(feature = "ticker")]
             "ticker" => parser::parse_ticker_for_symbol(message, received_ts, symbol)

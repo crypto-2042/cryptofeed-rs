@@ -377,6 +377,16 @@ impl HtxAdapter {
             Err(_) => return Vec::new(),
         };
         let mut events = Vec::new();
+        // Only the feature-gated notification and market arms below push here.
+        #[cfg(not(any(
+            feature = "ticker",
+            feature = "orderbook",
+            feature = "trade",
+            feature = "candles",
+            feature = "funding",
+            feature = "liquidations"
+        )))]
+        let _ = &mut events;
         if parser::op(message) == Some("notify") {
             let Some(topic) = parser::topic(message) else {
                 return Vec::new();
@@ -387,16 +397,22 @@ impl HtxAdapter {
             let Some(symbol) = Self::symbol_for_native(feed, native) else {
                 return Vec::new();
             };
+            #[cfg(not(any(feature = "funding", feature = "liquidations")))]
+            let _ = &symbol;
             let exchange_ts = message
                 .get("ts")
                 .and_then(parser::parse_millis)
                 .unwrap_or(received_ts);
+            #[cfg(not(feature = "funding"))]
+            let _ = exchange_ts;
             let rows = message
                 .get("data")
                 .and_then(Value::as_array)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
             for row in rows {
+                #[cfg(not(any(feature = "funding", feature = "liquidations")))]
+                let _ = row;
                 match parser::notification_kind(topic) {
                     #[cfg(feature = "funding")]
                     Some("funding_rate") => {
@@ -426,12 +442,28 @@ impl HtxAdapter {
         let Some((native, kind, extra)) = parser::topic_parts(channel) else {
             return Vec::new();
         };
+        #[cfg(not(feature = "candles"))]
+        let _ = &extra;
         let Some(symbol) = Self::symbol_for_native(feed, native) else {
             return Vec::new();
         };
+        #[cfg(not(any(
+            feature = "ticker",
+            feature = "orderbook",
+            feature = "trade",
+            feature = "candles"
+        )))]
+        let _ = &symbol;
         let Some(tick) = message.get("tick") else {
             return Vec::new();
         };
+        #[cfg(not(any(
+            feature = "ticker",
+            feature = "orderbook",
+            feature = "trade",
+            feature = "candles"
+        )))]
+        let _ = &tick;
         match (product, kind) {
             (HtxProduct::Spot, "ticker") => {
                 #[cfg(feature = "ticker")]

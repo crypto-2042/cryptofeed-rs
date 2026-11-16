@@ -198,6 +198,8 @@ impl CoinbaseAdapter {
         received_ts: f64,
     ) -> Vec<CoinbaseEvent> {
         let exchange_ts = parser::message_timestamp(message, received_ts);
+        #[cfg(not(any(feature = "orderbook", feature = "candles")))]
+        let _ = exchange_ts;
         let Some(channel) = parser::channel(message) else {
             return Vec::new();
         };
@@ -239,6 +241,9 @@ impl CoinbaseAdapter {
             return Vec::new();
         }
         let mut events = Vec::new();
+        // Only the feature-gated ticker/orderbook/candles arms push here.
+        #[cfg(not(any(feature = "ticker", feature = "orderbook", feature = "candles")))]
+        let _ = &mut events;
         for event in parser::event_rows(message) {
             match channel {
                 "ticker" => {
@@ -254,6 +259,10 @@ impl CoinbaseAdapter {
                         let Some(symbol) = Self::symbol_for_native(feed, native) else {
                             continue;
                         };
+                        // The ticker arm feeds both the ticker and L1-book
+                        // projections; neither exists in other feature sets.
+                        #[cfg(not(any(feature = "ticker", feature = "orderbook")))]
+                        let _ = symbol;
                         #[cfg(feature = "ticker")]
                         if let Some(ticker) =
                             parser::parse_ticker_for_symbol(row, received_ts, symbol)
@@ -285,6 +294,8 @@ impl CoinbaseAdapter {
                         let Some(symbol) = Self::symbol_for_native(feed, native) else {
                             continue;
                         };
+                        #[cfg(not(feature = "candles"))]
+                        let _ = symbol;
                         #[cfg(feature = "candles")]
                         if let Some(candle) = parser::parse_candle_for_symbol(
                             row,
