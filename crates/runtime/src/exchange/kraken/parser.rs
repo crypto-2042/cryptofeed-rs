@@ -6,7 +6,15 @@
 //! transmitted literal through `serde_json`'s arbitrary precision, preserving
 //! the scale needed by the book checksum.
 
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(any(feature = "ticker", feature = "trade", feature = "candles"))]
+use cryptofeed_core::exchange::ExchangeId;
+use cryptofeed_core::symbol::Symbol;
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles"
+))]
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -49,6 +57,12 @@ pub fn normalize_symbol(raw: &str) -> Option<Symbol> {
     Some(Symbol::spot(wire_asset(base), wire_asset(quote)))
 }
 
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles"
+))]
 fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
         Value::String(text) => Decimal::from_str_exact(text).ok(),
@@ -60,6 +74,7 @@ fn parse_decimal(value: &Value) -> Option<Decimal> {
     }
 }
 
+#[cfg(any(feature = "orderbook", feature = "candles", test))]
 fn parse_u64(value: &Value) -> Option<u64> {
     match value {
         Value::Number(number) => number.as_u64(),
@@ -166,6 +181,7 @@ pub fn row_symbol(row: &Value) -> Option<&str> {
     row.get("symbol").and_then(Value::as_str)
 }
 
+#[cfg(any(feature = "ticker", feature = "trade", feature = "orderbook"))]
 fn row_ts(row: &Value, received_ts: f64) -> f64 {
     row.get("timestamp")
         .and_then(Value::as_str)

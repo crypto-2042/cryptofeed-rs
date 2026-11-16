@@ -115,6 +115,15 @@ async fn dispatch_deribit_event(feed: &ExchangeFeed, event: DeribitEvent) -> Res
         #[cfg(feature = "trade")]
         DeribitEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    #[cfg(any(
+        feature = "ticker",
+        feature = "trade",
+        feature = "candles",
+        feature = "funding",
+        feature = "index",
+        feature = "markprice",
+        feature = "openinterest",
+    ))]
     Ok(())
 }
 

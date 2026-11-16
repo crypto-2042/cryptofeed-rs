@@ -6,7 +6,38 @@
 //! prices/amounts are JSON numbers, parsed through their transmitted literal
 //! with `serde_json`'s arbitrary-precision feature.
 
-use cryptofeed_core::{exchange::ExchangeId, symbol::Symbol};
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "candles",
+    feature = "funding",
+    feature = "index",
+    feature = "markprice",
+    feature = "openinterest"
+))]
+use cryptofeed_core::exchange::ExchangeId;
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "index",
+    feature = "markprice",
+    feature = "openinterest",
+    test
+))]
+use cryptofeed_core::symbol::Symbol;
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "index",
+    feature = "markprice",
+    feature = "openinterest"
+))]
 use rust_decimal::Decimal;
 use serde_json::Value;
 
@@ -29,6 +60,16 @@ use cryptofeed_ticker::Ticker;
 #[cfg(feature = "trade")]
 use cryptofeed_trade::Trade;
 
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "funding",
+    feature = "index",
+    feature = "markprice",
+    feature = "openinterest"
+))]
 fn parse_decimal(value: &Value) -> Option<Decimal> {
     match value {
         Value::String(text) => Decimal::from_str_exact(text).ok(),

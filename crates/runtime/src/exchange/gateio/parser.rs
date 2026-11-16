@@ -785,6 +785,7 @@ fn result_rows(message: &Value) -> Vec<&Value> {
     }
 }
 
+#[cfg(feature = "trade")]
 fn value_to_string(value: &Value) -> Option<String> {
     value.as_str().map(ToOwned::to_owned).or_else(|| {
         if value.is_number() {
@@ -795,6 +796,13 @@ fn value_to_string(value: &Value) -> Option<String> {
     })
 }
 
+#[cfg(any(
+    feature = "trade",
+    feature = "funding",
+    feature = "index",
+    feature = "markprice",
+    feature = "openinterest"
+))]
 fn parse_millis(value: &Value) -> Option<f64> {
     value
         .as_str()
@@ -804,6 +812,13 @@ fn parse_millis(value: &Value) -> Option<f64> {
         .map(|v| v / 1000.0)
 }
 
+#[cfg(any(
+    feature = "ticker",
+    feature = "trade",
+    feature = "orderbook",
+    feature = "candles",
+    feature = "liquidations"
+))]
 fn parse_seconds(value: &Value) -> Option<f64> {
     value
         .as_str()
@@ -812,6 +827,7 @@ fn parse_seconds(value: &Value) -> Option<f64> {
         .or_else(|| value.as_i64().map(|v| v as f64))
 }
 
+#[cfg(any(feature = "ticker", feature = "orderbook", feature = "liquidations"))]
 fn parse_gateio_timestamp(value: &Value) -> Option<f64> {
     let raw = parse_seconds(value)?;
     if raw >= 10_000_000_000.0 {

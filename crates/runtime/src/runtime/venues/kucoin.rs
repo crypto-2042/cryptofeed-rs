@@ -125,6 +125,16 @@ async fn dispatch_kucoin_event(feed: &ExchangeFeed, event: KucoinEvent) -> Resul
         #[cfg(feature = "trade")]
         KucoinEvent::Trade(trade) => dispatch_trade(feed, trade).await,
     }
+    #[cfg(any(
+        feature = "ticker",
+        feature = "trade",
+        feature = "orderbook",
+        feature = "candles",
+        feature = "funding",
+        feature = "index",
+        feature = "markprice",
+        feature = "openinterest",
+    ))]
     Ok(())
 }
 
