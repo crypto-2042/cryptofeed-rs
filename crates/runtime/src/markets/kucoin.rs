@@ -43,10 +43,10 @@ pub(super) fn add_kucoin_spot_catalog(
     Ok(())
 }
 
-/// KuCoin `tradeType=FUTURES` catalog. `contractType: "0"` with a null
-/// `expiryTime` is a perpetual; `contractType: "1"` with an expiry is a dated
-/// contract. `marketStage` other than `NORMAL` (pre-market) is skipped: the
-/// protocol baseline only covers the normal market.
+/// KuCoin `tradeType=FUTURES` catalog. `contractType: "0"` is a perpetual,
+/// including rows with an `expiryTime`; only `contractType: "1"` uses that
+/// timestamp to identify a dated contract. `marketStage` other than `NORMAL`
+/// (pre-market) is skipped: the protocol baseline only covers the normal market.
 pub(super) fn add_kucoin_futures_markets(
     registry: &mut SymbolRegistry,
     payload: &Value,
@@ -62,7 +62,7 @@ pub(super) fn add_kucoin_futures_markets(
         let contract_type = required_str(item, "contractType")?;
         let expiry = str_at(item, &["expiryTime"]).filter(|value| !value.is_empty());
         let item_product = match contract_type {
-            "0" if expiry.is_none() => InstrumentKind::Perpetual,
+            "0" => InstrumentKind::Perpetual,
             "1" if expiry.is_some() => InstrumentKind::Futures,
             _ => {
                 return Err(Error::MalformedData(format!(

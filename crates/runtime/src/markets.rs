@@ -1848,6 +1848,30 @@ mod tests {
     }
 
     #[test]
+    fn kucoin_perpetual_expiry_does_not_change_product_or_poison_catalog() {
+        let payload: serde_json::Value =
+            serde_json::from_str(include_str!("../../../sample_data/kucoin.http.uta-v2.json"))
+                .unwrap();
+        let mut registry = SymbolRegistry::default();
+        add_kucoin_futures_markets(&mut registry, &payload, InstrumentKind::Perpetual).unwrap();
+        for (base, native) in [
+            ("BTC", "XBTUSDTM"),
+            ("ETH", "ETHUSDTM"),
+            ("ETHBTC", "ETHBTCUSDTM"),
+        ] {
+            assert_eq!(
+                registry
+                    .to_exchange(&Symbol::perpetual(base, "USDT"))
+                    .unwrap(),
+                native
+            );
+        }
+        let mut dated = SymbolRegistry::default();
+        add_kucoin_futures_markets(&mut dated, &payload, InstrumentKind::Futures).unwrap();
+        assert!(dated.into_entries().is_empty());
+    }
+
+    #[test]
     fn kucoin_futures_catalog_maps_perpetual_inverse_and_dated_contracts() {
         let payload = json!({"code": "200000", "data": {"tradeType": "FUTURES", "list": [
             {"symbol":"XBTUSDTM","baseCurrency":"XBT","quoteCurrency":"USDT","settlementCurrency":"USDT","contractType":"0","expiryTime":null,"isInverse":false,"unitSize":"0.001","tradingStatus":"Open","marketStage":"NORMAL"},

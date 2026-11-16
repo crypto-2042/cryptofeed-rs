@@ -1119,3 +1119,11 @@ assumption that the market feed lives at `/ws/v2` was checked live and is not
 current; the implementation follows the documented and live-verified market
 host. Likewise, the USDT-M public notification topics are served by the separate
 documented notification host rather than the market host.
+
+### KuCoin catalog product identity (2026-11-16)
+
+Public UTA V2 catalog capture `sample_data/kucoin.http.uta-v2.json` contains
+Open/NORMAL ETHBTCUSDTM with contractType `0` and a non-null expiryTime.
+Product identity follows the explicit contractType; an expiry on a type-0
+row must not turn it into a dated future or reject unrelated BTC/ETH rows.
+Type `1` still requires its expiry for the normalized delivery date.

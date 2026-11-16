@@ -739,3 +739,11 @@ or substituted while preserving the documented wire shape and precision.
   connection, and the `meta`/`spotMeta` catalog shapes recorded in
   `docs/hyperliquid-protocol.md`; no live capture was retained.
 
+
+- `kucoin.http.uta-v2.json`: unauthenticated public GET
+  `https://api.kucoin.com/api/ua/v2/market/instrument?tradeType=FUTURES`,
+  captured 2026-11-16. Retains only XBTUSDTM, ETHUSDTM and ETHBTCUSDTM rows
+  without modifying their returned metadata. ETHBTCUSDTM reports contractType
+  `0` and expiryTime `1794985200000` while Open/NORMAL. Regression asserts
+  perpetual routing for all three and no dated-futures routing. Official
+  endpoint: https://www.kucoin.com/docs-new/v2/rest/ua/instrument .
