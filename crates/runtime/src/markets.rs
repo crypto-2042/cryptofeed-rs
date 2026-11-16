@@ -1848,6 +1848,34 @@ mod tests {
     }
 
     #[test]
+    fn kucoin_perpetual_expiry_does_not_change_product_or_poison_catalog() {
+        // Mirror the retained capture inline so published crate tests have no
+        // dependency on files outside the runtime package.
+        let payload = json!({"code":"200000","data":{"list":[
+            {"symbol":"XBTUSDTM","baseCurrency":"XBT","quoteCurrency":"USDT","settlementCurrency":"USDT","contractType":"0","expiryTime":null,"isInverse":false,"unitSize":"0.001","tradingStatus":"Open","marketStage":"NORMAL"},
+            {"symbol":"ETHUSDTM","baseCurrency":"ETH","quoteCurrency":"USDT","settlementCurrency":"USDT","contractType":"0","expiryTime":null,"isInverse":false,"unitSize":"0.01","tradingStatus":"Open","marketStage":"NORMAL"},
+            {"symbol":"ETHBTCUSDTM","baseCurrency":"ETHBTC","quoteCurrency":"USDT","settlementCurrency":"USDT","contractType":"0","expiryTime":"1794985200000","isInverse":false,"unitSize":"100.0","tradingStatus":"Open","marketStage":"NORMAL"}
+        ]}});
+        let mut registry = SymbolRegistry::default();
+        add_kucoin_futures_markets(&mut registry, &payload, InstrumentKind::Perpetual).unwrap();
+        for (base, native) in [
+            ("BTC", "XBTUSDTM"),
+            ("ETH", "ETHUSDTM"),
+            ("ETHBTC", "ETHBTCUSDTM"),
+        ] {
+            assert_eq!(
+                registry
+                    .to_exchange(&Symbol::perpetual(base, "USDT"))
+                    .unwrap(),
+                native
+            );
+        }
+        let mut dated = SymbolRegistry::default();
+        add_kucoin_futures_markets(&mut dated, &payload, InstrumentKind::Futures).unwrap();
+        assert!(dated.into_entries().is_empty());
+    }
+
+    #[test]
     fn kucoin_futures_catalog_maps_perpetual_inverse_and_dated_contracts() {
         let payload = json!({"code": "200000", "data": {"tradeType": "FUTURES", "list": [
             {"symbol":"XBTUSDTM","baseCurrency":"XBT","quoteCurrency":"USDT","settlementCurrency":"USDT","contractType":"0","expiryTime":null,"isInverse":false,"unitSize":"0.001","tradingStatus":"Open","marketStage":"NORMAL"},

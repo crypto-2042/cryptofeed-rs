@@ -1,6 +1,13 @@
 # Progress
 
-Last updated: 2026-11-04
+Last updated: 2026-11-16
+
+## KuCoin catalog startup regression (2026-11-16)
+
+- Keep type-0 perpetual identity when expiryTime is populated, as observed in
+  the official ETHBTCUSDTM catalog row; healthy BTC/ETH catalog rows remain usable.
+- A retained public capture drives an offline regression for perpetual routing
+  and dated-product exclusion. Existing identity and dated-expiry guards remain.
 
 ## HTX close/recovery contract (2026-11-05)
 
