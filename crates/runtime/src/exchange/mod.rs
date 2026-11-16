@@ -13,38 +13,15 @@ pub mod okx;
 pub mod upbit;
 
 #[cfg(feature = "orderbook")]
+mod book_syncs;
+
+#[cfg(feature = "orderbook")]
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 #[cfg(feature = "orderbook")]
 use std::sync::Mutex;
 
-#[cfg(feature = "orderbook")]
-use crate::exchange::binance::book_sync::BinanceBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::bitget::book_sync::BitgetBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::bithumb::book_sync::BithumbBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::bybit::book_sync::BybitBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::coinbase::book_sync::CoinbaseBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::deribit::book_sync::DeribitBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::gateio::book_sync::GateioBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::htx::book_sync::HtxBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::hyperliquid::book_sync::HyperliquidBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::kraken::book_sync::KrakenBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::kucoin::book_sync::KucoinBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::okx::book_sync::OkxBookSync;
-#[cfg(feature = "orderbook")]
-use crate::exchange::upbit::book_sync::UpbitBookSync;
 #[cfg(feature = "candles")]
 use cryptofeed_candles::CandleHandler;
 use cryptofeed_core::{
@@ -157,31 +134,7 @@ pub struct ExchangeFeed {
     #[cfg(feature = "orderbook")]
     pub(crate) book_projections: Arc<Mutex<HashMap<String, cryptofeed_orderbook::L2BookSnapshot>>>,
     #[cfg(feature = "orderbook")]
-    pub(crate) binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) coinbase_book_syncs: Arc<Mutex<HashMap<String, CoinbaseBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) deribit_book_syncs: Arc<Mutex<HashMap<String, DeribitBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) htx_book_syncs: Arc<Mutex<HashMap<String, HtxBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) hyperliquid_book_syncs: Arc<Mutex<HashMap<String, HyperliquidBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) bybit_book_syncs: Arc<Mutex<HashMap<String, BybitBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) gateio_book_syncs: Arc<Mutex<HashMap<String, GateioBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) okx_book_syncs: Arc<Mutex<HashMap<String, OkxBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) kucoin_book_syncs: Arc<Mutex<HashMap<String, KucoinBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) kraken_book_syncs: Arc<Mutex<HashMap<String, KrakenBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) upbit_book_syncs: Arc<Mutex<HashMap<String, UpbitBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    pub(crate) bithumb_book_syncs: Arc<Mutex<HashMap<String, BithumbBookSync>>>,
+    pub(crate) book_syncs: Option<book_syncs::VenueBookSyncs>,
     /// Event-stream sender injected by `FeedHandler::add_feed` when the user
     /// subscribed via `FeedHandler::subscribe()`.
     pub(crate) event_sender: Option<tokio::sync::broadcast::Sender<crate::feed::FeedEvent>>,
@@ -234,58 +187,9 @@ impl ExchangeFeed {
                 .lock()
                 .expect("book state lock")
                 .remove(key);
-            self.binance_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.coinbase_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.deribit_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.htx_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.hyperliquid_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.bitget_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.bybit_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.gateio_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.okx_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.kucoin_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.kraken_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.upbit_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
-            self.bithumb_book_syncs
-                .lock()
-                .expect("book sync lock")
-                .remove(key);
+            if let Some(syncs) = &self.book_syncs {
+                syncs.clear_symbol(key);
+            }
             self.invalidate_book_readiness(key);
         }
     }
@@ -336,19 +240,7 @@ impl ExchangeFeed {
         {
             self.orderbook_states = Default::default();
             self.book_projections = Default::default();
-            self.binance_book_syncs = Default::default();
-            self.coinbase_book_syncs = Default::default();
-            self.deribit_book_syncs = Default::default();
-            self.htx_book_syncs = Default::default();
-            self.hyperliquid_book_syncs = Default::default();
-            self.bitget_book_syncs = Default::default();
-            self.bybit_book_syncs = Default::default();
-            self.gateio_book_syncs = Default::default();
-            self.okx_book_syncs = Default::default();
-            self.kucoin_book_syncs = Default::default();
-            self.kraken_book_syncs = Default::default();
-            self.upbit_book_syncs = Default::default();
-            self.bithumb_book_syncs = Default::default();
+            self.book_syncs = book_syncs::VenueBookSyncs::for_exchange(self.exchange);
         }
     }
 
@@ -744,32 +636,6 @@ pub struct ExchangeFeedBuilder {
     orderbook_states: Arc<Mutex<HashMap<String, L2BookState>>>,
     #[cfg(feature = "orderbook")]
     book_projections: Arc<Mutex<HashMap<String, cryptofeed_orderbook::L2BookSnapshot>>>,
-    #[cfg(feature = "orderbook")]
-    binance_book_syncs: Arc<Mutex<HashMap<String, BinanceBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    coinbase_book_syncs: Arc<Mutex<HashMap<String, CoinbaseBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    deribit_book_syncs: Arc<Mutex<HashMap<String, DeribitBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    htx_book_syncs: Arc<Mutex<HashMap<String, HtxBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    hyperliquid_book_syncs: Arc<Mutex<HashMap<String, HyperliquidBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    bitget_book_syncs: Arc<Mutex<HashMap<String, BitgetBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    bybit_book_syncs: Arc<Mutex<HashMap<String, BybitBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    gateio_book_syncs: Arc<Mutex<HashMap<String, GateioBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    okx_book_syncs: Arc<Mutex<HashMap<String, OkxBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    kucoin_book_syncs: Arc<Mutex<HashMap<String, KucoinBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    kraken_book_syncs: Arc<Mutex<HashMap<String, KrakenBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    upbit_book_syncs: Arc<Mutex<HashMap<String, UpbitBookSync>>>,
-    #[cfg(feature = "orderbook")]
-    bithumb_book_syncs: Arc<Mutex<HashMap<String, BithumbBookSync>>>,
 }
 
 impl ExchangeFeedBuilder {
@@ -833,32 +699,6 @@ impl ExchangeFeedBuilder {
             orderbook_states: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "orderbook")]
             book_projections: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            binance_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            coinbase_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            deribit_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            htx_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            hyperliquid_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            bitget_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            bybit_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            gateio_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            okx_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            kucoin_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            kraken_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            upbit_book_syncs: Arc::new(Mutex::new(HashMap::new())),
-            #[cfg(feature = "orderbook")]
-            bithumb_book_syncs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1277,31 +1117,7 @@ impl ExchangeFeedBuilder {
             #[cfg(feature = "orderbook")]
             book_projections: self.book_projections,
             #[cfg(feature = "orderbook")]
-            binance_book_syncs: self.binance_book_syncs,
-            #[cfg(feature = "orderbook")]
-            coinbase_book_syncs: self.coinbase_book_syncs,
-            #[cfg(feature = "orderbook")]
-            deribit_book_syncs: self.deribit_book_syncs,
-            #[cfg(feature = "orderbook")]
-            htx_book_syncs: self.htx_book_syncs,
-            #[cfg(feature = "orderbook")]
-            hyperliquid_book_syncs: self.hyperliquid_book_syncs,
-            #[cfg(feature = "orderbook")]
-            bitget_book_syncs: self.bitget_book_syncs,
-            #[cfg(feature = "orderbook")]
-            bybit_book_syncs: self.bybit_book_syncs,
-            #[cfg(feature = "orderbook")]
-            gateio_book_syncs: self.gateio_book_syncs,
-            #[cfg(feature = "orderbook")]
-            okx_book_syncs: self.okx_book_syncs,
-            #[cfg(feature = "orderbook")]
-            kucoin_book_syncs: self.kucoin_book_syncs,
-            #[cfg(feature = "orderbook")]
-            kraken_book_syncs: self.kraken_book_syncs,
-            #[cfg(feature = "orderbook")]
-            upbit_book_syncs: self.upbit_book_syncs,
-            #[cfg(feature = "orderbook")]
-            bithumb_book_syncs: self.bithumb_book_syncs,
+            book_syncs: book_syncs::VenueBookSyncs::for_exchange(self.exchange),
             event_sender: None,
             status_sender: None,
             event_counts: None,

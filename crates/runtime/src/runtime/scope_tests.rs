@@ -76,10 +76,50 @@ fn seed(feed: &ExchangeFeed, symbol: &cryptofeed_core::symbol::Symbol) {
         symbol.as_str().into(),
         cryptofeed_orderbook::L2BookState::new(symbol.clone()),
     );
-    feed.bybit_book_syncs
-        .lock()
-        .unwrap()
-        .insert(symbol.as_str().into(), BybitBookSync::new(symbol.clone()));
+    // Seed the feed's own venue-scoped sync map, mirroring live recovery state.
+    match feed.exchange {
+        ExchangeId::Binance => {
+            feed.binance_book_syncs()
+                .expect("binance book-sync state")
+                .lock()
+                .unwrap()
+                .insert(
+                    symbol.as_str().into(),
+                    crate::exchange::binance::book_sync::BinanceBookSync::new(symbol.clone()),
+                );
+        }
+        ExchangeId::Bybit => {
+            feed.bybit_book_syncs()
+                .expect("bybit book-sync state")
+                .lock()
+                .unwrap()
+                .insert(
+                    symbol.as_str().into(),
+                    crate::exchange::bybit::book_sync::BybitBookSync::new(symbol.clone()),
+                );
+        }
+        ExchangeId::Gateio => {
+            feed.gateio_book_syncs()
+                .expect("gateio book-sync state")
+                .lock()
+                .unwrap()
+                .insert(
+                    symbol.as_str().into(),
+                    crate::exchange::gateio::book_sync::GateioBookSync::new(symbol.clone()),
+                );
+        }
+        ExchangeId::Okx => {
+            feed.okx_book_syncs()
+                .expect("okx book-sync state")
+                .lock()
+                .unwrap()
+                .insert(
+                    symbol.as_str().into(),
+                    crate::exchange::okx::book_sync::OkxBookSync::new(symbol.clone()),
+                );
+        }
+        _ => unreachable!("unexpected venue in book-sync test seed"),
+    }
 }
 #[cfg(feature = "orderbook")]
 #[test]
@@ -113,7 +153,8 @@ fn bybit_reset_is_limited_to_owned_l2_pairs_not_other_product_or_price_only_symb
             exchange_ts: 1.0,
             received_ts: 1.0,
         });
-        feed.bybit_book_syncs
+        feed.bybit_book_syncs()
+            .expect("bybit book-sync state")
             .lock()
             .unwrap()
             .get_mut(inverse.as_str())
@@ -140,7 +181,11 @@ fn bybit_reset_is_limited_to_owned_l2_pairs_not_other_product_or_price_only_symb
     assert!(state.contains_key(inverse.as_str()));
     assert!(state.contains_key(price.as_str()));
     drop(state);
-    let syncs = feed.bybit_book_syncs.lock().unwrap();
+    let syncs = feed
+        .bybit_book_syncs()
+        .expect("bybit book-sync state")
+        .lock()
+        .unwrap();
     assert!(!syncs.contains_key(linear.as_str()));
     assert!(syncs.contains_key(inverse.as_str()));
     drop(syncs);
@@ -159,7 +204,8 @@ fn bybit_reset_is_limited_to_owned_l2_pairs_not_other_product_or_price_only_symb
             received_ts: 2.0,
         });
         let applied = feed
-            .bybit_book_syncs
+            .bybit_book_syncs()
+            .expect("bybit book-sync state")
             .lock()
             .unwrap()
             .get_mut(inverse.as_str())

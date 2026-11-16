@@ -2855,7 +2855,11 @@ fn bootstrap_binance_book_events(
     buffered: Vec<BinanceSequencedDepthDelta>,
     partial_depth: bool,
 ) -> Result<Vec<cryptofeed_orderbook::L2Book>> {
-    let mut syncs = feed.binance_book_syncs.lock().expect("binance sync lock");
+    let mut syncs = feed
+        .binance_book_syncs()
+        .expect("binance book-sync state")
+        .lock()
+        .expect("binance sync lock");
     let sync = syncs.entry(symbol_key.to_owned()).or_insert_with(|| {
         if partial_depth {
             BinanceBookSync::new_for_partial_depth(snapshot.symbol.clone(), instrument.product)
@@ -2874,7 +2878,11 @@ fn bootstrap_binance_book(
     snapshot: cryptofeed_orderbook::L2BookSnapshot,
     buffered: Vec<BinanceDepthDelta>,
 ) -> Result<Option<cryptofeed_orderbook::L2Book>> {
-    let mut syncs = feed.binance_book_syncs.lock().expect("binance sync lock");
+    let mut syncs = feed
+        .binance_book_syncs()
+        .expect("binance book-sync state")
+        .lock()
+        .expect("binance sync lock");
     let sync = syncs
         .entry(symbol_key.to_owned())
         .or_insert_with(|| BinanceBookSync::new(snapshot.symbol.clone()));
@@ -2976,13 +2984,18 @@ async fn apply_binance_sequenced_update(
         return Ok(());
     }
     if feed
-        .binance_book_syncs
+        .binance_book_syncs()
+        .expect("binance book-sync state")
         .lock()
         .expect("binance sync lock")
         .contains_key(symbol_key)
     {
         let maybe_book = {
-            let mut syncs = feed.binance_book_syncs.lock().expect("binance sync lock");
+            let mut syncs = feed
+                .binance_book_syncs()
+                .expect("binance book-sync state")
+                .lock()
+                .expect("binance sync lock");
             let sync = syncs.get_mut(symbol_key).expect("binance sync state");
             sync.apply_next_sequenced_delta(update.clone())
         };
@@ -3036,7 +3049,8 @@ fn reset_binance_sequenced_sync_state(
     pending: &mut std::collections::HashMap<String, Vec<BinanceSequencedDepthDelta>>,
 ) {
     feed.invalidate_book_readiness(symbol_key);
-    feed.binance_book_syncs
+    feed.binance_book_syncs()
+        .expect("binance book-sync state")
         .lock()
         .expect("binance sync lock")
         .remove(symbol_key);
@@ -3051,7 +3065,8 @@ fn reset_binance_sync_state(
     pending: &mut std::collections::HashMap<String, Vec<BinanceDepthDelta>>,
 ) {
     feed.invalidate_book_readiness(symbol_key);
-    feed.binance_book_syncs
+    feed.binance_book_syncs()
+        .expect("binance book-sync state")
         .lock()
         .expect("binance sync lock")
         .remove(symbol_key);
@@ -3245,7 +3260,8 @@ async fn poll_gateio_snapshot_bootstraps_for_plan(
                     );
                 });
                 // Clear unusable native state before any budget/deadline exit.
-                feed.gateio_book_syncs
+                feed.gateio_book_syncs()
+                    .expect("gateio book-sync state")
                     .lock()
                     .expect("gateio sync lock")
                     .remove(&key);
@@ -3341,7 +3357,11 @@ fn bootstrap_gateio_book(
     snapshot: crate::exchange::gateio::book_sync::GateioBookSnapshot,
     buffered: Vec<GateioDepthDelta>,
 ) -> Result<Vec<cryptofeed_orderbook::L2Book>> {
-    let mut syncs = feed.gateio_book_syncs.lock().expect("gateio sync lock");
+    let mut syncs = feed
+        .gateio_book_syncs()
+        .expect("gateio book-sync state")
+        .lock()
+        .expect("gateio sync lock");
     let sync = syncs
         .entry(symbol_key.to_owned())
         .or_insert_with(|| GateioBookSync::new(snapshot.book.symbol.clone()));
@@ -3384,13 +3404,18 @@ async fn process_gateio_orderbook_message(
     let symbol_key = update.book.symbol.as_str().to_owned();
 
     if feed
-        .gateio_book_syncs
+        .gateio_book_syncs()
+        .expect("gateio book-sync state")
         .lock()
         .expect("gateio sync lock")
         .contains_key(&symbol_key)
     {
         let maybe_book = {
-            let mut syncs = feed.gateio_book_syncs.lock().expect("gateio sync lock");
+            let mut syncs = feed
+                .gateio_book_syncs()
+                .expect("gateio book-sync state")
+                .lock()
+                .expect("gateio sync lock");
             let sync = syncs.get_mut(&symbol_key).expect("gateio sync state");
             sync.apply_next_delta(update.clone())
         };
@@ -3461,13 +3486,18 @@ async fn process_gateio_orderbook_message_for_plan(
     });
 
     if feed
-        .gateio_book_syncs
+        .gateio_book_syncs()
+        .expect("gateio book-sync state")
         .lock()
         .expect("gateio sync lock")
         .contains_key(&symbol_key)
     {
         let (maybe_book, anchor) = {
-            let mut syncs = feed.gateio_book_syncs.lock().expect("gateio sync lock");
+            let mut syncs = feed
+                .gateio_book_syncs()
+                .expect("gateio book-sync state")
+                .lock()
+                .expect("gateio sync lock");
             let sync = syncs.get_mut(&symbol_key).expect("gateio sync state");
             let anchor = sync.last_update_id();
             (sync.apply_next_delta(update.clone()), anchor)
@@ -3532,7 +3562,11 @@ async fn apply_gateio_full_push(
         d.last_delta_last = Some(last_update_id);
     });
     {
-        let mut syncs = feed.gateio_book_syncs.lock().expect("gateio sync lock");
+        let mut syncs = feed
+            .gateio_book_syncs()
+            .expect("gateio book-sync state")
+            .lock()
+            .expect("gateio sync lock");
         let sync = syncs
             .entry(symbol_key.clone())
             .or_insert_with(|| GateioBookSync::new(snapshot.symbol.clone()));
@@ -3607,7 +3641,8 @@ fn reset_gateio_sync_state(
         .lock()
         .expect("book state lock")
         .remove(symbol_key);
-    feed.gateio_book_syncs
+    feed.gateio_book_syncs()
+        .expect("gateio book-sync state")
         .lock()
         .expect("gateio sync lock")
         .remove(symbol_key);
@@ -3871,7 +3906,11 @@ async fn process_bybit_orderbook_message(
         L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
     };
     let maybe_book = {
-        let mut syncs = feed.bybit_book_syncs.lock().expect("bybit sync lock");
+        let mut syncs = feed
+            .bybit_book_syncs()
+            .expect("bybit book-sync state")
+            .lock()
+            .expect("bybit sync lock");
         let sync = syncs.entry(symbol_key).or_insert_with(|| {
             BybitBookSync::new(match &update.book {
                 L2Book::Snapshot(snapshot) => snapshot.symbol.clone(),
@@ -3981,7 +4020,11 @@ async fn process_kucoin_orderbook_message(
     let symbol_key = symbol.as_str().to_owned();
     let mode = KucoinBookMode::for_depth(feed.l2_book_depth);
     let outcome = {
-        let mut syncs = feed.kucoin_book_syncs.lock().expect("kucoin sync lock");
+        let mut syncs = feed
+            .kucoin_book_syncs()
+            .expect("kucoin book-sync state")
+            .lock()
+            .expect("kucoin sync lock");
         let sync = syncs
             .entry(symbol_key)
             .or_insert_with(|| KucoinBookSync::new(symbol.clone(), mode));
@@ -4076,7 +4119,11 @@ async fn process_kraken_orderbook_message(
             .ok_or_else(|| Error::Parse("failed to parse Kraken book row".to_owned()))?;
         let symbol_key = symbol.as_str().to_owned();
         let outcome = {
-            let mut syncs = feed.kraken_book_syncs.lock().expect("kraken sync lock");
+            let mut syncs = feed
+                .kraken_book_syncs()
+                .expect("kraken book-sync state")
+                .lock()
+                .expect("kraken sync lock");
             let sync = syncs
                 .entry(symbol_key)
                 .or_insert_with(|| KrakenBookSync::new(symbol.clone(), depth));
@@ -4157,7 +4204,11 @@ async fn process_upbit_orderbook_message(
     })?;
     let symbol_key = symbol.as_str().to_owned();
     let event = {
-        let mut syncs = feed.upbit_book_syncs.lock().expect("upbit sync lock");
+        let mut syncs = feed
+            .upbit_book_syncs()
+            .expect("upbit book-sync state")
+            .lock()
+            .expect("upbit sync lock");
         let sync = syncs
             .entry(symbol_key)
             .or_insert_with(|| UpbitBookSync::new(symbol, Some(units)));
@@ -4226,7 +4277,11 @@ async fn process_bithumb_orderbook_message(
         .ok_or_else(|| Error::Parse("failed to parse Bithumb orderbook snapshot".to_owned()))?;
     let symbol_key = symbol.as_str().to_owned();
     let event = {
-        let mut syncs = feed.bithumb_book_syncs.lock().expect("bithumb sync lock");
+        let mut syncs = feed
+            .bithumb_book_syncs()
+            .expect("bithumb book-sync state")
+            .lock()
+            .expect("bithumb sync lock");
         let sync = syncs
             .entry(symbol_key)
             .or_insert_with(|| BithumbBookSync::new(symbol));
@@ -4303,7 +4358,11 @@ async fn process_coinbase_orderbook_message(
             .ok_or_else(|| Error::Parse("failed to parse Coinbase level2 event".to_owned()))?;
         let symbol_key = symbol.as_str().to_owned();
         let outcome = {
-            let mut syncs = feed.coinbase_book_syncs.lock().expect("coinbase sync lock");
+            let mut syncs = feed
+                .coinbase_book_syncs()
+                .expect("coinbase book-sync state")
+                .lock()
+                .expect("coinbase sync lock");
             let sync = syncs
                 .entry(symbol_key)
                 .or_insert_with(|| CoinbaseBookSync::new(symbol));
@@ -4405,7 +4464,11 @@ async fn process_deribit_orderbook_message(
         .ok_or_else(|| Error::Parse("failed to parse Deribit book notification".to_owned()))?;
     let symbol_key = symbol.as_str().to_owned();
     let outcome = {
-        let mut syncs = feed.deribit_book_syncs.lock().expect("deribit sync lock");
+        let mut syncs = feed
+            .deribit_book_syncs()
+            .expect("deribit book-sync state")
+            .lock()
+            .expect("deribit sync lock");
         let sync = syncs
             .entry(symbol_key)
             .or_insert_with(|| DeribitBookSync::new(symbol.clone()));
@@ -4503,7 +4566,11 @@ async fn process_htx_orderbook_message(
     };
     let symbol_key = symbol.as_str().to_owned();
     let outcome = {
-        let mut syncs = feed.htx_book_syncs.lock().expect("htx sync lock");
+        let mut syncs = feed
+            .htx_book_syncs()
+            .expect("htx book-sync state")
+            .lock()
+            .expect("htx sync lock");
         let sync = syncs
             .entry(symbol_key)
             .or_insert_with(|| HtxBookSync::new(symbol.clone(), mode));
@@ -4570,7 +4637,8 @@ async fn process_hyperliquid_orderbook_message(
     let symbol_key = symbol.as_str().to_owned();
     let outcome = {
         let mut syncs = feed
-            .hyperliquid_book_syncs
+            .hyperliquid_book_syncs()
+            .expect("hyperliquid book-sync state")
             .lock()
             .expect("hyperliquid sync lock");
         let sync = syncs
@@ -4713,7 +4781,11 @@ async fn process_okx_orderbook_message(
             L2Book::Delta(delta) => delta.symbol.as_str().to_owned(),
         };
         let maybe_book = {
-            let mut syncs = feed.okx_book_syncs.lock().expect("okx sync lock");
+            let mut syncs = feed
+                .okx_book_syncs()
+                .expect("okx book-sync state")
+                .lock()
+                .expect("okx sync lock");
             let sync = syncs.entry(symbol_key).or_insert_with(|| {
                 OkxBookSync::new(match &update.book {
                     L2Book::Snapshot(snapshot) => snapshot.symbol.clone(),
@@ -4815,7 +4887,11 @@ async fn process_bitget_orderbook_message(
         };
 
         let maybe_book = {
-            let mut syncs = feed.bitget_book_syncs.lock().expect("bitget sync lock");
+            let mut syncs = feed
+                .bitget_book_syncs()
+                .expect("bitget book-sync state")
+                .lock()
+                .expect("bitget sync lock");
             let sync = syncs.entry(symbol_key).or_insert_with(|| {
                 BitgetBookSync::new(match &update.book {
                     L2Book::Snapshot(snapshot) => snapshot.symbol.clone(),
@@ -5675,25 +5751,52 @@ mod tests {
         .await
         .unwrap();
         assert!(receivers.is_empty() && pending.is_empty());
-        assert!(binance.binance_book_syncs.lock().unwrap().is_empty());
+        assert!(
+            binance
+                .binance_book_syncs()
+                .expect("binance book-sync state")
+                .lock()
+                .unwrap()
+                .is_empty()
+        );
         let bybit = feed(ExchangeId::Bybit);
         let message = serde_json::json!({"topic":"orderbook.50.ETHUSDT","type":"delta","ts":1710000000000i64,"data":{"s":"ETHUSDT","b":[["100","1"]],"a":[],"u":102,"seq":102}});
         super::process_bybit_orderbook_message(&bybit, &message, 1.0)
             .await
             .unwrap();
-        assert!(bybit.bybit_book_syncs.lock().unwrap().is_empty());
+        assert!(
+            bybit
+                .bybit_book_syncs()
+                .expect("bybit book-sync state")
+                .lock()
+                .unwrap()
+                .is_empty()
+        );
         let okx = feed(ExchangeId::Okx);
         let message = serde_json::json!({"arg":{"channel":"books","instId":"ETH-USDT"},"action":"update","data":[{"bids":[["100","1","0","1"]],"asks":[],"ts":"1710000000000","seqId":102,"prevSeqId":100}]});
         super::process_okx_orderbook_message(&okx, &message, 1.0)
             .await
             .unwrap();
-        assert!(okx.okx_book_syncs.lock().unwrap().is_empty());
+        assert!(
+            okx.okx_book_syncs()
+                .expect("okx book-sync state")
+                .lock()
+                .unwrap()
+                .is_empty()
+        );
         let bitget = feed(ExchangeId::Bitget);
         let message = serde_json::json!({"arg":{"instType":"spot","topic":"books","symbol":"ETHUSDT"},"action":"update","data":[{"b":[["100","1"]],"a":[],"ts":"1710000000000","seq":102,"pseq":100}]});
         super::process_bitget_orderbook_message(&bitget, &message, 1.0)
             .await
             .unwrap();
-        assert!(bitget.bitget_book_syncs.lock().unwrap().is_empty());
+        assert!(
+            bitget
+                .bitget_book_syncs()
+                .expect("bitget book-sync state")
+                .lock()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[cfg(all(feature = "ticker", feature = "orderbook"))]
@@ -5813,7 +5916,11 @@ mod tests {
 
         super::bootstrap_binance_book(&feed, "BTC-USDT", 100, snapshot, vec![]).expect("bootstrap");
 
-        let syncs = feed.binance_book_syncs.lock().expect("syncs");
+        let syncs = feed
+            .binance_book_syncs()
+            .expect("binance book-sync state")
+            .lock()
+            .expect("syncs");
         let sync = syncs.get("BTC-USDT").expect("book sync");
         assert_eq!(sync.last_update_id(), Some(100));
     }
@@ -5872,7 +5979,11 @@ mod tests {
         };
         let mut pending = std::collections::HashMap::new();
         {
-            let mut syncs = feed.binance_book_syncs.lock().expect("syncs");
+            let mut syncs = feed
+                .binance_book_syncs()
+                .expect("binance book-sync state")
+                .lock()
+                .expect("syncs");
             syncs.insert(
                 "BTC-USDT".to_owned(),
                 crate::exchange::binance::book_sync::BinanceBookSync::new(
@@ -5883,7 +5994,11 @@ mod tests {
 
         super::reset_binance_sync_state(&feed, "BTC-USDT", update, &mut pending);
 
-        let syncs = feed.binance_book_syncs.lock().expect("syncs");
+        let syncs = feed
+            .binance_book_syncs()
+            .expect("binance book-sync state")
+            .lock()
+            .expect("syncs");
         assert!(!syncs.contains_key("BTC-USDT"));
         let queued = pending.get("BTC-USDT").expect("pending delta");
         assert_eq!(queued.len(), 1);
@@ -7089,7 +7204,8 @@ mod tests {
         assert!(handled);
         assert!(
             !feed
-                .gateio_book_syncs
+                .gateio_book_syncs()
+                .expect("gateio book-sync state")
                 .lock()
                 .expect("lock")
                 .contains_key("BTC-USDT")
@@ -7194,7 +7310,8 @@ mod tests {
 
         assert!(handled);
         assert_eq!(
-            feed.gateio_book_syncs
+            feed.gateio_book_syncs()
+                .expect("gateio book-sync state")
                 .lock()
                 .expect("lock")
                 .get("BTC-USDT")
@@ -9355,7 +9472,8 @@ mod tests {
             Err(tokio::sync::broadcast::error::TryRecvError::Empty)
         ));
         assert!(
-            feed.kraken_book_syncs
+            feed.kraken_book_syncs()
+                .expect("kraken book-sync state")
                 .lock()
                 .expect("lock")
                 .get("BTC-USD")
@@ -9645,7 +9763,13 @@ mod tests {
             }
         }
         assert_eq!(counts, [1; 5]);
-        assert!(feed.bitget_book_syncs.lock().unwrap().is_empty());
+        assert!(
+            feed.bitget_book_syncs()
+                .expect("bitget book-sync state")
+                .lock()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[cfg(feature = "orderbook")]
@@ -9679,7 +9803,13 @@ mod tests {
                     crate::feed::FeedEvent::L2Book(_)
                 ));
             } else {
-                assert!(feed.bitget_book_syncs.lock().unwrap().is_empty());
+                assert!(
+                    feed.bitget_book_syncs()
+                        .expect("bitget book-sync state")
+                        .lock()
+                        .unwrap()
+                        .is_empty()
+                );
                 let mut l2 = l1.clone();
                 l2["arg"]["topic"] = serde_json::json!("books");
                 l2["data"][0]["seq"] = serde_json::json!(1);
@@ -9690,7 +9820,14 @@ mod tests {
                     events.try_recv().unwrap(),
                     crate::feed::FeedEvent::L2Book(_)
                 ));
-                assert_eq!(feed.bitget_book_syncs.lock().unwrap().len(), 1);
+                assert_eq!(
+                    feed.bitget_book_syncs()
+                        .expect("bitget book-sync state")
+                        .lock()
+                        .unwrap()
+                        .len(),
+                    1
+                );
             }
             assert!(events.try_recv().is_err());
         }
