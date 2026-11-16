@@ -123,7 +123,7 @@ async fn dispatch_deribit_l2_book(feed: &ExchangeFeed, book: L2Book) -> Result<(
     dispatch_l2_book(feed, book).await
 }
 
-async fn process_deribit_text_message(
+pub(crate) async fn process_deribit_text_message(
     feed: &ExchangeFeed,
     text: &str,
     received_ts: f64,

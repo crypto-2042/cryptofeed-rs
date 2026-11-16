@@ -105,7 +105,7 @@ async fn dispatch_coinbase_event(feed: &ExchangeFeed, event: CoinbaseEvent) -> R
     Ok(())
 }
 
-async fn process_coinbase_text_message(
+pub(crate) async fn process_coinbase_text_message(
     feed: &ExchangeFeed,
     text: &str,
     received_ts: f64,
