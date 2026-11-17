@@ -315,6 +315,7 @@ async fn process_htx_orderbook_message(
         HtxBookOutcome::Publish(book) => dispatch_htx_l2_book(feed, book).await?,
         HtxBookOutcome::Stale => {}
         HtxBookOutcome::Resnapshot => {
+            feed.invalidate_book_readiness(symbol.as_str());
             outbound
                 .subscriptions
                 .extend(HtxAdapter::book_resubscribe_messages(feed, &symbol)?);

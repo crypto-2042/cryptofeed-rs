@@ -229,6 +229,7 @@ async fn process_kucoin_orderbook_message(
         }
         KucoinBookOutcome::Ignored => {}
         KucoinBookOutcome::Resnapshot => {
+            feed.invalidate_book_readiness(symbol.as_str());
             outbound.extend(KucoinAdapter::book_resubscribe_messages(feed, &symbol)?);
         }
     }

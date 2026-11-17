@@ -176,11 +176,6 @@ pub(crate) async fn process_deribit_text_message(
         "ticker" | "trades" | "chart" | "book"
     );
     if configured && market_channel && events.is_empty() {
-        #[cfg(feature = "orderbook")]
-        if deribit_parser::channel_family(channel) == "book" {
-            // The book path above owns this family; an empty event list here is
-            // impossible for a configured instrument.
-        }
         return Err(Error::MalformedData(format!(
             "Deribit message for {channel} produced no normalized events"
         )));
@@ -235,6 +230,7 @@ async fn process_deribit_orderbook_message(
         DeribitBookOutcome::Publish(book) => dispatch_deribit_l2_book(feed, book).await?,
         DeribitBookOutcome::Stale => {}
         DeribitBookOutcome::Resnapshot => {
+            feed.invalidate_book_readiness(symbol.as_str());
             outbound.extend(DeribitAdapter::book_resubscribe_messages(feed, &symbol)?);
         }
     }

@@ -204,6 +204,7 @@ async fn process_kraken_orderbook_message(
             KrakenBookOutcome::Publish(book) => dispatch_kraken_l2_book(feed, book).await?,
             KrakenBookOutcome::Ignored => {}
             KrakenBookOutcome::Resnapshot => {
+                feed.invalidate_book_readiness(symbol.as_str());
                 outbound.extend(KrakenAdapter::book_resubscribe_messages(feed, &symbol)?);
             }
         }

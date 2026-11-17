@@ -169,6 +169,48 @@ fn l2_delivery_depth_deep_only_updates_empty_sides_and_decimal_scale_remain_corr
 }
 
 #[test]
+fn in_session_resnapshot_invalidation_clears_projection_and_readiness() {
+    use crate::runtime::readiness::FeedMonitor;
+    let mut feed = ExchangeFeedBuilder::new(ExchangeId::Kraken)
+        .l2_book()
+        .symbol("BTC-USD")
+        .exchange_symbol("BTC/USD")
+        .build();
+    let monitor = Arc::new(FeedMonitor::new(
+        FeedIdentity {
+            id: crate::feed::FeedId::allocate(),
+            generation: 1,
+        },
+        ExchangeId::Kraken,
+        None,
+    ));
+    monitor.configure(1, vec!["BTC-USD".into()]);
+    monitor.lifecycle(FeedState::Ready);
+    let tracker = monitor.register("synthetic".into(), vec!["BTC-USD".into()]);
+    let attempt = tracker.begin();
+    attempt.connected();
+    feed.monitor = Some(monitor.clone());
+    feed.connection_tracker = Some(tracker.clone());
+    feed.connection_epoch = Some(attempt.epoch);
+    apply_orderbook_state(
+        &feed,
+        &L2Book::Snapshot(L2BookSnapshot {
+            exchange: ExchangeId::Kraken,
+            symbol: Symbol::spot("BTC", "USD"),
+            bids: vec![level("100", "1")],
+            asks: vec![level("101", "1")],
+            exchange_ts: 1.0,
+            received_ts: 1.0,
+        }),
+    )
+    .unwrap();
+
+    feed.invalidate_book_readiness("BTC-USD");
+    assert!(!monitor.snapshot().is_ready());
+    assert!(feed.book_projections.lock().unwrap().is_empty());
+}
+
+#[test]
 fn l2_delivery_depth_requires_new_snapshot_after_invalidation_and_fresh_state() {
     let feed = feed(1);
     apply_orderbook_state(&feed, &snapshot()).unwrap();

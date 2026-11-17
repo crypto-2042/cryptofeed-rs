@@ -80,7 +80,9 @@ and contract fields with exact Decimal/applicability rules and build-specific
 channel context. No event units or capability cell changed.
 [PublicRestClient](docs/public-rest.md) adds ticker/book snapshots with optional
 native times/IDs and shared HTTP-status backoff. [Funding history](docs/funding-history.md)
-adds bounded actual-settlement batches/cursors; trade/candle history remains pending.
+adds bounded actual-settlement batches/cursors; bounded recent trades, native
+trade history (Binance aggregate, OKX/Gate individual executions) and candle
+history with continuation are implemented for the REST venues.
 Scripted regressions cover listings/removals, native-name changes, empty/failing
 refreshes, stop/drop and concurrent manual ownership changes. Remaining workflow gaps and acceptance criteria are
 tracked in [the usage alignment plan](docs/python-usage-alignment.md).
