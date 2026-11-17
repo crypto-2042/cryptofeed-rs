@@ -447,7 +447,16 @@ impl ConnectionAttempt {
         match self.tracker.monitor.exchange {
             ExchangeId::Binance => vec![(format!("b:{}", payload["id"]), None)],
             ExchangeId::Bybit => vec![(format!("y:{}", payload["req_id"]), None)],
-            ExchangeId::Kucoin => vec![(format!("k:{}", payload["id"]), None)],
+            // Only SUBSCRIBE frames create pending entries; the UNSUBSCRIBE half
+            // of an in-session L2 resnapshot is acknowledged separately and
+            // must not inflate subscriptions_expected.
+            ExchangeId::Kucoin => {
+                if payload.get("action").and_then(Value::as_str) == Some("UNSUBSCRIBE") {
+                    Vec::new()
+                } else {
+                    vec![(format!("k:{}", payload["id"]), None)]
+                }
+            }
             // Kraken acknowledges each requested symbol separately and echoes
             // the client `req_id`; correlate per (req_id, symbol).
             // Coinbase acknowledges by a cumulative `subscriptions` map and
@@ -461,7 +470,11 @@ impl ConnectionAttempt {
                 .collect(),
             // HTX market requests echo `id`; notification requests echo `cid`.
             ExchangeId::Htx => {
-                if let Some(id) = payload.get("id") {
+                let unsubscribe = payload.get("unsub").is_some()
+                    || payload.get("op").and_then(Value::as_str) == Some("unsub");
+                if unsubscribe {
+                    Vec::new()
+                } else if let Some(id) = payload.get("id") {
                     vec![(format!("h:{id}"), None)]
                 } else if let Some(cid) = payload.get("cid") {
                     vec![(format!("h:{cid}"), None)]
@@ -496,14 +509,20 @@ impl ConnectionAttempt {
                         .collect()
                 }
             }
-            ExchangeId::Kraken => payload
-                .pointer("/params/symbol")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|symbol| symbol.as_str())
-                .map(|symbol| (format!("r:{}:{symbol}", payload["req_id"]), None))
-                .collect(),
+            ExchangeId::Kraken => {
+                if payload.get("method").and_then(Value::as_str) == Some("subscribe") {
+                    payload
+                        .pointer("/params/symbol")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|symbol| symbol.as_str())
+                        .map(|symbol| (format!("r:{}:{symbol}", payload["req_id"]), None))
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
             ExchangeId::Gateio => vec![(
                 format!("g:{}:{}", payload["id"], payload["channel"]),
                 payload.get("payload").cloned(),
@@ -540,6 +559,13 @@ impl ConnectionAttempt {
                     ExchangeId::Kucoin => payload["id"] = json!(format!("cf-{}", self.sequence)),
                     ExchangeId::Kraken => payload["req_id"] = json!(self.sequence),
                     ExchangeId::Gateio => payload["id"] = json!(self.sequence),
+                    ExchangeId::Htx => {
+                        if payload.get("id").is_some() {
+                            payload["id"] = json!(format!("cf-{}", self.sequence));
+                        } else if payload.get("cid").is_some() {
+                            payload["cid"] = json!(format!("cf-{}", self.sequence));
+                        }
+                    }
                     _ => {}
                 }
                 let weight = match self.tracker.monitor.exchange {
@@ -651,8 +677,10 @@ impl ConnectionAttempt {
             ),
             ExchangeId::Kucoin => payload.get("id").is_some() && payload.get("result").is_some(),
             ExchangeId::Kraken => {
-                payload.get("method").and_then(Value::as_str) == Some("subscribe")
-                    && payload.get("req_id").is_some()
+                matches!(
+                    payload.get("method").and_then(Value::as_str),
+                    Some("subscribe" | "unsubscribe")
+                ) && payload.get("req_id").is_some()
             }
             ExchangeId::Deribit => {
                 payload.get("id").is_some()
@@ -1321,6 +1349,114 @@ mod tests {
         assert!(handled);
         assert!(attempt.deadline().is_none());
         assert!(monitor.snapshot().is_ready());
+    }
+
+    #[test]
+    fn resnapshot_unsubscribe_half_does_not_create_pending_entries() {
+        // Kraken: unsubscribe + subscribe pair; only the subscribe frame is a
+        // subscription. The unsubscribe ack is still consumed.
+        let monitor = self::monitor(ExchangeId::Kraken, vec![]);
+        let tracker = monitor.register("synthetic".into(), vec![]);
+        let mut attempt = tracker.begin();
+        attempt.connected();
+        let messages = attempt.prepare_messages(vec![
+            json!({
+                "method": "unsubscribe",
+                "params": {"channel": "book", "symbol": ["BTC/USD"], "depth": 10},
+                "req_id": 1
+            })
+            .to_string(),
+            json!({
+                "method": "subscribe",
+                "params": {"channel": "book", "symbol": ["BTC/USD"], "depth": 10, "snapshot": true},
+                "req_id": 2
+            })
+            .to_string(),
+        ]);
+        assert_eq!(monitor.snapshot().connections[0].subscriptions_expected, 1);
+        attempt.sent(&messages[0], Instant::now());
+        assert!(attempt.deadline().is_none());
+        assert!(
+            attempt
+                .control(&json!({
+                    "method": "unsubscribe", "req_id": 1, "success": true,
+                    "result": {"channel": "book", "symbol": "BTC/USD"}
+                }))
+                .unwrap()
+        );
+        attempt.sent(&messages[1], Instant::now());
+        attempt
+            .control(&json!({
+                "method": "subscribe", "req_id": 2, "success": true,
+                "result": {"channel": "book", "symbol": "BTC/USD", "snapshot": true}
+            }))
+            .unwrap();
+        assert_eq!(monitor.snapshot().connections[0].subscriptions_confirmed, 1);
+        assert!(monitor.snapshot().is_ready());
+
+        // KuCoin: UNSUBSCRIBE is not a subscription; SUBSCRIBE is.
+        let monitor = self::monitor(ExchangeId::Kucoin, vec![]);
+        let tracker = monitor.register("synthetic".into(), vec![]);
+        let mut attempt = tracker.begin();
+        attempt.connected();
+        let messages = attempt.prepare_messages(vec![
+            json!({"id":"cf-1","action":"UNSUBSCRIBE","channel":"obu","symbols":["BTC-USDTM"]})
+                .to_string(),
+            json!({"id":"cf-2","action":"SUBSCRIBE","channel":"obu","symbols":["BTC-USDTM"]})
+                .to_string(),
+        ]);
+        assert_eq!(monitor.snapshot().connections[0].subscriptions_expected, 1);
+        attempt.sent(&messages[0], Instant::now());
+        assert!(attempt.deadline().is_none());
+        attempt
+            .control(&json!({"id":"cf-1","result":true}))
+            .unwrap();
+        attempt.sent(&messages[1], Instant::now());
+        attempt
+            .control(&json!({"id":"cf-2","result":true}))
+            .unwrap();
+        assert_eq!(monitor.snapshot().connections[0].subscriptions_confirmed, 1);
+        assert!(monitor.snapshot().is_ready());
+
+        // HTX: `unsub` is not a subscription, and every resnapshot pair gets
+        // fresh correlation ids so repeated resnapshots cannot collide.
+        let monitor = self::monitor(ExchangeId::Htx, vec![]);
+        let tracker = monitor.register("synthetic".into(), vec![]);
+        let mut attempt = tracker.begin();
+        attempt.connected();
+        let first = attempt.prepare_messages(vec![
+            json!({"unsub":"market.BTC-USDT.depth.size_20.high_freq","id":"cf-resub-1"})
+                .to_string(),
+            json!({"sub":"market.BTC-USDT.depth.size_20.high_freq","data_type":"incremental","id":"cf-resub-2"})
+                .to_string(),
+        ]);
+        let second = attempt.prepare_messages(vec![
+            json!({"unsub":"market.BTC-USDT.depth.size_20.high_freq","id":"cf-resub-1"})
+                .to_string(),
+            json!({"sub":"market.BTC-USDT.depth.size_20.high_freq","data_type":"incremental","id":"cf-resub-2"})
+                .to_string(),
+        ]);
+        assert_eq!(monitor.snapshot().connections[0].subscriptions_expected, 2);
+        assert_ne!(first[0], second[0]);
+        assert_ne!(first[1], second[1]);
+        for pair in [first, second] {
+            attempt.sent(&pair[0], Instant::now());
+            attempt
+                .control(&json!({"id": attempt_pending_id(&pair[0]), "status":"ok"}))
+                .unwrap();
+            attempt.sent(&pair[1], Instant::now());
+            attempt
+                .control(&json!({"id": attempt_pending_id(&pair[1]), "status":"ok"}))
+                .unwrap();
+        }
+        assert!(monitor.snapshot().is_ready());
+    }
+
+    fn attempt_pending_id(message: &str) -> String {
+        serde_json::from_str::<Value>(message).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
     }
 
     #[test]

@@ -359,6 +359,37 @@ mod tests {
     use std::time::Duration;
 
     use super::connection::{HeartbeatPolicy, Session};
+    #[cfg(feature = "orderbook")]
+    use crate::feed::{FeedId, FeedIdentity, FeedState};
+    #[cfg(feature = "orderbook")]
+    use crate::runtime::readiness::FeedMonitor;
+
+    #[cfg(feature = "orderbook")]
+    fn attach_ready_monitor(feed: &mut super::ExchangeFeed) -> Arc<FeedMonitor> {
+        let books: Vec<String> = feed
+            .symbols
+            .iter()
+            .map(|symbol: &cryptofeed_core::symbol::Symbol| symbol.as_str().to_owned())
+            .collect();
+        let monitor = Arc::new(FeedMonitor::new(
+            FeedIdentity {
+                id: FeedId::allocate(),
+                generation: 1,
+            },
+            feed.exchange,
+            None,
+        ));
+        monitor.configure(1, books.clone());
+        monitor.lifecycle(FeedState::Ready);
+        let tracker = monitor.register("synthetic".into(), books);
+        let attempt = tracker.begin();
+        attempt.connected();
+        feed.monitor = Some(monitor.clone());
+        feed.connection_tracker = Some(tracker);
+        feed.connection_epoch = Some(attempt.epoch);
+        monitor
+    }
+
     use super::{
         planned_connection_urls, process_binance_text_message, process_bitget_text_message,
         process_bithumb_text_message, process_bybit_text_message, process_gateio_text_message,
@@ -4203,7 +4234,8 @@ mod tests {
                 .exchange_symbol("BTC-USDT")
                 .build(),
         );
-        let feed = handler.into_feeds().pop().unwrap();
+        let mut feed = handler.into_feeds().pop().unwrap();
+        let monitor = attach_ready_monitor(&mut feed);
         let snapshot = serde_json::json!({
             "T": "obu.SPOT", "dp": "increment@10ms", "t": "snapshot",
             "P": 1768217874990007701_u64,
@@ -4231,6 +4263,7 @@ mod tests {
             .await
             .expect("gap");
         assert_eq!(outbound.len(), 2, "{outbound:?}");
+        assert!(!monitor.snapshot().is_ready());
         let unsubscribe: serde_json::Value = serde_json::from_str(&outbound[0]).expect("json");
         let resubscribe: serde_json::Value = serde_json::from_str(&outbound[1]).expect("json");
         assert_eq!(unsubscribe["action"], "UNSUBSCRIBE");
@@ -4840,7 +4873,8 @@ mod tests {
                 .exchange_symbol("BTC/USD")
                 .build(),
         );
-        let feed = handler.into_feeds().pop().unwrap();
+        let mut feed = handler.into_feeds().pop().unwrap();
+        let monitor = attach_ready_monitor(&mut feed);
         let mut state = cryptofeed_orderbook::L2BookState::new(
             cryptofeed_core::symbol::Symbol::spot("BTC", "USD"),
         );
@@ -4897,6 +4931,7 @@ mod tests {
             .await
             .expect("corrupt update");
         assert_eq!(outbound.len(), 2, "{outbound:?}");
+        assert!(!monitor.snapshot().is_ready());
         let unsubscribe: serde_json::Value = serde_json::from_str(&outbound[0]).expect("json");
         let resubscribe: serde_json::Value = serde_json::from_str(&outbound[1]).expect("json");
         assert_eq!(unsubscribe["method"], "unsubscribe");
